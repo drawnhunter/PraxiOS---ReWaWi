@@ -84,7 +84,7 @@ SMTP-Zugang (E-Mail-Versand) wird komfortabel in der App unter Einstellungen hin
 
 ### Datenschutz & Rechtliches
 
-- Rechnungsnummern lückenlos, finalisierte Belege unveränderbar (GoBD-Grundsätze). Eine **Verfahrensdokumentation** obliegt dem Betreiber — [Vorlage im Wiki/Repo-Diskussionen]
+- Rechnungsnummern lückenlos, finalisierte Belege unveränderbar (GoBD-Grundsätze). Eine **Verfahrensdokumentation** obliegt dem Betreiber — [ausfüllbare Vorlage](docs/datenschutz/Verfahrensdokumentation-Vorlage.md)
 - Vor produktivem Einsatz: XRechnung-XML mit dem KoSIT-Validator prüfen, DATEV-Export mit dem Steuerberater abstimmen
 - Datenschutz-Hinweise und Verarbeitungsvorlagen: [`docs/datenschutz/`](docs/datenschutz/)
 - Sicherheitslücken bitte verantwortungsvoll melden: [`SECURITY.md`](SECURITY.md)
