@@ -1,0 +1,148 @@
+import { useState } from "react";
+import { trpc } from "@/providers/trpc";
+import { datum } from "@/lib/format";
+import { type InvoiceStatus } from "@contracts/invoicing";
+import { statusBadge } from "./Invoices";
+import { Link, useNavigate } from "react-router";
+import { Button } from "@/components/ui/button";
+import { CsvButton } from "@/components/CsvButton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus } from "lucide-react";
+
+export default function DeliveryNotes() {
+  const [neuDialog, setNeuDialog] = useState(false);
+  const [kundenId, setKundenId] = useState<string>("");
+  const navigate = useNavigate();
+
+  const liste = trpc.deliveryNotes.list.useQuery();
+  const kunden = trpc.customers.list.useQuery();
+  const erstellen = trpc.deliveryNotes.createDraft.useMutation({
+    onSuccess: (res) => navigate(`/lieferscheine/${res.id}`),
+  });
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold tracking-tight">Lieferscheine</h1>
+        <div className="flex items-center gap-2">
+          <CsvButton
+            dateiname="lieferscheine.csv"
+            zeilen={[
+              ["Nummer", "Kunde", "Zur Rechnung", "Datum", "Status"],
+              ...(liste.data ?? []).map((l) => [
+                l.nummer ?? `Entwurf #${l.id}`, l.kundeName,
+                l.invoice?.nummer ?? "", l.datum, l.status,
+              ]),
+            ]}
+          />
+          <Button onClick={() => setNeuDialog(true)}>
+            <Plus className="mr-1.5 h-4 w-4" /> Neuer Lieferschein
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
+                <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px] text-sm">
+          <thead>
+            <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500">
+              <th className="px-4 py-2.5 font-medium">Nummer</th>
+              <th className="px-4 py-2.5 font-medium">Kunde</th>
+              <th className="px-4 py-2.5 font-medium">Zur Rechnung</th>
+              <th className="px-4 py-2.5 font-medium">Datum</th>
+              <th className="px-4 py-2.5 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(liste.data ?? []).length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
+                  Keine Lieferscheine vorhanden — direkt hier anlegen oder aus einer
+                  Rechnung heraus erzeugen.
+                </td>
+              </tr>
+            )}
+            {(liste.data ?? []).map((l) => (
+              <tr key={l.id} className="border-b border-neutral-100 last:border-0">
+                <td className="px-4 py-2.5">
+                  <Link
+                    to={`/lieferscheine/${l.id}`}
+                    className="font-medium text-neutral-900 hover:underline"
+                  >
+                    {l.nummer ?? `Entwurf #${l.id}`}
+                  </Link>
+                </td>
+                <td className="px-4 py-2.5 text-neutral-600">{l.kundeName}</td>
+                <td className="px-4 py-2.5">
+                  {l.invoice ? (
+                    <Link
+                      to={`/rechnungen/${l.invoiceId}`}
+                      className="text-neutral-600 hover:underline"
+                    >
+                      {l.invoice.nummer ?? `#${l.invoiceId}`}
+                    </Link>
+                  ) : (
+                    <span className="text-neutral-400">–</span>
+                  )}
+                </td>
+                <td className="px-4 py-2.5 text-neutral-600">{datum(l.datum)}</td>
+                <td className="px-4 py-2.5">{statusBadge(l.status as InvoiceStatus)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <Dialog open={neuDialog} onOpenChange={setNeuDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Neuer Lieferschein</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-neutral-500">
+            Kunde auswählen — der Lieferschein wird als Entwurf angelegt.
+          </p>
+          <Select value={kundenId} onValueChange={setKundenId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Kunde auswählen …" />
+            </SelectTrigger>
+            <SelectContent>
+              {(kunden.data ?? []).map((k) => (
+                <SelectItem key={k.id} value={String(k.id)}>
+                  {k.name} — {k.plz} {k.ort}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {erstellen.error && (
+            <p className="text-sm text-red-600">{erstellen.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNeuDialog(false)}>
+              Abbrechen
+            </Button>
+            <Button
+              disabled={!kundenId || erstellen.isPending}
+              onClick={() => erstellen.mutate({ customerId: Number(kundenId) })}
+            >
+              Entwurf anlegen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
