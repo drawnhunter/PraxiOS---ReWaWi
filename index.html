@@ -22,7 +22,7 @@
   .nav{display:flex;align-items:center;justify-content:space-between;height:60px}
   .logo{font-weight:800;font-size:1.15rem;letter-spacing:-.02em;color:var(--ink)}
   .logo span{color:var(--brand)}
-  .navlinks{display:flex;gap:22px;font-size:.92rem}
+  .navlinks{display:flex;gap:22px;font-size:.92rem;align-items:center}
   .navlinks a{color:var(--muted)}
   .gh-btn{background:var(--ink);color:#fff!important;padding:8px 16px;border-radius:8px;font-weight:600}
   .gh-btn:hover{background:#000;text-decoration:none}
@@ -74,6 +74,12 @@
   .svc .card{border-top:4px solid var(--brand)}
   .price{font-weight:800;font-size:1.05rem;color:var(--brand-dark);margin-top:10px}
 
+  .fam{background:var(--brand-soft);border-top:1px solid #99f6e4;border-bottom:1px solid #99f6e4}
+  .fam .card{border:none;background:transparent;padding:0}
+  .fam .wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:28px;align-items:center}
+  .fam h2{color:var(--brand-dark)}
+  .fam p{color:var(--muted);font-size:.95rem}
+
   .cta-band{background:var(--ink);color:#fff;text-align:center;border-radius:18px;padding:56px 28px}
   .cta-band h2{color:#fff}
   .cta-band p{color:#d6d3d1;margin:14px auto 28px;max-width:560px}
@@ -95,6 +101,7 @@
       <a href="#screenshots">Screenshots</a>
       <a href="#vergleich">Warum selbst hosten?</a>
       <a href="#services">Services</a>
+      <a href="https://drawnhunter.github.io/PraxiOS---Dr.PaWaWi/">Dr.PaWaWi ↗</a>
       <a class="gh-btn" href="https://github.com/drawnhunter/PraxiOS---ReWaWi">GitHub</a>
     </nav>
   </div>
@@ -193,6 +200,25 @@
   </div>
 </section>
 
+<section class="fam" id="familie">
+  <div class="wrap">
+    <div class="card">
+      <h2>Die PraxiOS-Familie: auch für Arztpraxen</h2>
+      <p>
+        <strong>Dr.PaWaWi</strong> ist der Schwesterns-Fork für Arzt- und Therapiepraxen:
+        Patientenakte, Therapiepläne im Wochenraster, Anamnese-Bögen mit Magic-Link,
+        Abrechnung direkt aus der Dokumentation — und verschlüsselter Akten-Austausch
+        zwischen Ärzten. Gleiche Technik, gleiche Datenhoheit, gemeinsamer
+        Leistungskatalog.
+      </p>
+      <div class="cta" style="margin-top:18px">
+        <a class="btn btn-primary" href="https://drawnhunter.github.io/PraxiOS---Dr.PaWaWi/">Dr.PaWaWi ansehen</a>
+        <a class="btn btn-ghost" href="https://github.com/drawnhunter/PraxiOS---Dr.PaWaWi">Dr.PaWaWi-Repo</a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="vergleich">
   <div class="wrap">
     <div class="sec-head">
@@ -250,7 +276,8 @@
 <footer>
   <div class="wrap foot">
     <div>
-      <strong>PraxiOS · ReWaWi</strong> — Teil der PraxiOS-Familie. Weitere Praxis-Module in Entwicklung.<br />
+      <strong>PraxiOS · ReWaWi</strong> — Teil der PraxiOS-Familie:
+      <a href="https://drawnhunter.github.io/PraxiOS---Dr.PaWaWi/">Dr.PaWaWi</a> (Praxis-Akte &amp; Abrechnung).<br />
       Lizenziert unter AGPL-3.0 · kommerzielle Lizenzen auf Anfrage (Dual-Licensing).
     </div>
     <div>
