@@ -1,0 +1,47 @@
+name: wawipros
+
+# WAWIPROS - App + MySQL-Datenbank mit einem Befehl.
+# Start:         docker compose up --build
+# Stoppen:       Strg+C  (bzw. docker compose down)
+# Alles loeschen (inkl. Datenbank):  docker compose down -v
+#
+# Beim ersten Start wird eine LEERE Datenbank angelegt (schema.sql).
+# Danach im Browser die Ersteinrichtung durchlaufen (Admin + Firmendaten).
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      # Fuer den Produktivbetrieb unbedingt ein eigenes Passwort waehlen!
+      MYSQL_ROOT_PASSWORD: bitte-aendern
+      MYSQL_DATABASE: wawipros
+    volumes:
+      - db-daten:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      # Tipp: Eigene Datensicherung statt leerem Schema importieren?
+      # Datei als dump.sql ablegen und stattdessen diese Zeile nutzen:
+      # - ./dump.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pbitte-aendern"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql://root:wawipros@db:3306/wawipros
+      # Geheimnis fuer Login-Sessions - unbedingt zufaellig setzen!
+      APP_SECRET: bitte-zufaellig-setzen
+      PORT: "3000"
+      # GEFAHR: Login ueberspringen - nur fuer lokale Tests, niemals oeffentlich!
+      # LOCAL_AUTH_BYPASS: "1"
+    ports:
+      - "3000:3000"
+
+volumes:
+  db-daten:

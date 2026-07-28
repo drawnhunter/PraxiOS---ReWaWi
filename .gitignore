@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+*.log
+docker-compose.override.yml
+
+# Private Datensicherungen - niemals ins Repository!
+imtz-daten.sql
+*.dump.sql
+backup/
+db-daten/
+
+# Lokale Server-Ueberschreibungen (Passwoerter!) - niemals committen
+docker-compose.override.yml
+
+# IMTZ-spezifische Preisliste (Lieferantenkonditionen)
+data/produktliste-ek.csv
