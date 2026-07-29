@@ -28,6 +28,13 @@ const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = [
   { tabelle: "products", spalte: "ek_preis_netto", ddl: "ALTER TABLE products ADD COLUMN ek_preis_netto DECIMAL(12,2) NULL AFTER preis_netto" },
   // SupportHub-Verbindung (v1.1)
   { tabelle: "company_settings", spalte: "support_schluessel", ddl: "ALTER TABLE company_settings ADD COLUMN support_schluessel VARCHAR(80) NULL" },
+  // ICS-Abo Zahlungsziele (v1.2)
+  { tabelle: "company_settings", spalte: "ics_token", ddl: "ALTER TABLE company_settings ADD COLUMN ics_token VARCHAR(48) NULL" },
+  // Kontierung Eingangsrechnungen (v1.2)
+  { tabelle: "company_settings", spalte: "kreditor_startnummer", ddl: "ALTER TABLE company_settings ADD COLUMN kreditor_startnummer INT NOT NULL DEFAULT 70000" },
+  { tabelle: "company_settings", spalte: "aufwandskonto_default", ddl: "ALTER TABLE company_settings ADD COLUMN aufwandskonto_default VARCHAR(10) NULL" },
+  { tabelle: "incoming_invoices", spalte: "konto", ddl: "ALTER TABLE incoming_invoices ADD COLUMN konto VARCHAR(10) NULL" },
+  { tabelle: "incoming_invoices", spalte: "gegenkonto", ddl: "ALTER TABLE incoming_invoices ADD COLUMN gegenkonto VARCHAR(10) NULL" },
 ];
 
 const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
@@ -122,6 +129,83 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       version VARCHAR(20) NOT NULL,
       status ENUM('gesendet','fehlgeschlagen') NOT NULL,
       fehler VARCHAR(500) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    tabelle: "post_eingang",
+    ddl: `CREATE TABLE IF NOT EXISTS post_eingang (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      typ ENUM('rechnung','sonstiges') NOT NULL DEFAULT 'rechnung',
+      status ENUM('neu','gebucht','abgelegt') NOT NULL DEFAULT 'neu',
+      originalname VARCHAR(255) NOT NULL,
+      mime VARCHAR(100) NOT NULL,
+      groesse INT NOT NULL,
+      datei_inhalt MEDIUMTEXT NOT NULL,
+      absender_lieferant_id BIGINT UNSIGNED NULL,
+      absender_freitext VARCHAR(255) NULL,
+      stichwort VARCHAR(255) NULL,
+      rechnungsnummer VARCHAR(100) NULL,
+      betrag DECIMAL(12,2) NULL,
+      ust_satz INT NOT NULL DEFAULT 19,
+      rechnungsdatum DATE NULL,
+      faellig_am DATE NULL,
+      wiedervorlage_am DATE NULL,
+      konto VARCHAR(10) NULL,
+      gegenkonto VARCHAR(10) NULL,
+      kategorie_id BIGINT UNSIGNED NULL,
+      quelle VARCHAR(120) NOT NULL DEFAULT 'upload',
+      notizen TEXT NULL,
+      incoming_invoice_id BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX post_eingang_lieferant (absender_lieferant_id),
+      CONSTRAINT post_eingang_lieferant_fk FOREIGN KEY (absender_lieferant_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+      INDEX post_eingang_kategorie (kategorie_id),
+      CONSTRAINT post_eingang_kategorie_fk FOREIGN KEY (kategorie_id) REFERENCES kategorien(id) ON DELETE SET NULL,
+      INDEX post_eingang_eingang (incoming_invoice_id),
+      CONSTRAINT post_eingang_eingang_fk FOREIGN KEY (incoming_invoice_id) REFERENCES incoming_invoices(id) ON DELETE SET NULL
+    )`,
+  },
+  {
+    tabelle: "email_konten",
+    ddl: `CREATE TABLE IF NOT EXISTS email_konten (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      host VARCHAR(255) NOT NULL,
+      port INT NOT NULL DEFAULT 993,
+      tls TINYINT(1) NOT NULL DEFAULT 1,
+      benutzer VARCHAR(255) NOT NULL,
+      passwort_enc VARCHAR(500) NOT NULL,
+      ordner VARCHAR(100) NOT NULL DEFAULT 'INBOX',
+      route ENUM('rechnung','sonstiges') NOT NULL DEFAULT 'rechnung',
+      intervall_minuten INT NOT NULL DEFAULT 10,
+      aktiv TINYINT(1) NOT NULL DEFAULT 1,
+      letzter_abruf TIMESTAMP NULL,
+      letzter_fehler VARCHAR(500) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    tabelle: "kontenrahmen",
+    ddl: `CREATE TABLE IF NOT EXISTS kontenrahmen (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      rahmen ENUM('SKR03','SKR04') NOT NULL,
+      konto VARCHAR(10) NOT NULL,
+      bezeichnung VARCHAR(255) NOT NULL,
+      klasse INT NOT NULL,
+      gruppe VARCHAR(120) NULL,
+      UNIQUE INDEX kontenrahmen_eindeutig (rahmen, konto)
+    )`,
+  },
+  {
+    tabelle: "kategorien",
+    ddl: `CREATE TABLE IF NOT EXISTS kategorien (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      konto VARCHAR(10) NULL,
+      ust_satz INT NOT NULL DEFAULT 19,
+      sortierung INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   },

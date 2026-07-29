@@ -20,6 +20,9 @@ import Customers from "@/pages/Customers";
 import Suppliers from "@/pages/Suppliers";
 import Products from "@/pages/Products";
 import Lager from "@/pages/Lager";
+import Import from "@/pages/Import";
+import Posteingang from "@/pages/Posteingang";
+import Zahlungsziele from "@/pages/Zahlungsziele";
 import SettingsPage from "@/pages/Settings";
 import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
@@ -30,6 +33,9 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/statistik" element={<Statistics />} />
+        <Route path="/import" element={<Import />} />
+        <Route path="/posteingang" element={<Posteingang />} />
+        <Route path="/zahlungsziele" element={<Zahlungsziele />} />
         <Route path="/bank" element={<BankImport />} />
         <Route path="/rechnungen/importieren" element={<InvoiceImport />} />
         <Route path="/rechnungen/nachweis" element={<NachweisImport />} />

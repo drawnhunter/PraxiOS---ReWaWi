@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { authedQuery, createRouter } from "./middleware";
+import { adminQuery, authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { companySettings, numberSequences } from "@db/schema";
 import { eq, and } from "drizzle-orm";
 import { verschluesseln } from "./lib/secrets";
+import { randomBytes } from "crypto";
 
 const settingsInput = z.object({
   name: z.string().min(1),
@@ -26,6 +27,8 @@ const settingsInput = z.object({
   erloeskonto7: z.string().default("8300"),
   erloeskonto0: z.string().default("8120"),
   debitorStartnummer: z.number().int().min(1).default(10000),
+  kreditorStartnummer: z.number().int().min(1).default(70000),
+  aufwandskontoDefault: z.string().max(10).nullable().optional(),
   akzentfarbe: z
     .enum(["neutral", "blau", "gruen", "bernstein", "violett", "rot"])
     .default("neutral"),
@@ -64,6 +67,22 @@ export const settingsRouter = createRouter({
 
   sequences: authedQuery.query(async () => {
     return getDb().select().from(numberSequences);
+  }),
+
+  /** ICS-Abo-Token fuer den Zahlungsziele-Kalender (wird bei Bedarf erzeugt). */
+  icsStatus: authedQuery.query(async () => {
+    const db = getDb();
+    const row = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+    if (row?.icsToken) return { token: row.icsToken };
+    const token = randomBytes(24).toString("hex");
+    await db.update(companySettings).set({ icsToken: token }).where(eq(companySettings.id, 1));
+    return { token };
+  }),
+
+  icsNeu: adminQuery.mutation(async () => {
+    const token = randomBytes(24).toString("hex");
+    await getDb().update(companySettings).set({ icsToken: token }).where(eq(companySettings.id, 1));
+    return { token };
   }),
 
   /** Startwert des Nummernkreises korrigieren — nur aufwärts erlaubt (GoBD). */

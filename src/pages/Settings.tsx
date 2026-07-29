@@ -23,6 +23,8 @@ import {
 import { Plus } from "lucide-react";
 import { DatevExport } from "@/components/DatevExport";
 import { Benutzerverwaltung } from "@/components/Benutzerverwaltung";
+import { EmailEingang } from "@/components/EmailEingang";
+import { KategorienVerwaltung } from "@/components/KategorienVerwaltung";
 import { AKZENTFARBEN, PDF_LAYOUTS, akzentAnwenden } from "@/lib/design";
 
 interface FirmenForm {
@@ -46,6 +48,8 @@ interface FirmenForm {
   erloeskonto7: string;
   erloeskonto0: string;
   debitorStartnummer: number;
+  kreditorStartnummer: number;
+  aufwandskontoDefault: string;
   akzentfarbe: string;
   pdfLayout: string;
   smtpHost: string;
@@ -108,6 +112,8 @@ export default function SettingsPage() {
       erloeskonto7: s.erloeskonto7,
       erloeskonto0: s.erloeskonto0,
       debitorStartnummer: s.debitorStartnummer,
+      kreditorStartnummer: s.kreditorStartnummer,
+      aufwandskontoDefault: s.aufwandskontoDefault ?? "",
       akzentfarbe: s.akzentfarbe,
       pdfLayout: s.pdfLayout,
       smtpHost: s.smtpHost ?? "",
@@ -524,11 +530,35 @@ export default function SettingsPage() {
               }
             />
           </div>
+          <div>
+            <Label>Kreditor-Startnummer</Label>
+            <Input
+              type="number"
+              value={firma.kreditorStartnummer}
+              onChange={(e) =>
+                setFirma({ ...firma, kreditorStartnummer: Number(e.target.value) || 70000 })
+              }
+            />
+          </div>
+          <div>
+            <Label>Standard-Aufwandskonto</Label>
+            <Input
+              value={firma.aufwandskontoDefault}
+              onChange={(e) => setFirma({ ...firma, aufwandskontoDefault: e.target.value })}
+              placeholder={firma.datevKontenrahmen === "SKR04" ? "z. B. 6305" : "z. B. 4900"}
+            />
+          </div>
         </div>
         <div className="mt-4">
           <DatevExport />
         </div>
       </section>
+
+      {/* ── Kategorien (Kontierung) ── */}
+      <KategorienVerwaltung />
+
+      {/* ── E-Mail-Eingang ── */}
+      <EmailEingang />
 
       {/* ── Bankkonten ── */}
       <section className="rounded-lg border border-neutral-200 bg-white p-5">

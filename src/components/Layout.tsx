@@ -21,6 +21,9 @@ import {
   Menu,
   X,
   ChevronDown,
+  MailOpen,
+  CalendarClock,
+  Import,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,6 +38,15 @@ const OBEN: NavEintrag[] = [
 ];
 
 const GRUPPEN: NavGruppe[] = [
+  {
+    id: "eingang",
+    titel: "Posteingang",
+    eintraege: [
+      { to: "/import", label: "Import", icon: Import },
+      { to: "/posteingang", label: "Post Manager", icon: MailOpen },
+      { to: "/zahlungsziele", label: "Zahlungsziele", icon: CalendarClock },
+    ],
+  },
   {
     id: "verkauf",
     titel: "Verkauf",

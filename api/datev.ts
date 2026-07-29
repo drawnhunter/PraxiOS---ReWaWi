@@ -20,6 +20,8 @@ export interface DatevBuchung {
   /** Brutto-Anteil dieses Steuersatzes in Cent, negativ bei Gutschrift */
   betragCent: number;
   ustSatz: number;
+  /** Abweichende Zeile (z. B. Eingangsrechnung): Konto/Gegenkonto/BU direkt */
+  direkt?: { konto: string; gegenkonto: string; bu: string };
 }
 
 function feld(v: string): string {
@@ -94,9 +96,16 @@ export function erzeugeBuchungsstapel(
   ].join(";");
 
   const zeilen = buchungen.map((b) => {
-    const konto =
-      b.ustSatz === 19 ? einst.erloeskonto19 : b.ustSatz === 7 ? einst.erloeskonto7 : einst.erloeskonto0;
-    const bu = b.ustSatz === 19 ? "3" : b.ustSatz === 7 ? "2" : "";
+    const konto = b.direkt
+      ? b.direkt.konto
+      : b.ustSatz === 19
+        ? einst.erloeskonto19
+        : b.ustSatz === 7
+          ? einst.erloeskonto7
+          : einst.erloeskonto0;
+    const gegenkonto = b.direkt ? b.direkt.gegenkonto : konto;
+    const sollKonto = b.direkt ? b.direkt.konto : String(b.debitornummer);
+    const bu = b.direkt ? b.direkt.bu : b.ustSatz === 19 ? "3" : b.ustSatz === 7 ? "2" : "";
     const sh = b.betragCent >= 0 ? "S" : "H";
     const basis = [
       zahl(b.betragCent),
@@ -105,8 +114,8 @@ export function erzeugeBuchungsstapel(
       "", // Kurs
       "", // Basis-Umsatz
       "", // WKZ Basis
-      String(b.debitornummer),
-      konto,
+      sollKonto,
+      gegenkonto,
       bu,
       datumTTMM(b.belegdatum),
       feld(b.belegfeld1.slice(0, 36)),

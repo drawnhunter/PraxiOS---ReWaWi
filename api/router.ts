@@ -25,6 +25,10 @@ import { lagerRouter } from "./lagerRouter";
 import { labelRouter } from "./labelRouter";
 import { seriesRouter } from "./seriesRouter";
 import { supportRouter } from "./supportRouter";
+import { magicImportRouter } from "./magicImportRouter";
+import { posteingangRouter } from "./posteingangRouter";
+import { emailKontenRouter } from "./emailKontenRouter";
+import { kontierungRouter } from "./kontierungRouter";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -54,6 +58,10 @@ export const appRouter = createRouter({
   label: labelRouter,
   series: seriesRouter,
   support: supportRouter,
+  magicImport: magicImportRouter,
+  posteingang: posteingangRouter,
+  emailKonten: emailKontenRouter,
+  kontierung: kontierungRouter,
 });
 
 export type AppRouter = typeof appRouter;

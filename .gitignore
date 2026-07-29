@@ -2,7 +2,6 @@ node_modules
 dist
 .env
 *.log
-docker-compose.override.yml
 
 # Private Datensicherungen - niemals ins Repository!
 imtz-daten.sql

@@ -6,6 +6,7 @@ import { incomingInvoices } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { analysiereXrechnung } from "./xrechnungEinlesen";
 import { extrahiereXmlAusPdf } from "./zugferdPdf";
+import { bucheEingangsrechnungAusXml } from "./lib/einrechnung";
 
 const xmlInput = z.object({ xml: z.string().min(20) });
 
@@ -53,29 +54,8 @@ export const einrechnungRouter = createRouter({
   }),
 
   buchen: authedQuery.input(xmlInput).mutation(async ({ input }) => {
-    const { daten, fehler } = analysiereXrechnung(input.xml);
-    if (fehler.length > 0 || !daten) {
-      throw new Error(`Keine buchbare E-Rechnung: ${fehler.join("; ")}`);
-    }
-    if (!daten.datum) throw new Error("Rechnungsdatum fehlt — kann nicht gebucht werden.");
-    const dup = await duplikat(daten.lieferant, daten.nummer);
-    if (dup) {
-      throw new Error(`„${daten.nummer}" von ${daten.lieferant} wurde bereits importiert.`);
-    }
-    const [res] = await getDb().insert(incomingInvoices).values({
-      lieferantName: daten.lieferant,
-      lieferantKennung: daten.lieferantKennung,
-      nummer: daten.nummer,
-      rechnungsdatum: daten.datum,
-      faelligkeitsdatum: daten.faellig,
-      netto: daten.netto.toFixed(2),
-      ust: daten.ust.toFixed(2),
-      brutto: daten.brutto.toFixed(2),
-      waehrung: daten.waehrung,
-      positionenJson: JSON.stringify(daten.positionen),
-      originalXml: input.xml,
-    }).$returningId();
-    return { id: res.id };
+    const { id } = await bucheEingangsrechnungAusXml(input.xml);
+    return { id };
   }),
 
   list: authedQuery.query(async () => {

@@ -2,6 +2,56 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.2.0] — 2026-07-29
+
+### Neu
+
+- **Magic Import:** Neue Seite „Import" — eine Upload-Tür für alles
+  (Drag&Drop, bis zu 10 Dateien). Erkennung serverseitig: XRechnung-XML und
+  ZUGFeRD-PDF werden direkt als E-Rechnung gebucht, Scans (PDF/JPG/PNG) gehen
+  in den Post Manager, SumUp-CSVs (Kunden/Produkte/Bank) werden erkannt und
+  zum passenden Bereich gelotst
+- **Post Manager:** Eingang für eingescannte Post — Beleg hochladen
+  (unveränderbar in der Datenbank, GoBD), per Formular erfassen (Absender,
+  Rechnungsnummer, Betrag, Fälligkeit, Wiedervorlage, Konto/Gegenkonto,
+  Kategorie), per Klick als Eingangsrechnung buchen (mit Duplikat-Prüfung);
+  sonstige Dokumente mit Wiedervorlage-Datum ablegen
+- **OCR-Vorschlag:** Belege lokal auf dem Server erkennen lassen (Tesseract
+  mit deutschem Sprachpaket im Docker-Image — keine Cloud-KI). Betrag, IBAN,
+  Rechnungsnummer, Daten und Fälligkeit werden als Vorschlag mit
+  Konfidenz-Farben in die Korrektur-Maske gefüllt; Absender wird gegen
+  Lieferanten gematcht
+- **Zahlungsziele:** Neue Ansicht mit offenen Eingangsrechnungen,
+  Post-Fristen und Wiedervorlagen (überfällig markiert, Bezahlt-Haken) —
+  als Liste und als Monatskalender. **ICS-Abo:** geheime Kalender-URL
+  (`/ics/zahlungsziele.ics?token=…`) für Google/Outlook/Apple Kalender,
+  Token in den Einstellungen neu erzeugbar
+- **E-Mail-Eingang (IMAP):** beliebig viele Postfächer in den Einstellungen
+  hinterlegen (z. B. rechnung@, post@, befunde@…) — jedes mit eigener Route
+  (Rechnung/Sonstiges), Intervall-Abruf im Hintergrund, Verbindungstest,
+  verschlüsselte Passwörter; PDF-/Bild-Anhänge landen automatisch im Post
+  Manager (Quelle „E-Mail · <Postfach>")
+- **Kontierung:** komplette Kontenrahmen SKR03 **und** SKR04 als Basisdaten
+  (289/254 Konten, werden beim Start vorbefüllt), dazu pflegbare
+  **Kategorien** als Schnellauswahl mit Konto-Mapping; Konto/Gegenkonto am
+  Beleg und an der Eingangsrechnung
+- **DATEV-Export Eingangsseite:** Eingangsrechnungen wandern jetzt mit in den
+  Buchungsstapel (Soll Aufwandskonto an Kreditor, Vorsteuer-BU 9/8; Kreditor
+  = Kreditor-Startnummer + Lieferanten-ID, sonst Sammelkonto; neue Felder
+  Kreditor-Startnummer und Standard-Aufwandskonto in den Einstellungen)
+
+### Technisch
+
+- Neue Tabellen `post_eingang`, `email_konten`, `kontenrahmen`, `kategorien`
+  sowie Spalten `incoming_invoices.konto/gegenkonto` und
+  `company_settings.ics_token/kreditor_startnummer/aufwandskonto_default`
+  (Selbst-Migration beim Start)
+- Dockerfile bringt `tesseract-ocr` (+ deutsches Sprachpaket) und
+  `poppler-utils` mit — beim nächsten `docker compose up -d --build` werden
+  sie installiert
+- Kontenrahmen-Basisdaten: community-kuratiertes Dataset (MIT), in der App
+  beliebig erweiterbar
+
 ## [1.1.0] — 2026-07-26
 
 ### Neu
