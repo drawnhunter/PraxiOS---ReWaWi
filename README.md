@@ -108,5 +108,3 @@ Self-hosted invoicing & inventory for German small businesses: GoBD-compliant in
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). Kostenlos nutzen, verändern, weitergeben; Netzwerk-Bereitstellung erfordert Offenlegung des Quelltexts. Kommerzielle Lizenzen auf Anfrage (Dual-Licensing).
 
 Support: best effort über GitHub Issues (ehrlich, ohne SLA). Kontakt: drawn.hunter@proton.me
-
-*Entwickelt mit KI-Unterstützung (Kimi).*
