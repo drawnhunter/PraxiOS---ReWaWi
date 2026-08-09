@@ -1,0 +1,53 @@
+name: wawipros
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ReWaWi (wawipros) — App + MySQL 8
+#
+# Secrets stehen bewusst NICHT in dieser Datei. Schluessel ohne Wert
+# (Listenform) uebernimmt docker compose automatisch aus .env bzw. aus der
+# docker-compose.override.yml — beide Dateien bleiben bei Hub-Deployments
+# erhalten und sind in .gitignore eingetragen.
+#
+# Benoetigte Werte in .env oder docker-compose.override.yml:
+#   MYSQL_ROOT_PASSWORD   Root-Passwort der Datenbank
+#   DATABASE_URL          z. B. mysql://root:PASSWORT@db:3306/wawipros
+#   APP_SECRET            Zufallsgeheimnis (openssl rand -hex 32)
+#
+# Frische Installation: cp .env.example .env und Werte eintragen.
+# Start: docker compose up -d --build
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-wawipros}
+    volumes:
+      - db-daten:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      # Liest das Passwort aus der Container-Umgebung — funktioniert mit
+      # jedem Passwort, ohne dass diese Datei angepasst werden muss.
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL
+      - APP_SECRET
+      - PORT=3000
+      # GEFAHR: Login ueberspringen - nur fuer lokale Tests, niemals oeffentlich!
+      # - LOCAL_AUTH_BYPASS=1
+    ports:
+      - "3000:3000"
+
+volumes:
+  db-daten:
