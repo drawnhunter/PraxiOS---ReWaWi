@@ -306,6 +306,12 @@ export default function IncomingInvoices() {
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Lieferant / Nummer suchen …" className="pl-8" />
       </div>
 
+      {liste.error && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          Eingangsrechnungen konnten nicht geladen werden: {liste.error.message}
+        </p>
+      )}
+
       {/* ── Liste ── */}
       <section className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
         <table className="w-full min-w-[640px] text-sm">

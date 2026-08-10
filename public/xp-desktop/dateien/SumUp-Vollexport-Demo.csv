@@ -1,0 +1,5 @@
+Datum der Transaktion,Transaktions-ID,Art der Transaktion,Referenz,Zahlungsreferenz,Status,Rechnungsbetrag ausgehend,Rechnungsbetrag eingehend,Währung der Karte,Zahlungsbetrag ausgehend,Zahlungsbetrag eingehend,Zahlungswährung,Wechselkurs,Gebühr,Verfügbares Guthaben
+"09.08.26, 14:32",CDEMOX4A1B,Eingehende Banküberweisung,Tischlerei Brandt DE42500105170123456789,RE 2026-004,Genehmigt,0.00,674.73,EUR,0.00,674.73,EUR,1.00,0.00,10082.10
+"09.08.26, 11:05",CDEMOX4A2C,Ausgehende Banküberweisung,Bueromarkt Weber DE75500105170987654321,Rechnung RE-44556,Genehmigt,104.90,0.00,EUR,104.90,0.00,EUR,1.00,0.00,9407.37
+"09.08.26, 09:41",CDEMOX4A3D,POS-Zahlung,HORNBACH Berlin DE1042   Berlin         DE,,Genehmigt,87.34,0.00,EUR,87.34,0.00,EUR,1.00,0.00,9512.27
+"10.08.26, 08:15",CDEMOX4A4E,Eingehende Banküberweisung,Linden-Apotheke DE12100100100001234568,RE 2026-005,Genehmigt,0.00,249.90,EUR,0.00,249.90,EUR,1.00,0.00,10331.00

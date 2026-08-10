@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 613 >>
+stream
+BT /F1 14 Tf 50 770 Td (Stadtwerke Musterstadt - Energieweg 1 - 10115 Berlin) Tj 0 -22 Td (Rechnung Nr. SW-2026-0916) Tj 0 -22 Td (Kundennummer: KD-77889921) Tj 0 -22 Td (Stromabschluss September 2026) Tj 0 -22 Td (Zeitraum: 01.09.2026 - 30.09.2026) Tj 0 -22 Td (Verbrauch: 412 kWh a 0,32 EUR = 131,84 EUR netto) Tj 0 -22 Td (Grundpreis: 9,90 EUR netto) Tj 0 -22 Td (Netto: 141,74 EUR - USt. 19%: 26,93 EUR) Tj 0 -22 Td (Rechnungsbetrag: 168,67 EUR brutto) Tj 0 -22 Td (Faellig bis: 26.09.2026) Tj 0 -22 Td (IBAN: DE02100100100009988776) Tj 0 -22 Td (Bitte ueberweisen Sie unter Angabe der Rechnungsnummer.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000905 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+975
+%%EOF

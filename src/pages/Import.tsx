@@ -55,6 +55,7 @@ export default function Import() {
   const [dateien, setDateien] = useState<DateiZustand[]>([]);
   const [ergebnisse, setErgebnisse] = useState<Ergebnis[] | null>(null);
   const [ziehen, setZiehen] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
 
   const analysieren = trpc.magicImport.analysieren.useMutation();
   const ausfuehren = trpc.magicImport.ausfuehren.useMutation({
@@ -62,13 +63,15 @@ export default function Import() {
   });
 
   const aufnehmen = async (liste: FileList | File[]) => {
-    const neu: { name: string; base64: string }[] = [];
-    for (const f of Array.from(liste).slice(0, 10)) {
-      neu.push({ name: f.name, base64: await liesDatei(f) });
-    }
-    if (neu.length === 0) return;
-    setErgebnisse(null);
-    const analysiert = await analysieren.mutateAsync({ dateien: neu });
+    setFehler(null);
+    try {
+      const neu: { name: string; base64: string }[] = [];
+      for (const f of Array.from(liste).slice(0, 10)) {
+        neu.push({ name: f.name, base64: await liesDatei(f) });
+      }
+      if (neu.length === 0) return;
+      setErgebnisse(null);
+      const analysiert = await analysieren.mutateAsync({ dateien: neu });
     setDateien((alt) => [
       ...alt,
       ...analysiert.map((a) => ({
@@ -80,6 +83,9 @@ export default function Import() {
         meta: a.meta,
       })),
     ]);
+    } catch (e) {
+      setFehler(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const setze = (idx: number, patch: Partial<DateiZustand>) =>
@@ -127,6 +133,11 @@ export default function Import() {
           ziehen ? "border-teal-600 bg-teal-50" : "border-neutral-300 bg-white"
         }`}
       >
+        {fehler && (
+          <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-left text-sm text-red-700">
+            Import fehlgeschlagen: {fehler}
+          </p>
+        )}
         <FileUp className="mx-auto h-8 w-8 text-neutral-400" />
         <p className="mt-2 text-sm text-neutral-600">
           Dateien hierher ziehen oder{" "}

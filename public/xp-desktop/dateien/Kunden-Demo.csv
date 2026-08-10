@@ -1,0 +1,5 @@
+name;strasse;plz;ort;land;email;telefon;zahlungsziel
+"Baeckerei Sonnenkorn";"Marktstrasse 4";"10115";"Berlin";"Deutschland";"chefin@sonnenkorn.example";"030 777123";14
+"Kita Regenbogen e.V.";"Spielweg 12";"10115";"Berlin";"Deutschland";"verwaltung@kita-regenbogen.example";"030 555999";30
+"Autohaus Tempel";"Motorenstrasse 88";"12099";"Berlin";"Deutschland";"service@autohaus-tempel.example";"030 444777";14
+"Praxis Dr. Sommer";"Lindenallee 1";"10115";"Berlin";"Deutschland";"praxis@dr-sommer.example";"030 111222";7

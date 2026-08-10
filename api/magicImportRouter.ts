@@ -105,7 +105,20 @@ export const magicImportRouter = createRouter({
   analysieren: authedQuery
     .input(z.object({ dateien: z.array(dateiInput).min(1).max(10) }))
     .mutation(async ({ input }) => {
-      return Promise.all(input.dateien.map((d) => analysiereDatei(d.name, Buffer.from(d.base64, "base64"))));
+      // Pro Datei fangen: eine kaputte Datei darf den Rest nicht blockieren (v1.6.2)
+      return Promise.all(
+        input.dateien.map(async (d) => {
+          try {
+            return await analysiereDatei(d.name, Buffer.from(d.base64, "base64"));
+          } catch (e) {
+            return {
+              name: d.name,
+              route: "unbekannt" as const,
+              hinweis: `Analyse fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`,
+            };
+          }
+        }),
+      );
     }),
 
   ausfuehren: authedQuery

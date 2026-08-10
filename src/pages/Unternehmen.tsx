@@ -93,8 +93,14 @@ export default function Unternehmen() {
             {speichern.isPending ? "Speichere …" : "Speichern"}
           </Button>
         </div>
-        {!form ? (
+        {!form ? settings.isLoading ? (
           <p className="text-sm text-neutral-400">Lade …</p>
+        ) : (
+          <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Firmendaten fehlen — bitte zuerst unter{" "}
+            <Link to="/einstellungen" className="font-medium underline">Einstellungen → Firma</Link>{" "}
+            hinterlegen und speichern.
+          </p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {KENNFELDER.map((f) => (

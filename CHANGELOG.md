@@ -2,6 +2,51 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.6.3] — 2026-08-10
+
+### Neu
+
+- **Demo-PC:** Fenster jetzt **skalierbar** (rechte Kante, untere Kante,
+  Ecke unten rechts); Versionsanzeige im Boot und Startmenue wird
+  **dynamisch** aus der laufenden App gelesen (kein hardcodierter Stand
+  mehr); beim Maximieren bleibt die Desktop-Icon-Spalte sichtbar
+
+## [1.6.2] — 2026-08-10
+
+### Neu
+
+- **Demo-PC: Party-Pack** (`/xp-desktop/`): **Minesweeper** als spielbares
+  Fenster-Game (9x9, Flaggen, Smiley-Reset), **h4x0r t3rm1n4l** als
+  Fake-Hacker-Konsole mit Tipp-Animation und Fortschrittsbalken, und ein
+  **Musik-Toggle** im Startmenue mit Eurodance-Loop (lizenzfrei generiert)
+
+### Behoben
+
+- **Magic Import reagierte nicht mehr auf Drag&Drop:** Ein Fehler beim
+  Lesen oder Analysieren einer Datei (z. B. ungueltiges XML) brach den
+  gesamten Vorgang still ab — jetzt Fehler-Banner in der UI, und die
+  serverseitige Analyse faengt Fehler pro Datei ab (eine kaputte Datei
+  blockiert den Rest nicht mehr)
+
+## [1.6.1] — 2026-08-09
+
+### Neu
+
+- **PraxiOS Demo-PC (XP-Desktop):** Simulierter Frueh-2000er-Desktop als
+  spielerischer Einstieg in die Live-Demo (`/xp-desktop/` in der App):
+  Boot-Sequenz, verschiebbare Fenster mit ReWaWi-Iframe (gleiche Origin),
+  Demo-Dateien-Ordner (Test-XRechnung, SumUp-Vollexport, Scan-PDF,
+  Kunden-CSV), Startmenue mit Hintergrund-Wahl (Wiese/Herbst/Abend) und
+  Sound-Chimes — alle Assets lizenzfrei generiert
+
+### Behoben
+
+- **Unternehmen/Einstellungen:** Bei fehlenden Firmendaten (z. B. nach
+  uebersprungener Ersteinrichtung) erscheint jetzt ein klarer Hinweis
+  statt endlosem „Lade …"
+- **Eingangsbelege:** Query-Fehler werden als Fehlermeldung angezeigt
+  statt irrtuemlich leerer Liste
+
 ## [1.6.0] — 2026-08-09
 
 ### Neu
