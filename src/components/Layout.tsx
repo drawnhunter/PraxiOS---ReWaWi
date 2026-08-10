@@ -23,6 +23,7 @@ import {
   ChevronDown,
   MailOpen,
   CalendarClock,
+  Clock,
   Import,
   type LucideIcon,
 } from "lucide-react";
@@ -35,6 +36,7 @@ type NavGruppe = { id: string; titel: string; eintraege: NavEintrag[] };
 const OBEN: NavEintrag[] = [
   { to: "/", label: "Übersicht", icon: LayoutDashboard, end: true },
   { to: "/statistik", label: "Statistik", icon: ChartColumn },
+      { to: "/zeit", label: "Zeiterfassung", icon: Clock },
 ];
 
 const GRUPPEN: NavGruppe[] = [

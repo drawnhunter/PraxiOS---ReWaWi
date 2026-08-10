@@ -25,6 +25,7 @@ import Posteingang from "@/pages/Posteingang";
 import Zahlungsziele from "@/pages/Zahlungsziele";
 import SettingsPage from "@/pages/Settings";
 import Unternehmen from "@/pages/Unternehmen";
+import Zeit from "@/pages/Zeit";
 import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
 
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="/lieferanten" element={<Suppliers />} />
         <Route path="/produkte" element={<Products />} />
         <Route path="/lager" element={<Lager />} />
+        <Route path="/zeit" element={<Zeit />} />
         <Route path="/unternehmen" element={<Unternehmen />} />
         <Route path="/einstellungen" element={<SettingsPage />} />
       </Route>

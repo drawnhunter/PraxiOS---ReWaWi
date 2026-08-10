@@ -656,4 +656,39 @@ CREATE TABLE `company_kennwerte` (
   CONSTRAINT `company_kennwerte_beleg_fk` FOREIGN KEY (`post_eingang_id`) REFERENCES `post_eingang` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+-- ── v1.7: Zeiterfassung ──
+DROP TABLE IF EXISTS `zeiteintraege`;
+DROP TABLE IF EXISTS `mitarbeiter`;
+CREATE TABLE `mitarbeiter` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `farbe` varchar(7) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0f766e',
+  `stundensatz` decimal(8,2) DEFAULT NULL,
+  `aktiv` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `zeiteintraege` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `mitarbeiter_id` bigint unsigned NOT NULL,
+  `customer_id` bigint unsigned DEFAULT NULL,
+  `von` timestamp NOT NULL,
+  `bis` timestamp NULL DEFAULT NULL,
+  `notiz` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `quelle` enum('stempel','manuell') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'stempel',
+  `gesperrt` tinyint(1) NOT NULL DEFAULT '0',
+  `invoice_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `zeiteintraege_mitarbeiter` (`mitarbeiter_id`),
+  KEY `zeiteintraege_kunde` (`customer_id`),
+  KEY `zeiteintraege_rechnung` (`invoice_id`),
+  KEY `zeiteintraege_von` (`von`),
+  CONSTRAINT `zeiteintraege_mitarbeiter_fk` FOREIGN KEY (`mitarbeiter_id`) REFERENCES `mitarbeiter` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `zeiteintraege_kunde_fk` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `zeiteintraege_rechnung_fk` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS=1;

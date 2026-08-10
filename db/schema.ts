@@ -749,3 +749,35 @@ export const companyKennwerte = mysqlTable("company_kennwerte", {
   sortierung: int("sortierung").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+
+// ── Zeiterfassung (v1.7): Mitarbeiter und GoBD-feste Zeiteintraege ─────────
+export const mitarbeiter = mysqlTable("mitarbeiter", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  farbe: varchar("farbe", { length: 7 }).notNull().default("#0f766e"),
+  stundensatz: decimal("stundensatz", { precision: 8, scale: 2 }),
+  aktiv: boolean("aktiv").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const zeiteintraege = mysqlTable("zeiteintraege", {
+  id: serial("id").primaryKey(),
+  mitarbeiterId: bigint("mitarbeiter_id", { mode: "number", unsigned: true })
+    .notNull()
+    .references(() => mitarbeiter.id, { onDelete: "cascade" }),
+  customerId: bigint("customer_id", { mode: "number", unsigned: true }).references(
+    () => customers.id,
+    { onDelete: "set null" },
+  ),
+  von: timestamp("von").notNull(),
+  bis: timestamp("bis"), // NULL = laufend gestempelt
+  notiz: varchar("notiz", { length: 255 }),
+  quelle: mysqlEnum("quelle", ["stempel", "manuell"]).notNull().default("stempel"),
+  gesperrt: boolean("gesperrt").notNull().default(false), // GoBD: nach Freigabe unveraenderbar
+  invoiceId: bigint("invoice_id", { mode: "number", unsigned: true }).references(
+    () => invoices.id,
+    { onDelete: "set null" },
+  ), // gesetzt, sobald in einer Rechnung abgerechnet
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

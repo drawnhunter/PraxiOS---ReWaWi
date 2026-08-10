@@ -2,6 +2,43 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.7.0] — 2026-08-10
+
+### Neu
+
+- **Zeiterfassung:** Neuer Menuepunkt mit vier Bereichen
+  - **Stempeln:** Start/Stop pro Mitarbeiter (inkl. optionalem Kunden und
+    Taetigkeits-Notiz), laufende Stempel mit Sekunden-Timer; nur ein
+    laufender Stempel pro Mitarbeiter
+  - **Eintraege:** Filter (Mitarbeiter, Kunde, Zeitraum, nur offene,
+    Suche), sortierbare Tabelle mit H:mm-Anzeige, manuelles Anlegen,
+    **GoBD-Freigabe** (gesperrte/abgerechnete Eintraege unveraenderbar),
+    Löschen nur solange offen
+  - **Auswertung:** Stunden-Matrix pro Mitarbeiter x Kunde je Monat
+  - **Mitarbeiter:** Stamm mit Farbe und Stundensatz
+- **Stunden → Rechnungsentwurf:** Offene Eintraege eines Kunden
+  auswaehlen und per Klick als Rechnungspositionen abrechnen (Menge in
+  Stunden, Preis aus Stundensatz-Produkt oder Mitarbeiter-Satz);
+  Eintraege werden mit der Rechnung verknuepft und sind damit
+  abgerechnet
+
+### Technisch
+
+- Neue Tabellen `mitarbeiter` und `zeiteintraege` (Selbst-Migration beim
+  Start; FKs auf customers und invoices)
+
+## [1.6.4] — 2026-08-10
+
+### Neu
+
+- **Demo-PC:** **Scene-2005-Theme** (Emo/MySpace-Look als umschaltbares
+  Layout im Startmenue, mit eigenem Pop-Punk-Loop), **h4x0r t3rm1n4l**
+  liegt jetzt versteckt im Startmenue statt als Desktop-Icon, und die
+  Demo-Dateien loesen per Klick einen gefuehrten Flow aus (Download +
+  ReWaWi-Fenster springt auf den passenden Import + Hinweis-Bubble) —
+  ersetzt das im Browser technisch nicht machbare Drag&Drop zwischen
+  Desktop und iframe; Desktop-Icons liegen nicht mehr ueber den Fenstern
+
 ## [1.6.3] — 2026-08-10
 
 ### Neu

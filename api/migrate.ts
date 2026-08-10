@@ -208,6 +208,40 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       CONSTRAINT company_kennwerte_beleg_fk FOREIGN KEY (post_eingang_id) REFERENCES post_eingang(id) ON DELETE SET NULL
     )`,
   },
+  // v1.7: Zeiterfassung — erst mitarbeiter, dann Eintraege (FK-Reihenfolge)
+  {
+    tabelle: "mitarbeiter",
+    ddl: `CREATE TABLE IF NOT EXISTS mitarbeiter (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      farbe VARCHAR(7) NOT NULL DEFAULT '#0f766e',
+      stundensatz DECIMAL(8,2) NULL,
+      aktiv TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    tabelle: "zeiteintraege",
+    ddl: `CREATE TABLE IF NOT EXISTS zeiteintraege (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      mitarbeiter_id BIGINT UNSIGNED NOT NULL,
+      customer_id BIGINT UNSIGNED NULL,
+      von TIMESTAMP NOT NULL,
+      bis TIMESTAMP NULL,
+      notiz VARCHAR(255) NULL,
+      quelle ENUM('stempel','manuell') NOT NULL DEFAULT 'stempel',
+      gesperrt TINYINT(1) NOT NULL DEFAULT 0,
+      invoice_id BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX zeiteintraege_mitarbeiter (mitarbeiter_id),
+      INDEX zeiteintraege_kunde (customer_id),
+      INDEX zeiteintraege_rechnung (invoice_id),
+      INDEX zeiteintraege_von (von),
+      CONSTRAINT zeiteintraege_mitarbeiter_fk FOREIGN KEY (mitarbeiter_id) REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+      CONSTRAINT zeiteintraege_kunde_fk FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+      CONSTRAINT zeiteintraege_rechnung_fk FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
+    )`,
+  },
   // ── zuletzt: hat FKs auf kategorien, suppliers, incoming_invoices ──
   {
     tabelle: "post_eingang",

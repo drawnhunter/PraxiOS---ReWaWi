@@ -31,6 +31,7 @@ import { posteingangRouter } from "./posteingangRouter";
 import { emailKontenRouter } from "./emailKontenRouter";
 import { kontierungRouter } from "./kontierungRouter";
 import { unternehmenRouter } from "./unternehmenRouter";
+import { zeitRouter } from "./zeitRouter";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now(), version: APP_VERSION })),
@@ -65,6 +66,7 @@ export const appRouter = createRouter({
   emailKonten: emailKontenRouter,
   kontierung: kontierungRouter,
   unternehmen: unternehmenRouter,
+  zeit: zeitRouter,
 });
 
 export type AppRouter = typeof appRouter;

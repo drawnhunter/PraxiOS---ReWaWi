@@ -21,7 +21,26 @@
   #desktop { position: fixed; inset: 0 0 40px 0; background: url("assets/bg-wiese.png") center / cover no-repeat; transition: background-image .4s; }
 
   /* ── Icons ── */
-  .icon { position: absolute; width: 76px; text-align: center; cursor: pointer; padding: 6px 2px; border-radius: 4px; }
+  .icon { position: absolute; width: 76px; text-align: center; cursor: pointer; padding: 6px 2px; border-radius: 4px; z-index: 1; }
+
+  /* ── Scene-Theme (Emo/MySpace 2005) ── */
+  body.scene #desktop { background: #1a0a1a center / cover no-repeat; }
+  body.scene .icon span { color: #ffb3ff; text-shadow: 1px 1px 2px rgba(0,0,0,.9); }
+  body.scene #taskleiste { background: linear-gradient(#4a0e4a 0%, #7a1f7a 8%, #4a0e4a 45%, #2a082a 100%); }
+  body.scene #start { background: linear-gradient(#e83e8c, #c2185b 60%, #8c1040); }
+  body.scene .fenster { border-color: #e83e8c; }
+  body.scene .titel { background: linear-gradient(#c2185b, #e83e8c 60%, #d32f6f); }
+  body.scene .tl-btn { background: linear-gradient(#7a1f7a, #4a0e4a); }
+  body.scene #uhr { background: linear-gradient(#e83e8c, #f06292 50%, #e83e8c); }
+  body.scene .sm-kopf { background: linear-gradient(#c2185b, #e83e8c); }
+  body.scene #startmenue { border-color: #e83e8c; }
+  body.scene .sm-item:hover { background: #e83e8c; }
+  body.scene .sm-bgs button.aktiv { border-color: #e83e8c; }
+  body.scene .abmeld { color: #c2185b; }
+
+  /* Hinweis-Bubble (Drag-Ersatz) */
+  #bubble { position: fixed; right: 24px; bottom: 56px; max-width: 300px; background: #fff8c4; border: 2px solid #d4b106; border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: #1c1917; box-shadow: 3px 3px 10px rgba(0,0,0,.3); z-index: 900; display: none; }
+  #bubble::after { content: ""; position: absolute; bottom: -10px; left: 30px; border: 6px solid transparent; border-top-color: #d4b106; }
   .icon:hover, .icon.aktiv { background: rgba(49, 106, 197, .35); outline: 1px dotted rgba(255,255,255,.7); }
   .icon img { width: 46px; height: 46px; filter: drop-shadow(2px 2px 2px rgba(0,0,0,.4)); }
   .icon span { display: block; margin-top: 4px; font-size: 11.5px; color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,.8); line-height: 1.15; }
@@ -137,14 +156,12 @@
   <div style="width:46px;height:46px;margin:0 auto;font-size:38px;line-height:46px;filter:drop-shadow(2px 2px 2px rgba(0,0,0,.4));">💣</div>
   <span>Minesweeper</span>
 </div>
-<div class="icon" id="icon-hacker" style="left:18px; top:336px;">
-  <div style="width:46px;height:46px;margin:0 auto;font-size:34px;line-height:46px;filter:drop-shadow(2px 2px 2px rgba(0,0,0,.4));">🖥️</div>
-  <span>h4x0r t3rm1n4l</span>
-</div>
-<div class="icon" id="icon-muell" style="left:18px; top:442px;">
+<div class="icon" id="icon-muell" style="left:18px; top:336px;">
   <img src="assets/icon-papierkorb.png" alt="">
   <span>Papierkorb</span>
 </div>
+
+<div id="bubble"></div>
 
 <!-- Taskleiste -->
 <div id="taskleiste">
@@ -163,6 +180,9 @@
     <div class="sm-item" data-aktion="rewawi"><img src="assets/icon-computer.png" alt="">ReWaWi (Demo)<span class="pill" id="sm-version">…</span></div>
     <div class="sm-item" data-aktion="dateien"><img src="assets/icon-ordner.png" alt="">Demo-Dateien</div>
     <div class="sm-item" data-aktion="github"><img src="assets/icon-papierkorb.png" alt="">PraxiOS auf GitHub</div>
+    <div class="sm-item" data-aktion="hacker">🖥️ h4x0r t3rm1n4l <span class="pill">elite</span></div>
+    <div class="sm-trenner"></div>
+    <div class="sm-item" data-aktion="theme">🦇 Layout: <b id="theme-status">XP-Klassik</b></div>
     <div class="sm-trenner"></div>
     <div class="sm-sec">Hintergrund</div>
     <div class="sm-bgs">
@@ -202,7 +222,11 @@
   const spiel = (k) => { if (soundAn) { sounds[k].currentTime = 0; sounds[k].play().catch(() => {}); } };
   const eurodance = new Audio("assets/sound-eurodance.mp3");
   eurodance.loop = true;
+  const emo = new Audio("assets/sound-emo.mp3");
+  emo.loop = true;
   let musikAn = false;
+  let themeScene = false;
+  const musikAktiv = () => (themeScene ? emo : eurodance);
 
   // ── Boot ──
   setTimeout(() => {
@@ -328,18 +352,19 @@
   const INHALT_DATEIEN = `
     <div class="ordner-inhalt">
       <h3>Demo-Dateien zum Testen</h3>
-      <p class="hinweis">Lade eine Datei herunter und importiere sie in der ReWaWi-Demo
-      (Import-Seite, Banking oder Post Manager) — alles Spielwiese.</p>
-      <a class="datei" href="dateien/Test-XRechnung.xml" download>
+      <p class="hinweis"><b>Einfach anklicken</b> — der Download startet automatisch und
+      ReWaWi zeigt dir per Hinweis, wo die Datei hingehört. (Ziehen ins App-Fenster geht
+      im Browser technisch nicht — Klicken ist der Weg.)</p>
+      <a class="datei" href="dateien/Test-XRechnung.xml" data-ziel="eingang">
         <span class="di">XML</span><span><b>Test-XRechnung.xml</b><small>E-Rechnung → unter Eingangsbelege importieren</small></span>
       </a>
-      <a class="datei" href="dateien/SumUp-Vollexport-Demo.csv" download>
+      <a class="datei" href="dateien/SumUp-Vollexport-Demo.csv" data-ziel="bank">
         <span class="di">CSV</span><span><b>SumUp-Vollexport-Demo.csv</b><small>Kontoauszug → unter Banking importieren</small></span>
       </a>
-      <a class="datei" href="dateien/Scan-Stadtwerke.pdf" download>
+      <a class="datei" href="dateien/Scan-Stadtwerke.pdf" data-ziel="post">
         <span class="di">PDF</span><span><b>Scan-Stadtwerke.pdf</b><small>Scan → in den Post Manager hochladen (OCR)</small></span>
       </a>
-      <a class="datei" href="dateien/Kunden-Demo.csv" download>
+      <a class="datei" href="dateien/Kunden-Demo.csv" data-ziel="stamm">
         <span class="di">CSV</span><span><b>Kunden-Demo.csv</b><small>Stammdaten → unter Kunden importieren</small></span>
       </a>
     </div>`;
@@ -349,6 +374,45 @@
       Math.max(140, window.innerWidth - 1080), 24, 940, Math.min(640, window.innerHeight - 90), INHALT_REWAWI);
     if (maximiert) el.querySelector(".btn-max").click();
   }
+  const ZIELE = {
+    eingang: { pfad: "/e-rechnungen", text: "Datei geladen! Jetzt in ReWaWi unter <b>Eingangsbelege</b> auf XRechnung importieren klicken und die Datei aus deinem Download-Ordner wählen." },
+    bank: { pfad: "/bank", text: "Datei geladen! Jetzt in ReWaWi unter <b>Banking → Import</b> die Datei aus deinem Download-Ordner wählen (oder einfach reinziehen)." },
+    post: { pfad: "/posteingang", text: "Datei geladen! Jetzt in ReWaWi im <b>Post Manager</b> auf Belege hochladen klicken und die Datei wählen — OCR füllt den Rest." },
+    stamm: { pfad: "/kunden", text: "Datei geladen! Jetzt in ReWaWi unter <b>Kunden</b> den CSV-Import nutzen und die Datei wählen." },
+  };
+  function zeigBubble(html) {
+    const b = document.getElementById("bubble");
+    b.innerHTML = html;
+    b.style.display = "block";
+    clearTimeout(b._t);
+    b._t = setTimeout(() => { b.style.display = "none"; }, 9000);
+  }
+  document.querySelectorAll(".datei").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      const ziel = a.dataset.ziel;
+      if (!ziel || !ZIELE[ziel]) return; // Fallback: normaler Download
+      e.preventDefault();
+      // 1) Download auslösen (geht in den Download-Ordner)
+      const dl = document.createElement("a");
+      dl.href = a.getAttribute("href");
+      dl.download = "";
+      document.body.appendChild(dl);
+      dl.click();
+      dl.remove();
+      // 2) ReWaWi-Fenster auf die Zielseite navigieren
+      const f = fenster["rewawi"];
+      if (f) {
+        const frame = f.el.querySelector("iframe");
+        if (frame) frame.src = ZIELE[ziel].pfad;
+        zeigFenster("rewawi");
+      } else {
+        oeffneRewawi(false);
+      }
+      // 3) Bubble mit Anleitung
+      zeigBubble(ZIELE[ziel].text);
+    });
+  });
+
   function oeffneDateien() {
     machFenster("dateien", "Demo-Dateien", 90, 60, 470, 330, INHALT_DATEIEN);
   }
@@ -364,11 +428,6 @@
   document.getElementById("icon-mines").onclick = () => {
     const el = machFenster("mines", "Minesweeper", 160, 40, 300, 390, '<div class="ms" id="ms-root"></div>');
     minesweeperStart(document.getElementById("ms-root"));
-    return el;
-  };
-  document.getElementById("icon-hacker").onclick = () => {
-    const el = machFenster("hacker", "h4x0r t3rm1n4l v2.0 — secure shell", 220, 90, 560, 360, '<div class="term" id="term-root"></div>');
-    hackerStart(document.getElementById("term-root"));
     return el;
   };
 
@@ -512,10 +571,23 @@
     if (a === "rewawi") { oeffneRewawi(false); startmenue.classList.add("versteckt"); }
     if (a === "dateien") { oeffneDateien(); startmenue.classList.add("versteckt"); }
     if (a === "github") { window.open("https://github.com/drawnhunter/PraxiOS---ReWaWi", "_blank"); }
+    if (a === "hacker") {
+      startmenue.classList.add("versteckt");
+      const el = machFenster("hacker", "h4x0r t3rm1n4l v2.0 — secure shell", 220, 90, 560, 360, '<div class="term" id="term-root"></div>');
+      hackerStart(document.getElementById("term-root"));
+      return el;
+    }
+    if (a === "theme") {
+      themeScene = !themeScene;
+      document.body.classList.toggle("scene", themeScene);
+      document.getElementById("theme-status").textContent = themeScene ? "Scene 2005 🦇" : "XP-Klassik";
+      if (musikAn) { eurodance.pause(); emo.pause(); musikAktiv().play().catch(() => {}); }
+      startmenue.classList.add("versteckt");
+    }
     if (a === "musik") {
       musikAn = !musikAn;
       document.getElementById("musik-status").textContent = musikAn ? "an" : "aus";
-      if (musikAn) eurodance.play().catch(() => {}); else eurodance.pause();
+      if (musikAn) musikAktiv().play().catch(() => {}); else musikAktiv().pause();
     }
     if (a === "sound") {
       soundAn = !soundAn;
