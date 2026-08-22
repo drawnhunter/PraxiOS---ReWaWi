@@ -47,6 +47,15 @@ if (env.isProduction) {
     console.error("[migrate] fehlgeschlagen:", e);
   }
 
+  // Nummernkreise selbstheilend anheben (nie absenken; schützt vor
+  // ER_DUP_ENTRY nach Altbestand-Importen oder Reparatur-Eingriffen)
+  try {
+    const { heileNummernkreise } = await import("./lib/nummernkreisHeilung");
+    await heileNummernkreise();
+  } catch (e) {
+    console.error("[nummernkreise] Selbstheilung fehlgeschlagen:", e);
+  }
+
   // Kontenrahmen/Kategorien einmalig vorbefuellen + E-Mail-Abruf starten
   try {
     const { seedKontierung } = await import("./kontierungRouter");

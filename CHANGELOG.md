@@ -2,6 +2,27 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.7.1] — 2026-08-23
+
+### Sicherheit
+
+- **DB-Fehler werden maskiert:** Rohe Treiberfehler (Query-Text, Parameter,
+  Schema-Details) gehen bei Datenbank-Ausfaellen nicht mehr an den Client.
+  Der tRPC-errorFormatter zeigt eine generische Meldung; volle Details stehen
+  ausschliesslich im Server-Log. Fachliche Fehlermeldungen bleiben unberuehrt.
+  (Muster uebernommen aus Dr.PaWaWi v1.7.3)
+
+### Robustheit
+
+- **Nummernkreis-Selbstheilung beim Boot:** Zaehler (Rechnung, Angebot,
+  Lieferschein, Bestellung, Gutschrift) werden beim Start automatisch auf die
+  hoechste real vergebene Nummer angehoben, falls sie zurueckliegen — schuetzt
+  vor ER_DUP_ENTRY nach Altbestand-Importen oder Reparatur-Eingriffen.
+  Es wird niemals abgesenkt. (Muster aus Dr.PaWaWi v1.7.2)
+- **Migrations-Wachtest:** Neuer statischer Test (`api/migrate.test.ts`)
+  verhindert AFTER-Verweise auf spaeter angelegte Spalten, Doppel-Anlagen und
+  Selbstreferenzen bereits zur Build-Zeit.
+
 ## [1.7.0] — 2026-08-10
 
 ### Neu

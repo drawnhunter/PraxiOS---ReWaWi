@@ -13,7 +13,8 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "./queries/connection";
 
-const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = [
+// Exportiert für den statischen Ordnungs-Wachtest (api/migrate.test.ts)
+export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = [
   // Eigenes Login (Stufe 3)
   { tabelle: "users", spalte: "username", ddl: "ALTER TABLE users ADD COLUMN username VARCHAR(100) NULL AFTER unionId" },
   { tabelle: "users", spalte: "passwordHash", ddl: "ALTER TABLE users ADD COLUMN passwordHash VARCHAR(255) NULL AFTER username" },
