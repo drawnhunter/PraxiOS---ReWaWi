@@ -305,6 +305,81 @@ async function bucheAufEingangsrechnung(incomingId: number, datum: string): Prom
   await db.update(incomingInvoices).set({ bezahltAm: datum }).where(eq(incomingInvoices.id, incomingId));
 }
 
+/** Gemeinsame Persistenz + Auto-Match-Vorschau für CSV- und PDF-Import. */
+async function persistiereUndMatche(
+  bankAccountId: number,
+  dateiname: string,
+  vorlage: string,
+  zeilen: Zeile[],
+  uebersprungen: number,
+) {
+  const db = getDb();
+  const konto = await db.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, bankAccountId) });
+  if (!konto) throw new Error("Bankkonto nicht gefunden.");
+  if (zeilen.length === 0) throw new Error("Keine verwertbaren Zeilen (Datum/Betrag) gefunden.");
+
+  let summeEin = 0;
+  let summeAus = 0;
+  let duplikate = 0;
+  const neu: { id: number; z: Zeile }[] = [];
+
+  const [{ id: importId }] = await db
+    .insert(bankImporte)
+    .values({ bankAccountId, dateiname, vorlage })
+    .$returningId();
+
+  for (const z of zeilen) {
+    const hash = txHash(bankAccountId, z);
+    const vorhanden = await db.query.bankTransaktionen.findFirst({
+      where: and(eq(bankTransaktionen.bankAccountId, bankAccountId), eq(bankTransaktionen.hash, hash)),
+    });
+    if (vorhanden) { duplikate++; continue; }
+    const [{ id }] = await db
+      .insert(bankTransaktionen)
+      .values({
+        bankAccountId,
+        importId,
+        datum: z.datum,
+        name: z.name,
+        zweck: z.zweck || null,
+        betrag: z.betrag.toFixed(2),
+        gebuehr: z.gebuehr?.toFixed(2) ?? null,
+        saldoNach: z.saldo?.toFixed(2) ?? null,
+        hash,
+      })
+      .$returningId();
+    neu.push({ id, z });
+    if (z.betrag > 0) summeEin += z.betrag; else summeAus += -z.betrag;
+  }
+
+  await db
+    .update(bankImporte)
+    .set({ zeilen: neu.length, duplikate, summeEin: summeEin.toFixed(2), summeAus: summeAus.toFixed(2) })
+    .where(eq(bankImporte.id, importId));
+
+  // Auto-Match nur fuer neue, noch offene Transaktionen
+  const vorschau = [] as {
+    transaktionId: number; datum: string; name: string; zweck: string;
+    betrag: number; gebuehr: number | null; vorschlag: Vorschlag | null;
+  }[];
+  for (const { id, z } of neu) {
+    vorschau.push({
+      transaktionId: id, datum: z.datum, name: z.name, zweck: z.zweck,
+      betrag: z.betrag, gebuehr: z.gebuehr, vorschlag: await autoMatch(z),
+    });
+  }
+  return {
+    importId,
+    importiert: neu.length,
+    duplikate,
+    uebersprungen,
+    summeEin,
+    summeAus,
+    zugeordnet: vorschau.filter((v) => v.vorschlag).length,
+    vorschau,
+  };
+}
+
 export const bankTransaktionenRouter = createRouter({
   /** Schritt 1 (Import): Spalten erkennen + Mapping vorschlagen. */
   spaltenErkennen: authedQuery
@@ -321,77 +396,34 @@ export const bankTransaktionenRouter = createRouter({
   importieren: authedQuery
     .input(z.object({ bankAccountId: z.number(), dateiname: z.string().min(1).max(255), csvText: z.string().min(1), mapping: mappingInput }))
     .mutation(async ({ input }) => {
-      const db = getDb();
-      const konto = await db.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, input.bankAccountId) });
-      if (!konto) throw new Error("Bankkonto nicht gefunden.");
       const csvRows = parseCsv(input.csvText);
       const istSumUpVoll = input.mapping.betrag === "__sumup_voll__";
       const { zeilen, uebersprungen } = istSumUpVoll
         ? parseSumUpVollZeilen(csvRows)
         : { zeilen: parseZeilen(csvRows, input.mapping), uebersprungen: 0 };
-      if (zeilen.length === 0) throw new Error("Keine verwertbaren Zeilen (Datum/Betrag) gefunden.");
       const { vorlage } = errate(Object.keys(csvRows[0] ?? {}));
+      return persistiereUndMatche(input.bankAccountId, input.dateiname, vorlage, zeilen, uebersprungen);
+    }),
 
-      let summeEin = 0;
-      let summeAus = 0;
-      let duplikate = 0;
-      const neu: { id: number; z: Zeile }[] = [];
-
-      const [{ id: importId }] = await db
-        .insert(bankImporte)
-        .values({ bankAccountId: input.bankAccountId, dateiname: input.dateiname, vorlage })
-        .$returningId();
-
-      for (const z of zeilen) {
-        const hash = txHash(input.bankAccountId, z);
-        const vorhanden = await db.query.bankTransaktionen.findFirst({
-          where: and(eq(bankTransaktionen.bankAccountId, input.bankAccountId), eq(bankTransaktionen.hash, hash)),
-        });
-        if (vorhanden) { duplikate++; continue; }
-        const [{ id }] = await db
-          .insert(bankTransaktionen)
-          .values({
-            bankAccountId: input.bankAccountId,
-            importId,
-            datum: z.datum,
-            name: z.name,
-            zweck: z.zweck || null,
-            betrag: z.betrag.toFixed(2),
-            gebuehr: z.gebuehr?.toFixed(2) ?? null,
-            saldoNach: z.saldo?.toFixed(2) ?? null,
-            hash,
-          })
-          .$returningId();
-        neu.push({ id, z });
-        if (z.betrag > 0) summeEin += z.betrag; else summeAus += -z.betrag;
-      }
-
-      await db
-        .update(bankImporte)
-        .set({ zeilen: neu.length, duplikate, summeEin: summeEin.toFixed(2), summeAus: summeAus.toFixed(2) })
-        .where(eq(bankImporte.id, importId));
-
-      // Auto-Match nur fuer neue, noch offene Transaktionen
-      const vorschau = [] as {
-        transaktionId: number; datum: string; name: string; zweck: string;
-        betrag: number; gebuehr: number | null; vorschlag: Vorschlag | null;
-      }[];
-      for (const { id, z } of neu) {
-        vorschau.push({
-          transaktionId: id, datum: z.datum, name: z.name, zweck: z.zweck,
-          betrag: z.betrag, gebuehr: z.gebuehr, vorschlag: await autoMatch(z),
-        });
-      }
-      return {
-        importId,
-        importiert: neu.length,
-        duplikate,
+  /** SumUp Geschäftskonto: Kontoauszug als PDF (Textebene, keine OCR nötig). */
+  importierenPdf: authedQuery
+    .input(z.object({
+      bankAccountId: z.number(),
+      dateiname: z.string().min(1).max(255),
+      pdfBase64: z.string().min(100).max(40 * 1024 * 1024),
+    }))
+    .mutation(async ({ input }) => {
+      const { liesSumUpKontoauszug } = await import("./lib/sumupKontoauszug");
+      const puffer = new Uint8Array(Buffer.from(input.pdfBase64, "base64"));
+      const { zeilen, uebersprungen, meta } = await liesSumUpKontoauszug(puffer);
+      const ergebnis = await persistiereUndMatche(
+        input.bankAccountId,
+        input.dateiname,
+        "SumUp Kontoauszug (PDF)",
+        zeilen,
         uebersprungen,
-        summeEin,
-        summeAus,
-        zugeordnet: vorschau.filter((v) => v.vorschlag).length,
-        vorschau,
-      };
+      );
+      return { ...ergebnis, auszugMeta: meta };
     }),
 
   /** Schritt 3: Ausgewaehlte Auto-Vorschlaege buchen (Batch). */

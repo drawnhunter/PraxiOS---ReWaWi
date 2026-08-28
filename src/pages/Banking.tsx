@@ -509,21 +509,50 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
   const [mapping, setMapping] = useState<Mapping | null>(null);
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<number>>(new Set());
 
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const erkennen = trpc.bankTrans.spaltenErkennen.useMutation({
     onSuccess: (d) => setMapping(d.mapping as Mapping),
   });
   const importieren = trpc.bankTrans.importieren.useMutation();
+  const importierenPdf = trpc.bankTrans.importierenPdf.useMutation({
+    onSuccess: (d) => {
+      const start = new Set<number>();
+      d.vorschau.forEach((v) => {
+        if (v.vorschlag && v.vorschlag.sicherheit === "sicher") start.add(v.transaktionId);
+      });
+      setAusgewaehlt(start);
+    },
+  });
   const buchen = trpc.bankTrans.zuordnungenBuchen.useMutation({
     onSuccess: () => {
       onChanged();
       setCsvText(null);
+      setPdfBase64(null);
       setDateiname("");
       setMapping(null);
       importieren.reset();
+      importierenPdf.reset();
     },
   });
 
   const dateiLesen = (datei: File) => {
+    importieren.reset();
+    importierenPdf.reset();
+    erkennen.reset();
+    setMapping(null);
+    setCsvText(null);
+    setPdfBase64(null);
+    setDateiname(datei.name);
+    if (datei.name.toLowerCase().endsWith(".pdf")) {
+      // SumUp-Kontoauszug (PDF mit Textebene) — geht serverseitig
+      const leser = new FileReader();
+      leser.onload = () => {
+        const roh = leser.result as string;
+        setPdfBase64(roh.slice(roh.indexOf(",") + 1));
+      };
+      leser.readAsDataURL(datei);
+      return;
+    }
     const leser = new FileReader();
     leser.onload = () => {
       const text = leser.result as string;
@@ -538,8 +567,6 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
     leser.readAsText(datei, "utf-8");
     const fertig = (text: string) => {
       setCsvText(text);
-      setDateiname(datei.name);
-      importieren.reset();
       erkennen.mutate({ csvText: text });
     };
   };
@@ -560,7 +587,7 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
     );
   };
 
-  const ergebnis = importieren.data;
+  const ergebnis = importieren.data ?? importierenPdf.data ?? null;
   const summeAusgewaehlt = (ergebnis?.vorschau ?? [])
     .filter((v) => ausgewaehlt.has(v.transaktionId))
     .reduce((a, v) => a + Math.abs(v.betrag), 0);
@@ -579,10 +606,10 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
             </SelectContent>
           </Select>
           <Button variant="outline" onClick={() => dateiRef.current?.click()}>
-            <Upload className="mr-1.5 h-4 w-4" /> CSV-Datei wählen
+            <Upload className="mr-1.5 h-4 w-4" /> CSV- oder PDF-Datei wählen
           </Button>
           <input
-            ref={dateiRef} type="file" accept=".csv,.txt,.tsv" className="hidden"
+            ref={dateiRef} type="file" accept=".csv,.txt,.tsv,.pdf" className="hidden"
             onChange={(e) => e.target.files?.[0] && dateiLesen(e.target.files[0])}
           />
           {dateiname && <span className="text-sm text-neutral-600">{dateiname}</span>}
@@ -596,10 +623,33 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
           <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{erkennen.error.message}</p>
         )}
         <p className="mt-3 text-xs text-neutral-400">
+          CSV (Bank-Export, SumUp-Vollexport) oder PDF (SumUp Geschäftskonto → Kontoauszug).
           Der Import speichert alle Buchungen dauerhaft (Duplikate werden erkannt und übersprungen)
           — Ein- und Ausgänge. Die Zuordnung erfolgt danach in Ruhe.
         </p>
       </section>
+
+      {pdfBase64 && !ergebnis && (
+        <section className="rounded-lg border border-green-200 bg-green-50 p-5">
+          <h2 className="mb-1 text-sm font-medium text-green-900">2. SumUp-Kontoauszug (PDF) — Import starten</h2>
+          <p className="text-sm text-green-800">
+            Der Auszug wird direkt von der Textebene gelesen (kein OCR) — inkl. stabiler
+            Transaktions-IDs und Saldo nach jeder Buchung. Nicht genehmigte Buchungen werden
+            übersprungen und beim nächsten Auszug automatisch nachgeholt.
+          </p>
+          <Button
+            className="mt-3"
+            disabled={importierenPdf.isPending}
+            onClick={() => importierenPdf.mutate({ bankAccountId: kontoId, dateiname, pdfBase64 })}
+          >
+            <Landmark className="mr-1.5 h-4 w-4" />
+            {importierenPdf.isPending ? "Importiere …" : "Kontoauszug importieren und analysieren"}
+          </Button>
+          {importierenPdf.error && (
+            <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{importierenPdf.error.message}</p>
+          )}
+        </section>
+      )}
 
       {erkennen.data && mapping && !ergebnis && (erkennen.data.vorlage.includes("Vollexport")) && (
         <section className="rounded-lg border border-green-200 bg-green-50 p-5">
@@ -653,6 +703,17 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
       {ergebnis && (
         <section className="rounded-lg border border-neutral-200 bg-white p-5">
           <h2 className="mb-1 text-sm font-medium text-neutral-700">3. Vorschau — Auto-Zuordnung prüfen</h2>
+          {importierenPdf.data?.auszugMeta && (
+            <p className={`mb-2 rounded-md px-3 py-2 text-xs ${importierenPdf.data.auszugMeta.pruefsummeOk ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
+              Kontoauszug-Prüfsumme: {importierenPdf.data.auszugMeta.pruefsummeOk
+                ? "stimmt (Anfangsguthaben + Buchungen = Endguthaben ✓)"
+                : importierenPdf.data.auszugMeta.pruefsummeOk === false
+                  ? "weicht ab — bitte Zeitraum/Vollständigkeit prüfen"
+                  : "nicht prüfbar (Kopfzeilen fehlten)"}
+              {importierenPdf.data.auszugMeta.endSaldo !== null &&
+                ` · Endguthaben laut Auszug: ${geld(importierenPdf.data.auszugMeta.endSaldo)}`}
+            </p>
+          )}
           <p className="mb-3 text-xs text-neutral-400">
             {ergebnis.importiert} importiert
             {ergebnis.duplikate > 0 ? ` · ${ergebnis.duplikate} Duplikate übersprungen` : ""}

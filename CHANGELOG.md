@@ -2,6 +2,18 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.7.2] — 2026-08-23
+
+### Neu
+
+- **Banking: SumUp-Kontoauszug als PDF importieren.** Der Auszug aus dem
+  SumUp-Geschaeftskonto („Geschaeftskonto → Kontoauszug", PDF mit Textebene)
+  wird jetzt direkt gelesen — ohne OCR. Inklusive stabiler Transaktions-IDs
+  (formatuebergreifender Duplikat-Schutz mit dem CSV-Vollexport), Saldo nach
+  jeder Buchung und **Pruefsummen-Abgleich** (Anfangsguthaben + Buchungen =
+  Endguthaben) mit Anzeige im Importergebnis. Nicht genehmigte Buchungen
+  werden uebersprungen und beim naechsten Auszug automatisch nachgeholt.
+
 ## [1.7.1] — 2026-08-23
 
 ### Sicherheit
