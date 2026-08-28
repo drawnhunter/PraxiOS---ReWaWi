@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
-import { mailLog, invoices, customers } from "@db/schema";
+import { mailLog, invoices, customers, offers, creditNotes } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { ladeSmtp } from "./lib/smtp";
 import { renderBelegPdf } from "./pdf";
@@ -124,6 +124,7 @@ export const mailRouter = createRouter({
         betreff: z.string().min(1).max(500),
         text: z.string().min(1).max(10000),
         mitXrechnung: z.boolean().default(false),
+        alsStandard: z.boolean().default(false),
       }),
     )
     .mutation(async ({ input }) => {
@@ -177,7 +178,9 @@ export const mailRouter = createRouter({
             },
             kunde: {
               name: r.kundeName, strasse: r.kundeStrasse, plz: r.kundePlz,
-              ort: r.kundeOrt, land: r.kundeLand, email: kundeRow?.email ?? null,
+              ort: r.kundeOrt, land: r.kundeLand,
+              // Die im Versand-Dialog eingetragene Adresse hat Vorrang (dorthin geht die Mail)
+              email: input.empfaenger || kundeRow?.email || null,
             },
             bank: bankSnap?.iban
               ? { iban: bankSnap.iban, bic: bankSnap.bic ?? null }
@@ -187,7 +190,12 @@ export const mailRouter = createRouter({
             items: r.items.map((it) => ({
               bezeichnung: it.bezeichnung, menge: it.menge, einheit: it.einheit,
               einzelpreis: it.einzelpreis, ustSatz: it.ustSatz,
+              rabattArt: it.rabattArt as "prozent" | "festwert" | null,
+              rabattWert: it.rabattWert,
             })),
+            hauptrabattArt: r.hauptrabattArt as "prozent" | "festwert" | null,
+            hauptrabattWert: r.hauptrabattWert,
+            rabattAddieren: r.rabattAddieren,
           });
           anhaenge.push({
             filename: `XRechnung ${r.nummer}.xml`,
@@ -223,6 +231,26 @@ export const mailRouter = createRouter({
       });
 
       if (!erfolg) throw new Error(`Versand fehlgeschlagen: ${fehler}`);
+
+      // Optional: Dialog-Adresse als Standard-E-Mail des Kunden hinterlegen
+      if (input.alsStandard && input.art !== "reminder") {
+        try {
+          const belegRow = input.art === "invoice"
+            ? await db.query.invoices.findFirst({ where: eq(invoices.id, input.id) })
+            : input.art === "offer"
+              ? await db.query.offers.findFirst({ where: eq(offers.id, input.id) })
+              : await db.query.creditNotes.findFirst({ where: eq(creditNotes.id, input.id) });
+          const kundenId = (belegRow as { customerId?: number } | undefined)?.customerId;
+          if (kundenId) {
+            const kundeRow = await db.query.customers.findFirst({ where: eq(customers.id, kundenId) });
+            if (kundeRow && kundeRow.email !== input.empfaenger) {
+              await db.update(customers).set({ email: input.empfaenger }).where(eq(customers.id, kundenId));
+            }
+          }
+        } catch (e) {
+          console.error("[mail] Standard-Adresse speichern fehlgeschlagen:", e);
+        }
+      }
       return { ok: true };
     }),
 

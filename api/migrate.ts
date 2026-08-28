@@ -52,6 +52,12 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "company_settings", spalte: "glaeubiger_id", ddl: "ALTER TABLE company_settings ADD COLUMN glaeubiger_id VARCHAR(30) NULL" },
   { tabelle: "invoices", spalte: "archiviert", ddl: "ALTER TABLE invoices ADD COLUMN archiviert TINYINT(1) NOT NULL DEFAULT 0" },
   { tabelle: "suppliers", spalte: "kategorie_id", ddl: "ALTER TABLE suppliers ADD COLUMN kategorie_id BIGINT UNSIGNED NULL, ADD INDEX suppliers_kategorie (kategorie_id), ADD CONSTRAINT suppliers_kategorie_fk FOREIGN KEY (kategorie_id) REFERENCES kategorien(id) ON DELETE SET NULL" },
+  { tabelle: "invoice_items", spalte: "rabatt_art", ddl: "ALTER TABLE invoice_items ADD COLUMN rabatt_art VARCHAR(10) NULL AFTER ust_satz" },
+  { tabelle: "invoice_items", spalte: "rabatt_wert", ddl: "ALTER TABLE invoice_items ADD COLUMN rabatt_wert DECIMAL(12,2) NULL AFTER rabatt_art" },
+  { tabelle: "invoices", spalte: "hauptrabatt_art", ddl: "ALTER TABLE invoices ADD COLUMN hauptrabatt_art VARCHAR(10) NULL AFTER brutto" },
+  { tabelle: "invoices", spalte: "hauptrabatt_wert", ddl: "ALTER TABLE invoices ADD COLUMN hauptrabatt_wert DECIMAL(12,2) NULL AFTER hauptrabatt_art" },
+  { tabelle: "invoices", spalte: "rabatt_addieren", ddl: "ALTER TABLE invoices ADD COLUMN rabatt_addieren TINYINT(1) NOT NULL DEFAULT 0 AFTER hauptrabatt_wert" },
+  { tabelle: "company_settings", spalte: "waehrung", ddl: "ALTER TABLE company_settings ADD COLUMN waehrung VARCHAR(10) NOT NULL DEFAULT '€' AFTER ust_id_nr" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -338,6 +344,28 @@ const SCHEMA_UPDATES: { name: string; check: (db: string) => string; ddl: string
     check: (db) =>
       `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='post_eingang' AND COLUMN_NAME='typ' AND COLUMN_TYPE LIKE '%lieferschein%'`,
     ddl: "ALTER TABLE post_eingang MODIFY typ ENUM('rechnung','lieferschein','gutschrift','sonstiges') NOT NULL DEFAULT 'rechnung'",
+  },
+  {
+    // v1.8 Schritt 1: Angebots-Status um offen/bestaetigt/abgelehnt erweitern
+    // (Union-Enum, damit Bestandsdaten 'finalisiert' gueltig bleiben)
+    name: "offers.status Enum erweitern",
+    check: (db) =>
+      `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='offers' AND COLUMN_NAME='status' AND COLUMN_TYPE LIKE '%offen%'`,
+    ddl: "ALTER TABLE offers MODIFY status ENUM('entwurf','finalisiert','offen','bestaetigt','abgelehnt','umgewandelt','storniert') NOT NULL DEFAULT 'entwurf'",
+  },
+  {
+    // v1.8 Schritt 2: Bestandsdaten finalisiert → offen
+    name: "offers.status finalisiert→offen",
+    check: (db) =>
+      `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='offers' AND COLUMN_NAME='status' AND COLUMN_TYPE NOT LIKE '%finalisiert%'`,
+    ddl: "UPDATE offers SET status='offen' WHERE status='finalisiert'",
+  },
+  {
+    // v1.8 Schritt 3: Enum auf Endzustand (ohne 'finalisiert')
+    name: "offers.status Enum final",
+    check: (db) =>
+      `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='offers' AND COLUMN_NAME='status' AND COLUMN_TYPE NOT LIKE '%finalisiert%'`,
+    ddl: "ALTER TABLE offers MODIFY status ENUM('entwurf','offen','bestaetigt','abgelehnt','umgewandelt','storniert') NOT NULL DEFAULT 'entwurf'",
   },
 ];
 

@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus , Search } from "lucide-react";
+import { Plus , Search, FileUp } from "lucide-react";
 
 export default function DeliveryNotes() {
   const [neuDialog, setNeuDialog] = useState(false);
@@ -34,6 +34,34 @@ export default function DeliveryNotes() {
   const erstellen = trpc.deliveryNotes.createDraft.useMutation({
     onSuccess: (res) => navigate(`/lieferscheine/${res.id}`),
   });
+
+  // ── NEM-Word-Import ──
+  const [importOffen, setImportOffen] = useState(false);
+  const [importDatei, setImportDatei] = useState<string>("");
+  const vorschau = trpc.deliveryNotes.wordVorschau.useMutation();
+  const anlegen = trpc.deliveryNotes.wordAnlegen.useMutation({
+    onSuccess: (res) => {
+      setImportOffen(false);
+      vorschau.reset();
+      setImportDatei("");
+      navigate(`/lieferscheine/${res.id}`);
+    },
+  });
+  const [importKunde, setImportKunde] = useState<string>("");
+
+  const wordDateiLesen = (datei: File) => {
+    const leser = new FileReader();
+    leser.onload = () => {
+      const roh = leser.result as string;
+      const b64 = roh.slice(roh.indexOf(",") + 1);
+      setImportDatei(datei.name);
+      vorschau.mutate(
+        { dateiBase64: b64 },
+        { onSuccess: (d) => setImportKunde(d.kundeVorschlag ? String(d.kundeVorschlag.id) : "") },
+      );
+    };
+    leser.readAsDataURL(datei);
+  };
 
   const [q, setQ] = useState("");
   const sort = useSortierung<NonNullable<typeof liste.data>[number]>("datum");
@@ -63,6 +91,9 @@ export default function DeliveryNotes() {
               ]),
             ]}
           />
+          <Button variant="outline" onClick={() => setImportOffen(true)}>
+            <FileUp className="mr-1.5 h-4 w-4" /> NEM-Word-Import
+          </Button>
           <Button onClick={() => setNeuDialog(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> Neuer Lieferschein
           </Button>
@@ -160,6 +191,118 @@ export default function DeliveryNotes() {
               Entwurf anlegen
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* NEM-Word-Import */}
+      <Dialog open={importOffen} onOpenChange={setImportOffen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>NEM-Liste aus Word importieren</DialogTitle>
+          </DialogHeader>
+          {!vorschau.data && (
+            <div>
+              <p className="mb-3 text-sm text-neutral-500">
+                Word-Datei (.docx) wählen — einheitliche Vorlage (Tabelle) oder alte
+                Freitext-Liste. Erzeugt einen Lieferschein-Entwurf; Artikel werden
+                automatisch dem Produktstamm zugeordnet.
+              </p>
+              <Input
+                type="file"
+                accept=".docx"
+                onChange={(e) => e.target.files?.[0] && wordDateiLesen(e.target.files[0])}
+              />
+              {vorschau.isPending && <p className="mt-2 text-sm text-neutral-500">Analysiere …</p>}
+              {vorschau.error && (
+                <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{vorschau.error.message}</p>
+              )}
+            </div>
+          )}
+          {vorschau.data && (
+            <div className="space-y-3">
+              <p className="text-sm text-neutral-600">
+                <strong>{importDatei}</strong> — {vorschau.data.positionen.length} Positionen
+                {vorschau.data.phase ? ` · ${vorschau.data.phase}` : ""}
+                {vorschau.data.datum ? ` · ${vorschau.data.datum}` : ""}
+                {vorschau.data.format === "freitext" ? " · altes Freitext-Format erkannt" : ""}
+              </p>
+              <div>
+                <label className="mb-1 block text-xs text-neutral-500">Kunde</label>
+                <Select value={importKunde} onValueChange={setImportKunde}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Kunde auswählen …" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(kunden.data ?? []).map((k) => (
+                      <SelectItem key={k.id} value={String(k.id)}>
+                        {k.name}
+                        {vorschau.data.kundeVorschlag?.id === k.id ? " (erkannt)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="max-h-64 overflow-y-auto rounded-md border border-neutral-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500">
+                      <th className="px-3 py-2 font-medium">Position</th>
+                      <th className="px-3 py-2 text-right font-medium">Menge</th>
+                      <th className="px-3 py-2 text-right font-medium">Einzelpreis</th>
+                      <th className="px-3 py-2 font-medium">Produktstamm</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vorschau.data.positionen.map((p, i) => (
+                      <tr key={i} className="border-b border-neutral-100 last:border-0">
+                        <td className="px-3 py-1.5">{p.bezeichnung}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{p.menge}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {p.einzelpreis !== null ? p.einzelpreis.toFixed(2) + " €" : "–"}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          {p.produktId ? (
+                            <span className="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-800">
+                              {p.produktName}
+                            </span>
+                          ) : (
+                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">frei</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {anlegen.error && (
+                <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{anlegen.error.message}</p>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { vorschau.reset(); setImportDatei(""); }}>
+                  Andere Datei
+                </Button>
+                <Button
+                  disabled={!importKunde || anlegen.isPending}
+                  onClick={() => {
+                    const d = vorschau.data!;
+                    anlegen.mutate({
+                      customerId: Number(importKunde),
+                      datum: new Date().toISOString().slice(0, 10),
+                      pdfNotiz: [d.phase, d.name ? `NEM: ${d.name}` : ""].filter(Boolean).join(" · "),
+                      bemerkung: `Import aus Word: ${importDatei}`,
+                      items: d.positionen.map((p) => ({
+                        bezeichnung: p.bezeichnung,
+                        menge: String(p.menge),
+                        einheit: "Packung",
+                      })),
+                    });
+                  }}
+                >
+                  {anlegen.isPending ? "Lege an …" : "Lieferschein-Entwurf anlegen"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

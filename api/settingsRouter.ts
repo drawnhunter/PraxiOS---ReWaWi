@@ -15,6 +15,7 @@ const settingsInput = z.object({
   handelsregister: z.string().nullable().optional(),
   steuernummer: z.string().nullable().optional(),
   ustIdNr: z.string().nullable().optional(),
+  waehrung: z.string().min(1).max(10).optional(),
   email: z.string().nullable().optional(),
   telefon: z.string().nullable().optional(),
   webseite: z.string().nullable().optional(),

@@ -29,6 +29,8 @@ const itemInput = z.object({
   einheit: z.string().min(1).default("Stück"),
   einzelpreis: z.string().regex(/^-?\d+(\.\d{1,2})?$/, "Preis mit max. 2 Dezimalstellen"),
   ustSatz: z.number().int().refine((v) => [19, 7, 0].includes(v), "Nur 19 %, 7 % oder 0 %"),
+  rabattArt: z.enum(["prozent", "festwert"]).nullable().optional(),
+  rabattWert: z.string().regex(/^\d+(\.\d{1,2})?$/, "Rabatt mit max. 2 Dezimalstellen").nullable().optional(),
 });
 
 const kopfInput = z.object({
@@ -46,6 +48,9 @@ const kopfInput = z.object({
   pdfNotiz: z.string().nullable().optional(),
   bereitsBezahlt: z.boolean().optional(),
   bemerkung: z.string().nullable().optional(),
+  hauptrabattArt: z.enum(["prozent", "festwert"]).nullable().optional(),
+  hauptrabattWert: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+  rabattAddieren: z.boolean().optional(),
 });
 
 async function ladeRechnungMitDetails(id: number) {
@@ -150,7 +155,13 @@ export const invoiceRouter = createRouter({
         throw new Error("Nur Entwürfe können bearbeitet werden (GoBD).");
       }
 
-      const totals = computeTotals(input.items);
+      const totals = computeTotals(
+        input.items,
+        input.kopf.hauptrabattArt && input.kopf.hauptrabattWert
+          ? { art: input.kopf.hauptrabattArt, wert: Number(input.kopf.hauptrabattWert) }
+          : null,
+        input.kopf.rabattAddieren ?? false,
+      );
 
       await db.transaction(async (tx) => {
         await tx
@@ -164,6 +175,9 @@ export const invoiceRouter = createRouter({
             netto: centToDecimal(totals.nettoCent),
             ust: centToDecimal(totals.ustCent),
             brutto: centToDecimal(totals.bruttoCent),
+            hauptrabattArt: input.kopf.hauptrabattArt ?? null,
+            hauptrabattWert: input.kopf.hauptrabattWert ?? null,
+            rabattAddieren: input.kopf.rabattAddieren ?? false,
           })
           .where(eq(invoices.id, input.id));
 
@@ -179,6 +193,8 @@ export const invoiceRouter = createRouter({
               einheit: it.einheit,
               einzelpreis: it.einzelpreis,
               ustSatz: it.ustSatz,
+              rabattArt: it.rabattArt ?? null,
+              rabattWert: it.rabattWert ?? null,
             })),
           );
         }
@@ -376,6 +392,9 @@ export const invoiceRouter = createRouter({
           bereitsBezahlt: false,
           pdfNotiz: r.pdfNotiz,
           bemerkung: r.bemerkung,
+          hauptrabattArt: r.hauptrabattArt,
+          hauptrabattWert: r.hauptrabattWert,
+          rabattAddieren: r.rabattAddieren,
         })
         .$returningId();
       if (r.items.length > 0) {
@@ -389,6 +408,8 @@ export const invoiceRouter = createRouter({
             einheit: it.einheit,
             einzelpreis: it.einzelpreis,
             ustSatz: it.ustSatz,
+            rabattArt: it.rabattArt,
+            rabattWert: it.rabattWert,
           })),
         );
       }

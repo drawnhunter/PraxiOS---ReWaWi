@@ -2,6 +2,43 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.8.0] — 2026-08-28
+
+### Neu
+
+- **Produkt-Suche ueberall:** Produktstamm-Auswahl in Rechnung, Angebot,
+  Bestellung und Lieferschein jetzt mit Suchfeld und tippfehlertoleranter
+  Fuzzy-Suche (findet auch naheliegende Begriffe). Dieselbe Suche steckt in
+  der Bezeichnungs-Zeile jeder freien Position — Tippen zeigt Vorschlaege,
+  Klick uebernimmt Name, Beschreibung, Einheit, Preis (inkl. Kundenkondition)
+  und USt-Satz.
+- **NEM-/Word-Import:** Lieferscheine koennen aus Word-Dateien (.docx)
+  erzeugt werden — einheitliche Tabellen-Vorlage und alte Freitext-Listen
+  werden erkannt. Artikel werden automatisch dem Produktstamm zugeordnet
+  (Fuzzy-Match, Vorschau mit Ampel), der Kunde wird aus dem Dokumentnamen
+  vorgeschlagen. Ergebnis: Lieferschein-Entwurf.
+- **Rabatte in Rechnungen:** neue Spalte „Rabatt" je Position (% oder
+  Festwert in der konfigurierbaren Waehrung) plus Hauptrabatt auf Belegebene
+  mit optionalem Addier-Modus. PDF, XRechnung (EN16931 AllowanceCharges) und
+  Summen rechnen konsistent; Duplizieren uebernimmt Rabatte.
+- **Angebote: neue Statuslogik** — offen (= versendet), bestaetigt (gruen),
+  abgelehnt, verstrichen (automatisch bei ueberschrittenem Gueltigkeitsdatum).
+  Finalisieren fragt jetzt das Angebotszeitfenster: 7 / 14 / 30 Tage oder
+  freie Tageszahl. Umwandeln in Rechnung aus offen/bestaetigt.
+- **Einstellungen: Waehrung waehlbar** (Symbol/Code, z. B. €, $, CHF) —
+  Grundlage fuer Auslandslieferungen.
+
+### Fehlerbehebungen
+
+- Angebots-PDF trug im Metadaten-Titel faelschlich „Gutschrift" (jetzt
+  „Angebot").
+- Rechnungsliste: ueberfaellige Rechnungen zeigen nur noch das
+  Ueberfaellig-Label, nicht mehr mehrere Badges gleichzeitig.
+- XRechnung-Versand: die im Versand-Dialog eingetragene Empfaenger-Adresse
+  wird jetzt auch als Kaeufer-Adresse (BT-49) verwendet — kein Zwang mehr,
+  sie vorher beim Kunden zu hinterlegen. Optional nach dem Versand als
+  Standard-E-Mail des Kunden speichern (Checkbox).
+
 ## [1.7.2] — 2026-08-23
 
 ### Neu

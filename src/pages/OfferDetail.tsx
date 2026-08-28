@@ -5,6 +5,14 @@ import { geld, datum, parseGeldInput, parseMengeInput, mengeFmt } from "@/lib/fo
 import { computeTotals, EINHEITEN, UST_SAETZE } from "@contracts/invoicing";
 import { offerStatusBadge } from "./Offers";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ProduktPicker } from "@/components/ProduktSuche";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,7 +72,6 @@ export default function OfferDetail() {
 
   const [kopf, setKopf] = useState<EditKopf | null>(null);
   const [items, setItems] = useState<EditItem[]>([]);
-  const [produktWahl, setProduktWahl] = useState<string>("");
   const [fehler, setFehler] = useState<string>("");
 
   const a = angebot.data;
@@ -123,6 +130,10 @@ export default function OfferDetail() {
     onSuccess: () => navigate("/angebote"),
   });
   const storno = trpc.offers.stornieren.useMutation({ onSuccess: inval });
+  const setStatus = trpc.offers.setStatus.useMutation({ onSuccess: inval });
+  const [finDialog, setFinDialog] = useState(false);
+  const [fensterWahl, setFensterWahl] = useState<string>("14");
+  const [fensterCustom, setFensterCustom] = useState<string>("");
   const umwandeln = trpc.offers.umwandeln.useMutation({
     onSuccess: (res) => navigate(`/rechnungen/${res.invoiceId}`),
   });
@@ -166,9 +177,14 @@ export default function OfferDetail() {
 
   const speichernUndFinalisieren = async () => {
     setFehler("");
+    const tage = fensterWahl === "custom" ? Number(fensterCustom) : Number(fensterWahl);
     try {
       await speichern.mutateAsync(bauePayload());
-      await finalisieren.mutateAsync({ id: a.id });
+      await finalisieren.mutateAsync({
+        id: a.id,
+        gueltigTage: Number.isFinite(tage) && tage > 0 ? tage : undefined,
+      });
+      setFinDialog(false);
     } catch (e) {
       setFehler(e instanceof Error ? e.message : "Fehler beim Finalisieren");
     }
@@ -204,7 +220,6 @@ export default function OfferDetail() {
         ustSatz: p.ustSatz,
       },
     ]);
-    setProduktWahl("");
   };
 
   const kundenAdresseUebernehmen = (kundenIdStr: string) => {
@@ -231,13 +246,32 @@ export default function OfferDetail() {
           <h1 className="text-xl font-semibold tracking-tight">
             {a.nummer ?? `Angebotsentwurf #${a.id}`}
           </h1>
-          {offerStatusBadge(a.status)}
+          {offerStatusBadge(a)}
         </div>
         <div className="flex items-center gap-2">
           <PdfButton art="offer" id={a.id} />
           <PdfVorschau art="offer" id={a.id} titel={`Angebot ${a.nummer ?? 'Entwurf'}`} />
           <MailDialog art="offer" id={a.id} />
-          {a.status === "finalisiert" && !a.convertedInvoiceId && (
+          {(a.status === "offen" || a.status === "bestaetigt" || a.status === "abgelehnt") && (
+            <>
+              {a.status !== "bestaetigt" && (
+                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => setStatus.mutate({ id: a.id, status: "bestaetigt" })}>
+                  Kunde bestätigt
+                </Button>
+              )}
+              {a.status !== "abgelehnt" && (
+                <Button variant="outline" size="sm" onClick={() => setStatus.mutate({ id: a.id, status: "abgelehnt" })}>
+                  Abgelehnt
+                </Button>
+              )}
+              {a.status !== "offen" && (
+                <Button variant="ghost" size="sm" onClick={() => setStatus.mutate({ id: a.id, status: "offen" })}>
+                  Zurück auf offen
+                </Button>
+              )}
+            </>
+          )}
+          {(a.status === "offen" || a.status === "bestaetigt") && !a.convertedInvoiceId && (
             <>
               <Button size="sm" onClick={() => umwandeln.mutate({ id: a.id })} disabled={umwandeln.isPending}>
                 <FileCheck2 className="mr-1.5 h-4 w-4" /> In Rechnung umwandeln
@@ -459,18 +493,7 @@ export default function OfferDetail() {
           <h2 className="text-sm font-medium text-neutral-700">Positionen</h2>
           {istEntwurf && (
             <div className="flex items-center gap-2">
-              <Select value={produktWahl} onValueChange={produktUebernehmen}>
-                <SelectTrigger className="w-64">
-                  <SelectValue placeholder="Aus Produktstamm hinzufügen …" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(produkte.data ?? []).map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name} ({geld(p.preisNetto)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ProduktPicker produkte={produkte.data ?? []} onPick={(p) => produktUebernehmen(String(p.id))} />
               <Button
                 variant="outline"
                 size="sm"
@@ -696,12 +719,66 @@ export default function OfferDetail() {
             <Button variant="outline" onClick={speichernKlick} disabled={speichern.isPending}>
               Entwurf speichern
             </Button>
-            <Button onClick={speichernUndFinalisieren} disabled={speichern.isPending}>
-              Finalisieren &amp; Nummer vergeben
+            <Button onClick={() => setFinDialog(true)} disabled={speichern.isPending}>
+              Finalisieren &amp; versenden
             </Button>
           </div>
         </div>
       )}
+      {/* Finalisieren: Angebotszeitfenster wählen */}
+      <Dialog open={finDialog} onOpenChange={setFinDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Angebot finalisieren &amp; versenden</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-neutral-500">
+            Status wird „Offen“ (= an den Kunden versendet). Gültigkeitsfenster wählen:
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { w: "7", l: "Klein (7 Tage)" },
+              { w: "14", l: "Mittel (14 Tage)" },
+              { w: "30", l: "Groß (30 Tage)" },
+            ].map((o) => (
+              <Button
+                key={o.w}
+                type="button"
+                variant={fensterWahl === o.w ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFensterWahl(o.w)}
+              >
+                {o.l}
+              </Button>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                variant={fensterWahl === "custom" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFensterWahl("custom")}
+              >
+                Eigene:
+              </Button>
+              <Input
+                className="w-20"
+                value={fensterCustom}
+                onChange={(e) => { setFensterCustom(e.target.value); setFensterWahl("custom"); }}
+                placeholder="Tage"
+                inputMode="numeric"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFinDialog(false)}>Abbrechen</Button>
+            <Button
+              onClick={speichernUndFinalisieren}
+              disabled={speichern.isPending || (fensterWahl === "custom" && (!Number(fensterCustom) || Number(fensterCustom) < 1))}
+            >
+              Finalisieren
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -35,7 +35,12 @@ export interface XrechnungEingabe {
     einheit: string;
     einzelpreis: string;
     ustSatz: number;
+    rabattArt?: "prozent" | "festwert" | null;
+    rabattWert?: string | null;
   }[];
+  hauptrabattArt?: "prozent" | "festwert" | null;
+  hauptrabattWert?: string | null;
+  rabattAddieren?: boolean;
 }
 
 // UN/ECE Recommendation 20 — gebräuchliche Einheiten
@@ -111,7 +116,13 @@ export function erzeugeXrechnung(e: XrechnungEingabe): string {
       einzelpreis: it.einzelpreis,
       menge: it.menge,
       ustSatz: it.ustSatz,
+      rabattArt: it.rabattArt ?? null,
+      rabattWert: it.rabattWert ?? null,
     })),
+    e.hauptrabattArt && e.hauptrabattWert
+      ? { art: e.hauptrabattArt, wert: Number(e.hauptrabattWert) }
+      : null,
+    e.rabattAddieren ?? false,
   );
 
   const zeilenXml = e.items
@@ -132,7 +143,15 @@ export function erzeugeXrechnung(e: XrechnungEingabe): string {
       <ram:SpecifiedLineTradeDelivery>
         <ram:BilledQuantity unitCode="${einheitCode(it.einheit)}">${it.menge}</ram:BilledQuantity>
       </ram:SpecifiedLineTradeDelivery>
-      <ram:SpecifiedLineTradeSettlement>
+      <ram:SpecifiedLineTradeSettlement>${
+        totals.zeilenRabattCent[i] > 0
+          ? `
+        <ram:SpecifiedTradeAllowanceCharge>
+          <ram:ChargeIndicator><udt:Indicator>false</udt:Indicator></ram:ChargeIndicator>
+          <ram:ActualAmount>${betrag(totals.zeilenRabattCent[i])}</ram:ActualAmount>
+        </ram:SpecifiedTradeAllowanceCharge>`
+          : ""
+      }
         <ram:ApplicableTradeTax>
           <ram:TypeCode>VAT</ram:TypeCode>
           <ram:CategoryCode>${kat}</ram:CategoryCode>
@@ -144,6 +163,31 @@ export function erzeugeXrechnung(e: XrechnungEingabe): string {
       </ram:SpecifiedLineTradeSettlement>
     </ram:IncludedSupplyChainTradeLineItem>`;
     })
+    .join("\n");
+
+  // Hauptrabatt-Anteile je USt-Satz (EN16931: dokumentenebene Abzüge je Satz)
+  const basisZeilen = e.items.map((it) =>
+    Math.round(Number(it.menge) * Math.round(Number(it.einzelpreis) * 100)),
+  );
+  const haupAnteilZeilen = basisZeilen.map((b, i) =>
+    Math.max(0, b - totals.zeilenRabattCent[i] - totals.zeilenNettoCent[i]),
+  );
+  const rabattProSatz = new Map<number, number>();
+  e.items.forEach((it, i) => {
+    if (haupAnteilZeilen[i] > 0) {
+      rabattProSatz.set(it.ustSatz, (rabattProSatz.get(it.ustSatz) ?? 0) + haupAnteilZeilen[i]);
+    }
+  });
+  const rabattXml = [...rabattProSatz.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(
+      ([satz, betragCent]) => `      <ram:SpecifiedTradeAllowanceCharge>
+        <ram:ChargeIndicator><udt:Indicator>false</udt:Indicator></ram:ChargeIndicator>
+        <ram:ActualAmount>${betrag(betragCent)}</ram:ActualAmount>
+        <ram:CategoryCode>${satz === 0 ? "E" : "S"}</ram:CategoryCode>
+        <ram:RateApplicablePercent>${satz}</ram:RateApplicablePercent>
+      </ram:SpecifiedTradeAllowanceCharge>`,
+    )
     .join("\n");
 
   const steuerXml = totals.ustProSatz
@@ -269,10 +313,16 @@ ${lieferXml}
     <ram:ApplicableHeaderTradeSettlement>
       <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
 ${zahlungXml}
+${rabattXml}
 ${steuerXml}
 ${faelligXml}
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-        <ram:LineTotalAmount>${betrag(totals.nettoCent)}</ram:LineTotalAmount>
+        <ram:LineTotalAmount>${betrag(totals.zwischensummeCent - totals.rabattPositionenCent)}</ram:LineTotalAmount>${
+          totals.hauptrabattCent > 0
+            ? `
+        <ram:AllowanceTotalAmount>${betrag(totals.hauptrabattCent)}</ram:AllowanceTotalAmount>`
+            : ""
+        }
         <ram:TaxBasisTotalAmount>${betrag(totals.nettoCent)}</ram:TaxBasisTotalAmount>
         <ram:TaxTotalAmount currencyID="EUR">${betrag(totals.ustCent)}</ram:TaxTotalAmount>
         <ram:GrandTotalAmount>${betrag(totals.bruttoCent)}</ram:GrandTotalAmount>

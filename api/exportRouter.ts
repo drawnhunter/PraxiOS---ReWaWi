@@ -68,10 +68,15 @@ export const exportRouter = createRouter({
         items: r.items.map((it) => ({
           bezeichnung: it.bezeichnung,
           menge: it.menge,
+          rabattArt: it.rabattArt as "prozent" | "festwert" | null,
+          rabattWert: it.rabattWert,
           einheit: it.einheit,
           einzelpreis: it.einzelpreis,
           ustSatz: it.ustSatz,
         })),
+        hauptrabattArt: r.hauptrabattArt as "prozent" | "festwert" | null,
+        hauptrabattWert: r.hauptrabattWert,
+        rabattAddieren: r.rabattAddieren,
       });
 
       return {

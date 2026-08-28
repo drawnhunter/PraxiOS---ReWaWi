@@ -254,12 +254,13 @@ export default function Invoices() {
                     {datum(r.faelligkeitsdatum)}
                   </td>
                   <td className="px-4 py-2.5">
-                    {statusBadge(r.status)}
-                    {r.archiviert && <Badge variant="outline" className="ml-1.5">archiviert</Badge>}
-                    {ueberfaellig && (
-                      <Badge variant="destructive" className="ml-1.5">
-                        Überfällig
-                      </Badge>
+                    {ueberfaellig ? (
+                      <Badge variant="destructive">Überfällig</Badge>
+                    ) : (
+                      <>
+                        {statusBadge(r.status)}
+                        {r.archiviert && <Badge variant="outline" className="ml-1.5">archiviert</Badge>}
+                      </>
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{geld(r.brutto)}</td>

@@ -140,9 +140,9 @@ export const offerRouter = createRouter({
       return { ok: true };
     }),
 
-  /** Finalisieren: Nummer A-JJJJ-NNN vergeben, Firmendaten einfrieren. */
+  /** Finalisieren: Nummer A-JJJJ-NNN vergeben, Firmendaten einfrieren, Status → offen. */
   finalize: authedQuery
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.number(), gueltigTage: z.number().int().min(1).max(365).optional() }))
     .mutation(async ({ input }) => {
       const db = getDb();
       const angebot = await db.query.offers.findFirst({
@@ -183,15 +183,38 @@ export const offerRouter = createRouter({
           .update(offers)
           .set({
             nummer: nr,
-            status: "finalisiert",
+            status: "offen",
             finalizedAt: new Date(),
             firmenSnapshot,
+            ...(input.gueltigTage
+              ? {
+                  gueltigBis: new Date(
+                    new Date(angebot.datum).getTime() + input.gueltigTage * 86400000,
+                  )
+                    .toISOString()
+                    .slice(0, 10),
+                }
+              : {}),
           })
           .where(eq(offers.id, input.id));
         return nr;
       });
 
       return { nummer };
+    }),
+
+  /** Kunden-Antwort setzen: bestätigt / abgelehnt / zurück auf offen. */
+  setStatus: authedQuery
+    .input(z.object({ id: z.number(), status: z.enum(["offen", "bestaetigt", "abgelehnt"]) }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const a = await db.query.offers.findFirst({ where: eq(offers.id, input.id) });
+      if (!a) throw new Error("Angebot nicht gefunden.");
+      if (!["offen", "bestaetigt", "abgelehnt"].includes(a.status)) {
+        throw new Error("Status kann nur bei offenen/bestätigten/abgelehnten Angeboten geändert werden.");
+      }
+      await db.update(offers).set({ status: input.status }).where(eq(offers.id, input.id));
+      return { ok: true };
     }),
 
   /** Angebot in Rechnungsentwurf umwandeln (Positionen + Kundendaten kopieren). */
@@ -201,8 +224,8 @@ export const offerRouter = createRouter({
       const db = getDb();
       const a = await ladeAngebot(input.id);
       if (!a) throw new Error("Angebot nicht gefunden.");
-      if (a.status !== "finalisiert") {
-        throw new Error("Nur finalisierte Angebote können umgewandelt werden.");
+      if (a.status !== "offen" && a.status !== "bestaetigt") {
+        throw new Error("Nur offene oder bestätigte Angebote können umgewandelt werden.");
       }
       if (a.convertedInvoiceId) {
         throw new Error("Angebot wurde bereits umgewandelt.");

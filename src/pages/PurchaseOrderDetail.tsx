@@ -5,6 +5,7 @@ import { geld, datum, parseGeldInput, parseMengeInput, mengeFmt } from "@/lib/fo
 import { computeTotals, EINHEITEN, UST_SAETZE } from "@contracts/invoicing";
 import { poStatusBadge } from "./PurchaseOrders";
 import { Button } from "@/components/ui/button";
+import { ProduktPicker } from "@/components/ProduktSuche";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,7 +53,6 @@ export default function PurchaseOrderDetail() {
   const [pdfNotiz, setPdfNotiz] = useState("");
   const [bemerkung, setBemerkung] = useState("");
   const [items, setItems] = useState<EditItem[]>([]);
-  const [produktWahl, setProduktWahl] = useState("");
   const [geladen, setGeladen] = useState(false);
   const [fehler, setFehler] = useState("");
 
@@ -179,7 +179,6 @@ export default function PurchaseOrderDetail() {
         ustSatz: p.ustSatz,
       },
     ]);
-    setProduktWahl("");
   };
 
   return (
@@ -325,18 +324,7 @@ export default function PurchaseOrderDetail() {
           <h2 className="text-sm font-medium text-neutral-700">Positionen</h2>
           {istEntwurf && (
             <div className="flex items-center gap-2">
-              <Select value={produktWahl} onValueChange={produktUebernehmen}>
-                <SelectTrigger className="w-64">
-                  <SelectValue placeholder="Aus Produktstamm hinzufügen …" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(produkte.data ?? []).map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name} ({geld(p.preisNetto)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ProduktPicker produkte={produkte.data ?? []} onPick={(p) => produktUebernehmen(String(p.id))} />
               <Button
                 variant="outline"
                 size="sm"

@@ -104,6 +104,102 @@ export const deliveryNoteRouter = createRouter({
       return { id };
     }),
 
+  /** NEM-Word-Import, Schritt 1: Datei zerlegen + Produkt-/Kunden-Vorschläge. */
+  wordVorschau: authedQuery
+    .input(z.object({ dateiBase64: z.string().min(50).max(20 * 1024 * 1024) }))
+    .mutation(async ({ input }) => {
+      const { parseNemDokument } = await import("./lib/nemWord");
+      const { besterTreffer } = await import("@contracts/fuzzy");
+      const db = getDb();
+
+      const dok = parseNemDokument(Buffer.from(input.dateiBase64, "base64"));
+      const [alleProdukte, alleKunden] = await Promise.all([
+        db.query.products.findMany(),
+        db.query.customers.findMany(),
+      ]);
+      const aktive = alleProdukte.filter((p) => p.aktiv);
+
+      const positionen = dok.positionen.map((pos) => {
+        const t = besterTreffer(aktive, pos.bezeichnung, (p) => p.name);
+        return {
+          ...pos,
+          produktId: t?.treffer.id ?? null,
+          produktName: t?.treffer.name ?? null,
+          score: t?.score ?? 0,
+        };
+      });
+
+      let kundeVorschlag: { id: number; name: string } | null = null;
+      if (dok.name) {
+        const kt = besterTreffer(alleKunden, dok.name, (k) => k.name, 60);
+        if (kt) kundeVorschlag = { id: kt.treffer.id, name: kt.treffer.name };
+      }
+
+      return {
+        name: dok.name,
+        geburtsdatum: dok.geburtsdatum,
+        datum: dok.datum,
+        phase: dok.phase,
+        format: dok.format,
+        positionen,
+        kundeVorschlag,
+      };
+    }),
+
+  /** NEM-Word-Import, Schritt 2: Lieferschein-Entwurf anlegen. */
+  wordAnlegen: authedQuery
+    .input(
+      z.object({
+        customerId: z.number(),
+        datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        pdfNotiz: z.string().max(500).optional(),
+        bemerkung: z.string().max(500).optional(),
+        items: z
+          .array(
+            z.object({
+              bezeichnung: z.string().min(1).max(255),
+              menge: z.string().min(1),
+              einheit: z.string().min(1).max(30),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const kunde = await db.query.customers.findFirst({
+        where: eq(customers.id, input.customerId),
+      });
+      if (!kunde) throw new Error("Kunde nicht gefunden.");
+
+      const [{ id }] = await db
+        .insert(deliveryNotes)
+        .values({
+          customerId: kunde.id,
+          datum: input.datum,
+          pdfNotiz: input.pdfNotiz ?? null,
+          bemerkung: input.bemerkung ?? null,
+          kundeName: kunde.name,
+          kundeZusatz: kunde.zusatz,
+          kundeStrasse: kunde.strasse,
+          kundePlz: kunde.plz,
+          kundeOrt: kunde.ort,
+          kundeLand: kunde.land,
+        })
+        .$returningId();
+
+      await db.insert(deliveryNoteItems).values(
+        input.items.map((it, i) => ({
+          deliveryNoteId: id,
+          position: i + 1,
+          bezeichnung: it.bezeichnung,
+          menge: it.menge,
+          einheit: it.einheit,
+        })),
+      );
+      return { id };
+    }),
+
   /** Lieferschein aus einer Rechnung (Positionen ohne Preise). */
   createFromInvoice: authedQuery
     .input(z.object({ invoiceId: z.number() }))

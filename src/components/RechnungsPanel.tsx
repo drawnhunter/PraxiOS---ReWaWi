@@ -103,9 +103,14 @@ export default function RechnungsPanel({
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             {r ? (r.nummer ?? `Entwurf #${r.id}`) : "Lade …"}
-            {r && statusBadge(r.status)}
-            {r?.archiviert && <Badge variant="outline">archiviert</Badge>}
-            {ueberfaellig && <Badge variant="destructive">Überfällig</Badge>}
+            {r && (ueberfaellig ? (
+              <Badge variant="destructive">Überfällig</Badge>
+            ) : (
+              <>
+                {statusBadge(r.status)}
+                {r.archiviert && <Badge variant="outline">archiviert</Badge>}
+              </>
+            ))}
           </SheetTitle>
         </SheetHeader>
 

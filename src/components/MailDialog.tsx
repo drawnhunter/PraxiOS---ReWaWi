@@ -26,6 +26,7 @@ export function MailDialog({
   const [betreff, setBetreff] = useState("");
   const [text, setText] = useState("");
   const [mitXrechnung, setMitXrechnung] = useState(false);
+  const [alsStandard, setAlsStandard] = useState(false);
   const [gesendet, setGesendet] = useState(false);
 
   const vorlage = trpc.mail.vorlage.useQuery(
@@ -42,6 +43,8 @@ export function MailDialog({
       setEmpfaenger(vorlage.data.empfaenger);
       setBetreff(vorlage.data.betreff);
       setText(vorlage.data.text);
+      // Kunde ohne hinterlegte Mail → Standard-Häkchen vorschlagen
+      setAlsStandard(!vorlage.data.empfaenger);
     }
   }, [vorlage.data]);
 
@@ -83,6 +86,17 @@ export function MailDialog({
                   placeholder="kunde@beispiel.de"
                 />
               </div>
+              {empfaenger && empfaenger !== (vorlage.data?.empfaenger ?? "") && (
+                <label className="flex items-center gap-2 text-xs text-neutral-600">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5"
+                    checked={alsStandard}
+                    onChange={(e) => setAlsStandard(e.target.checked)}
+                  />
+                  Diese Adresse als Standard-E-Mail des Kunden hinterlegen
+                </label>
+              )}
               <div>
                 <Label>Betreff *</Label>
                 <Input value={betreff} onChange={(e) => setBetreff(e.target.value)} />
@@ -137,7 +151,7 @@ export function MailDialog({
                   !empfaenger || !betreff || !text || senden.isPending || vorlage.isLoading
                 }
                 onClick={() =>
-                  senden.mutate({ art, id, empfaenger, betreff, text, mitXrechnung })
+                  senden.mutate({ art, id, empfaenger, betreff, text, mitXrechnung, alsStandard })
                 }
               >
                 {senden.isPending ? (

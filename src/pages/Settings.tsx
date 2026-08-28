@@ -36,6 +36,7 @@ interface FirmenForm {
   handelsregister: string;
   steuernummer: string;
   ustIdNr: string;
+  waehrung: string;
   email: string;
   telefon: string;
   webseite: string;
@@ -100,6 +101,7 @@ export default function SettingsPage() {
       handelsregister: s.handelsregister ?? "",
       steuernummer: s.steuernummer ?? "",
       ustIdNr: s.ustIdNr ?? "",
+      waehrung: s.waehrung ?? "€",
       email: s.email ?? "",
       telefon: s.telefon ?? "",
       webseite: s.webseite ?? "",
@@ -233,6 +235,16 @@ export default function SettingsPage() {
               onChange={(e) => setFirma({ ...firma, ustIdNr: e.target.value })}
             />
           </div>
+              <div>
+                <Label>Währung (Symbol/Code)</Label>
+                <Input
+                  className="w-28"
+                  value={firma.waehrung}
+                  onChange={(e) => setFirma({ ...firma, waehrung: e.target.value })}
+                  placeholder="€"
+                />
+                <p className="mt-1 text-xs text-neutral-400">Wird bei Rabatt-Festwerten u. a. angezeigt (z. B. €, $, CHF).</p>
+              </div>
           <div>
             <Label>E-Mail</Label>
             <Input
@@ -292,6 +304,7 @@ export default function SettingsPage() {
                 handelsregister: firma.handelsregister || null,
                 steuernummer: firma.steuernummer || null,
                 ustIdNr: firma.ustIdNr || null,
+                waehrung: firma.waehrung || "€",
                 email: firma.email || null,
                 telefon: firma.telefon || null,
                 webseite: firma.webseite || null,

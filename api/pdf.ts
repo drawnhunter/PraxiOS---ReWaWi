@@ -59,6 +59,9 @@ export interface PdfBeleg {
   grund?: string | null;
   pdfNotiz?: string | null;
   bezahltCent?: number;
+  hauptrabattArt?: "prozent" | "festwert" | null;
+  hauptrabattWert?: string | null;
+  rabattAddieren?: boolean;
   firma: {
     name: string;
     strasse: string;
@@ -94,6 +97,8 @@ export interface PdfBeleg {
     einheit: string;
     einzelpreis: string;
     ustSatz: number;
+    rabattArt?: "prozent" | "festwert" | null;
+    rabattWert?: string | null;
   }[];
 }
 
@@ -156,7 +161,7 @@ export function renderBelegPdf(beleg: PdfBeleg, design?: PdfDesign): Promise<Buf
       bufferPages: true,
       font: FONT_REGULAR(),
       info: {
-        Title: `${beleg.art === "rechnung" ? "Rechnung" : "Gutschrift"} ${beleg.nummer}`,
+        Title: `${BELEG_TITEL[beleg.art]} ${beleg.nummer}`,
         Author: beleg.firma.name,
       },
     });
@@ -169,7 +174,13 @@ export function renderBelegPdf(beleg: PdfBeleg, design?: PdfDesign): Promise<Buf
     const regular = FONT_REGULAR();
     doc.font(regular);
 
-    const totals = computeTotals(beleg.items);
+    const totals = computeTotals(
+      beleg.items,
+      beleg.hauptrabattArt && beleg.hauptrabattWert
+        ? { art: beleg.hauptrabattArt, wert: Number(beleg.hauptrabattWert) }
+        : null,
+      beleg.rabattAddieren ?? false,
+    );
     const einzelpreiseCent = beleg.items.map((it) =>
       Math.round(Number(it.einzelpreis) * 100),
     );
@@ -397,7 +408,8 @@ export function renderBelegPdf(beleg: PdfBeleg, design?: PdfDesign): Promise<Buf
             .font(regular)
             .heightOfString(it.beschreibung, { width: COLS[1].w - 8 })
         : 0;
-      const zeilenH = Math.max(bezH + (beschrH ? beschrH + 3 : 0) + 10, K ? 17 : 20);
+      const rabattH = totals.zeilenRabattCent[idx] > 0 ? 11 : 0;
+      const zeilenH = Math.max(bezH + (beschrH ? beschrH + 3 : 0) + 10 + rabattH, K ? 17 : 20);
 
       if (y + zeilenH > unterkante) {
         doc.addPage();
@@ -418,6 +430,19 @@ export function renderBelegPdf(beleg: PdfBeleg, design?: PdfDesign): Promise<Buf
           .text(it.beschreibung, colX[1] + 4, y + 5 + bezH + 2, {
             width: COLS[1].w - 8,
           });
+        doc.fontSize(basisSchrift);
+      }
+      if (totals.zeilenRabattCent[idx] > 0 && it.rabattArt && it.rabattWert) {
+        doc
+          .font(regular)
+          .fontSize(8)
+          .fillColor(GRAY)
+          .text(
+            `Rabatt: − ${fmtGeld(totals.zeilenRabattCent[idx])} (${it.rabattWert.replace(".", ",")} ${it.rabattArt === "prozent" ? "%" : "EUR"})`,
+            colX[1] + 4,
+            y + 5 + bezH + (it.beschreibung ? beschrH + 5 : 2),
+            { width: COLS[1].w - 8 },
+          );
         doc.fontSize(basisSchrift);
       }
       doc.font(regular).fillColor(DARK);
@@ -486,8 +511,20 @@ export function renderBelegPdf(beleg: PdfBeleg, design?: PdfDesign): Promise<Buf
             : beleg.art === "angebot"
               ? "Angebotssumme EUR"
               : "Gesamt EUR";
+      const hatRabatte = totals.rabattPositionenCent > 0 || totals.hauptrabattCent > 0;
       const summen: [string, string, boolean][] = [
-        ["Zwischensumme ohne USt.", fmtGeld(totals.nettoCent), false],
+        ...(hatRabatte
+          ? ([
+              ["Zwischensumme (vor Rabatten)", fmtGeld(totals.zwischensummeCent), false],
+              ...(totals.rabattPositionenCent > 0
+                ? [["Positionsrabatte", "− " + fmtGeld(totals.rabattPositionenCent), false] as [string, string, boolean]]
+                : []),
+              ...(totals.hauptrabattCent > 0
+                ? [["Hauptrabatt", "− " + fmtGeld(totals.hauptrabattCent), false] as [string, string, boolean]]
+                : []),
+              ["Netto nach Rabatten", fmtGeld(totals.nettoCent), false],
+            ] as [string, string, boolean][])
+          : ([["Zwischensumme ohne USt.", fmtGeld(totals.nettoCent), false]] as [string, string, boolean][])),
         ...totals.ustProSatz.map(
           (u) =>
             [

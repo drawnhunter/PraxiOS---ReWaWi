@@ -4,6 +4,7 @@ import { trpc } from "@/providers/trpc";
 import { datum, parseMengeInput, mengeFmt } from "@/lib/format";
 import { EINHEITEN, type InvoiceStatus } from "@contracts/invoicing";
 import { statusBadge } from "./Invoices";
+import { ProduktPicker, ProduktComboInput } from "@/components/ProduktSuche";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +45,7 @@ export default function DeliveryNoteDetail() {
 
   const lieferschein = trpc.deliveryNotes.get.useQuery({ id: Number(id) });
   const rechnungen = trpc.invoices.list.useQuery({ status: "finalisiert" });
+  const produkte = trpc.products.list.useQuery();
 
   const [datumFeld, setDatumFeld] = useState("");
   const [rechnungId, setRechnungId] = useState<string>("keine");
@@ -279,18 +281,34 @@ export default function DeliveryNoteDetail() {
             Positionen <span className="font-normal text-neutral-400">(ohne Preise)</span>
           </h2>
           {istEntwurf && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setItems([
-                  ...items,
-                  { bezeichnung: "", beschreibung: "", menge: "1", einheit: "Stück" },
-                ])
-              }
-            >
-              <Plus className="mr-1 h-4 w-4" /> Position
-            </Button>
+            <div className="flex items-center gap-2">
+              <ProduktPicker
+                produkte={produkte.data ?? []}
+                onPick={(p) =>
+                  setItems([
+                    ...items,
+                    {
+                      bezeichnung: p.name,
+                      beschreibung: p.beschreibung ?? "",
+                      menge: "1",
+                      einheit: p.einheit ?? "Stück",
+                    },
+                  ])
+                }
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setItems([
+                    ...items,
+                    { bezeichnung: "", beschreibung: "", menge: "1", einheit: "Stück" },
+                  ])
+                }
+              >
+                <Plus className="mr-1 h-4 w-4" /> Position
+              </Button>
+            </div>
           )}
         </div>
 
@@ -319,16 +337,31 @@ export default function DeliveryNoteDetail() {
                 <td className="px-2 py-2">
                   {istEntwurf ? (
                     <div className="space-y-1.5">
-                      <Input
+                      <ProduktComboInput
+                        produkte={produkte.data ?? []}
                         value={it.bezeichnung}
-                        onChange={(e) =>
+                        onChange={(v) =>
                           setItems(
                             items.map((x, xi) =>
-                              xi === i ? { ...x, bezeichnung: e.target.value } : x,
+                              xi === i ? { ...x, bezeichnung: v } : x,
                             ),
                           )
                         }
-                        placeholder="Bezeichnung"
+                        onUebernehmen={(p) =>
+                          setItems(
+                            items.map((x, xi) =>
+                              xi === i
+                                ? {
+                                    ...x,
+                                    bezeichnung: p.name,
+                                    beschreibung: x.beschreibung || (p.beschreibung ?? ""),
+                                    einheit: p.einheit ?? x.einheit,
+                                  }
+                                : x,
+                            ),
+                          )
+                        }
+                        placeholder="Bezeichnung — tippen sucht im Produktstamm"
                       />
                       <Textarea
                         value={it.beschreibung}

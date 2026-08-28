@@ -2,7 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { useSortierung } from "@/lib/sortierung";
 import { datum, geld } from "@/lib/format";
-import { OFFER_STATUS_LABELS, type OfferStatus } from "@contracts/invoicing";
+import { OFFER_ANZEIGE_LABELS, offerAnzeigeStatus, type OfferStatus } from "@contracts/invoicing";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,14 +25,22 @@ import {
 } from "@/components/ui/select";
 import { Plus , Search } from "lucide-react";
 
-export function offerStatusBadge(status: OfferStatus) {
+export function offerStatusBadge(a: { status: OfferStatus; gueltigBis?: string | null }) {
+  const anzeige = offerAnzeigeStatus(a);
   const variant =
-    status === "finalisiert"
+    anzeige === "bestaetigt" || anzeige === "umgewandelt"
       ? "default"
-      : status === "storniert"
+      : anzeige === "abgelehnt" || anzeige === "storniert"
         ? "destructive"
-        : "secondary";
-  return <Badge variant={variant}>{OFFER_STATUS_LABELS[status]}</Badge>;
+        : anzeige === "verstrichen"
+          ? "outline"
+          : "secondary";
+  const cls = anzeige === "bestaetigt" ? "bg-green-600 hover:bg-green-600" : undefined;
+  return (
+    <Badge variant={variant} className={cls}>
+      {OFFER_ANZEIGE_LABELS[anzeige]}
+    </Badge>
+  );
 }
 
 export default function Offers() {
@@ -118,8 +126,11 @@ export default function Offers() {
                 <td className="px-4 py-2.5 text-neutral-600">
                   {a.gueltigBis ? datum(a.gueltigBis) : "–"}
                 </td>
-                <td className="px-4 py-2.5">{offerStatusBadge(a.status)}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{geld(a.brutto)}</td>
+                <td className="px-4 py-2.5">{offerStatusBadge(a)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">
+                  <div>{geld(a.brutto)}</div>
+                  <div className="text-xs text-neutral-400">netto {geld(a.netto)}</div>
+                </td>
               </tr>
             ))}
           </tbody>

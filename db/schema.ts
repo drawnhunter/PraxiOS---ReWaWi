@@ -27,6 +27,7 @@ export const companySettings = mysqlTable("company_settings", {
   handelsregister: varchar("handelsregister", { length: 100 }),
   steuernummer: varchar("steuernummer", { length: 50 }),
   ustIdNr: varchar("ust_id_nr", { length: 50 }),
+  waehrung: varchar("waehrung", { length: 10 }).notNull().default("€"),
   email: varchar("email", { length: 320 }),
   telefon: varchar("telefon", { length: 50 }),
   webseite: varchar("webseite", { length: 255 }),
@@ -180,6 +181,9 @@ export const invoices = mysqlTable(
     netto: decimal("netto", { precision: 12, scale: 2 }).notNull().default("0"),
     ust: decimal("ust", { precision: 12, scale: 2 }).notNull().default("0"),
     brutto: decimal("brutto", { precision: 12, scale: 2 }).notNull().default("0"),
+    hauptrabattArt: varchar("hauptrabatt_art", { length: 10 }),
+    hauptrabattWert: decimal("hauptrabatt_wert", { precision: 12, scale: 2 }),
+    rabattAddieren: boolean("rabatt_addieren").notNull().default(false),
     bezahltBetrag: decimal("bezahlt_betrag", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),
@@ -210,6 +214,8 @@ export const invoiceItems = mysqlTable(
     einheit: varchar("einheit", { length: 30 }).notNull().default("Stück"),
     einzelpreis: decimal("einzelpreis", { precision: 12, scale: 2 }).notNull(),
     ustSatz: int("ust_satz").notNull().default(19),
+    rabattArt: varchar("rabatt_art", { length: 10 }),
+    rabattWert: decimal("rabatt_wert", { precision: 12, scale: 2 }),
   },
   (t) => ({
     invoiceIdx: index("invoice_items_invoice_idx").on(t.invoiceId),
@@ -471,7 +477,14 @@ export const offers = mysqlTable(
   {
     id: serial("id").primaryKey(),
     nummer: varchar("nummer", { length: 20 }).unique(),
-    status: mysqlEnum("status", ["entwurf", "finalisiert", "umgewandelt", "storniert"])
+    status: mysqlEnum("status", [
+      "entwurf",
+      "offen",
+      "bestaetigt",
+      "abgelehnt",
+      "umgewandelt",
+      "storniert",
+    ])
       .notNull()
       .default("entwurf"),
     customerId: bigint("customer_id", { mode: "number", unsigned: true }).notNull(),
