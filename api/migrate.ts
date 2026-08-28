@@ -58,6 +58,7 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "invoices", spalte: "hauptrabatt_wert", ddl: "ALTER TABLE invoices ADD COLUMN hauptrabatt_wert DECIMAL(12,2) NULL AFTER hauptrabatt_art" },
   { tabelle: "invoices", spalte: "rabatt_addieren", ddl: "ALTER TABLE invoices ADD COLUMN rabatt_addieren TINYINT(1) NOT NULL DEFAULT 0 AFTER hauptrabatt_wert" },
   { tabelle: "company_settings", spalte: "waehrung", ddl: "ALTER TABLE company_settings ADD COLUMN waehrung VARCHAR(10) NOT NULL DEFAULT '€' AFTER ust_id_nr" },
+  { tabelle: "company_settings", spalte: "monats_budget", ddl: "ALTER TABLE company_settings ADD COLUMN monats_budget DECIMAL(12,2) NULL AFTER waehrung" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

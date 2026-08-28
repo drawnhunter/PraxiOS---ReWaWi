@@ -28,6 +28,7 @@ export const companySettings = mysqlTable("company_settings", {
   steuernummer: varchar("steuernummer", { length: 50 }),
   ustIdNr: varchar("ust_id_nr", { length: 50 }),
   waehrung: varchar("waehrung", { length: 10 }).notNull().default("€"),
+  monatsBudget: decimal("monats_budget", { precision: 12, scale: 2 }),
   email: varchar("email", { length: 320 }),
   telefon: varchar("telefon", { length: 50 }),
   webseite: varchar("webseite", { length: 255 }),

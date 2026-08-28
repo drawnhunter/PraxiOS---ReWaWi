@@ -2,6 +2,27 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.9.0] — 2026-08-28
+
+### Neu
+
+- **Statistik verstaendlicher:** Erklaer-Bubbles (?) an allen Kennzahlen —
+  netto vs. brutto und Umsatz vs. Zahlungseingang werden jetzt erklaert
+  (loest die „Juli-Verwirrung": Eingaenge brutto nach Zahlungsdatum koennen
+  ueber dem Netto-Umsatz liegen). Umsatz-Karten zeigen netto gross + brutto
+  klein. Verlaufs-Balken sind anklickbar und zeigen die Monats-Zusammensetzung.
+- **Liquiditaetsplanung (Statistik):** Jahresmatrix mit Umsatz netto/brutto,
+  Einnahmen (Zahlungsdatum) und Ausgaben (Eingangsrechnungen) je Monat —
+  Balken anklickbar (Zusammensetzung, offene Belege). Monatsbudget
+  einstellbar (PiggyBank), Erreichung absolut + prozentual, Ampel
+  gut/mittel/schlecht mit Klartext-Satz. Export als CSV und als SVG-Grafik.
+  Fusszeile: „Kunden schulden dir X / du musst noch Y zahlen".
+- **Mahn-Automatik in der Uebersicht:** Karte „Mahnwesen — Handlungsbedarf"
+  listet ueberfaellige Rechnungen mit Kunde, Nummer, Fälligkeit, offenem
+  Betrag, bisheriger Stufen-Anzahl und direktem Button „Erinnern" /
+  „Anmahnen (Stufe n)" zur Rechnung. Faellig, wenn noch keine Stufe rausging
+  oder die Frist der letzten Stufe abgelaufen ist.
+
 ## [1.8.0] — 2026-08-28
 
 ### Neu

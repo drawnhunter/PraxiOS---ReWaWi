@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
-import { invoices, invoiceItems, incomingInvoices } from "@db/schema";
+import { invoices, invoiceItems, incomingInvoices, companySettings } from "@db/schema";
 
 const zodMonat = z.object({ monat: z.string().regex(/^\d{4}-\d{2}$/) });
 
@@ -29,8 +29,10 @@ export const statsRouter = createRouter({
 
     return {
       umsatzJahrNetto: summe(imJahr, (r) => Number(r.netto)),
+      umsatzJahrBrutto: summe(imJahr, (r) => Number(r.brutto)),
       zahlungseingaengeJahr: summe(imJahr, (r) => Number(r.bezahltBetrag)),
       umsatzMonatNetto: summe(imMonat, (r) => Number(r.netto)),
+      umsatzMonatBrutto: summe(imMonat, (r) => Number(r.brutto)),
       anzahlJahr: imJahr.length,
       anzahlGesamt: finale.length,
       schnittBetrag:
@@ -44,6 +46,135 @@ export const statsRouter = createRouter({
       ),
     };
   }),
+
+  /** Liquiditätsplanung: Monatsmatrix eines Jahres + Budget + Ampel. */
+  liquiditaet: authedQuery
+    .input(z.object({ jahr: z.number().int().min(2000).max(2100) }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const jahr = String(input.jahr);
+      const heute = new Date().toISOString().slice(0, 10);
+      const laufenderMonat = heute.slice(0, 7);
+
+      const finale = await db.select().from(invoices).where(eq(invoices.status, "finalisiert"));
+      const eingehende = await db.select().from(incomingInvoices);
+      const settings = await db.query.companySettings.findFirst({
+        where: eq(companySettings.id, 1),
+      });
+      const budgetMonat = Number(settings?.monatsBudget ?? 0) || null;
+
+      type M = {
+        monat: string; label: string;
+        umsatzNetto: number; umsatzBrutto: number;
+        einnahmen: number; ausgaben: number;
+        rechnungen: number; rechnungenOffen: number; eingangsOffen: number;
+      };
+      const monate = new Map<string, M>();
+      for (let m = 1; m <= 12; m++) {
+        const key = `${jahr}-${String(m).padStart(2, "0")}`;
+        const label = new Date(input.jahr, m - 1, 1).toLocaleDateString("de-DE", { month: "short" });
+        monate.set(key, {
+          monat: key, label, umsatzNetto: 0, umsatzBrutto: 0, einnahmen: 0,
+          ausgaben: 0, rechnungen: 0, rechnungenOffen: 0, eingangsOffen: 0,
+        });
+      }
+
+      for (const r of finale) {
+        if (r.rechnungsdatum.startsWith(jahr)) {
+          const e = monate.get(r.rechnungsdatum.slice(0, 7));
+          if (e) {
+            e.umsatzNetto += Number(r.netto);
+            e.umsatzBrutto += Number(r.brutto);
+            e.rechnungen += 1;
+            if (Number(r.brutto) - Number(r.bezahltBetrag) > 0.004) e.rechnungenOffen += 1;
+          }
+        }
+        if (r.bezahltAm && Number(r.bezahltBetrag) > 0 && r.bezahltAm.startsWith(jahr)) {
+          const e = monate.get(r.bezahltAm.slice(0, 7));
+          if (e) e.einnahmen += Number(r.bezahltBetrag);
+        }
+      }
+      for (const r of eingehende) {
+        // Zahlungsausgang zählt im Monat der Bezahlung, sonst Rechnungsdatum
+        const key = (r.bezahltAm ?? r.rechnungsdatum).slice(0, 7);
+        const e = monate.get(key);
+        if (!e || !key.startsWith(jahr)) continue;
+        e.ausgaben += Number(r.brutto);
+        if (!r.bezahltAm) e.eingangsOffen += 1;
+      }
+
+      const liste = [...monate.values()];
+      // Vergangene Monate des Jahres (für Budget-Erreichung fair rechnen)
+      const vergangene = liste.filter((m) => m.monat <= (input.jahr === Number(heute.slice(0, 4)) ? laufenderMonat : "9999"));
+      const einnahmenJahr = liste.reduce((a, m) => a + m.einnahmen, 0);
+      const ausgabenJahr = liste.reduce((a, m) => a + m.ausgaben, 0);
+      const umsatzJahrNetto = liste.reduce((a, m) => a + m.umsatzNetto, 0);
+      const umsatzJahrBrutto = liste.reduce((a, m) => a + m.umsatzBrutto, 0);
+
+      // Aktuell offen (stichtaggenau, nicht monatsbezogen)
+      const offenKunden = finale
+        .filter((r) => Number(r.brutto) - Number(r.bezahltBetrag) > 0.004)
+        .reduce((a, r) => a + Number(r.brutto) - Number(r.bezahltBetrag), 0);
+      const offenLieferanten = eingehende
+        .filter((r) => !r.bezahltAm)
+        .reduce((a, r) => a + Number(r.brutto), 0);
+
+      // Budget-Erreichung: Einnahmen vs. Budget × vergangene Monate
+      const budgetSoll = budgetMonat ? budgetMonat * vergangene.length : null;
+      const budgetErreichung =
+        budgetSoll && budgetSoll > 0 ? einnahmenJahr / budgetSoll : null;
+
+      // Ampel: gut/mittel/schlecht + Klartext-Satz
+      let ampel: "gut" | "mittel" | "schlecht" = "schlecht";
+      if (einnahmenJahr >= ausgabenJahr && (budgetErreichung === null || budgetErreichung >= 1)) {
+        ampel = "gut";
+      } else if (
+        einnahmenJahr >= ausgabenJahr * 0.85 ||
+        (budgetErreichung !== null && budgetErreichung >= 0.7)
+      ) {
+        ampel = "mittel";
+      }
+      const ampelText =
+        ampel === "gut"
+          ? budgetErreichung !== null
+            ? `Stark: ${Math.round(budgetErreichung * 100)} % des Budgets erreicht — Einnahmen decken die Ausgaben.`
+            : "Gut: Einnahmen decken die Ausgaben."
+          : ampel === "mittel"
+            ? "Solide, aber Luft nach oben — Einnahmen knapp unter Ausgaben-Niveau oder Budget."
+            : budgetSoll
+              ? `Achtung: bislang ${Math.round((budgetErreichung ?? 0) * 100)} % des Budgets — es fehlen noch ${Math.max(0, budgetSoll - einnahmenJahr).toFixed(2)} € bis zum Jahres-Soll.`
+              : "Achtung: Ausgaben übersteigen Einnahmen deutlich.";
+
+      return {
+        jahr: input.jahr,
+        monate: liste,
+        einnahmenJahr,
+        ausgabenJahr,
+        umsatzJahrNetto,
+        umsatzJahrBrutto,
+        differenzJahr: einnahmenJahr - ausgabenJahr,
+        offenKunden,
+        offenLieferanten,
+        budgetMonat,
+        budgetSoll,
+        budgetErreichung,
+        ampel,
+        ampelText,
+      };
+    }),
+
+  /** Monatsbudget setzen (Liquiditätsplanung). */
+  budgetSetzen: authedQuery
+    .input(z.object({ monatsBudget: z.number().min(0).nullable() }))
+    .mutation(async ({ input }) => {
+      await getDb()
+        .insert(companySettings)
+        .values({ id: 1, monatsBudget: input.monatsBudget?.toFixed(2) ?? null } as never)
+        .onDuplicateKeyUpdate({
+          set: { monatsBudget: input.monatsBudget?.toFixed(2) ?? null } as never,
+        });
+      return { ok: true };
+    }),
 
   verlauf: authedQuery.query(async () => {
     const finale = await getDb()
