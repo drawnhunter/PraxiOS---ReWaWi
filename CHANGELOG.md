@@ -2,6 +2,16 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.9.1] — 2026-08-31
+
+### Fehlerbehebungen
+
+- **Produktiv-Start repariert:** Dynamische Builtin-Imports im
+  SumUp-PDF-Parser erzeugten im gebuendelten `dist/boot.js` einen doppelten
+  `createRequire`-Import (SyntaxError beim Start, Crash-Loop, 502). Jetzt
+  statische Imports. Neue SOP-Stufe: nach dem Build wird `node dist/boot.js`
+  mindestens bis zur Laufzeit-Umgebung gestartet (Parse-Check).
+
 ## [1.9.0] — 2026-08-28
 
 ### Neu

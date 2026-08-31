@@ -180,13 +180,13 @@ export function zerlegeAuszugZeilen(textZeilen: string[]): {
   return { zeilen, uebersprungen, meta };
 }
 
+import { execFile } from "node:child_process";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 /** Textzeilen aus der PDF-Textebene via poppler `pdftotext -layout` extrahieren. */
 export async function extrahiereTextZeilen(puffer: Uint8Array): Promise<string[]> {
-  const { execFile } = await import("node:child_process");
-  const { writeFile, unlink } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-
   const pfad = join(tmpdir(), `sumup-auszug-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`);
   await writeFile(pfad, puffer);
   try {

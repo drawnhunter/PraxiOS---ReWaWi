@@ -3,7 +3,7 @@
 //  1) Einheitliche Vorlage (Tabelle: Produkt | Menge | Einzelpreis | Summe)
 //  2) Alte Freitext-Listen ("Pro Mucosa 73,95€", "Pro PEA 800 28,43€ 2x 56,86€")
 
-import { unzipSync, strFromU8 } from "fflate";
+import { inflateRawSync } from "node:zlib";
 
 export interface NemPosition {
   bezeichnung: string;
@@ -22,16 +22,56 @@ export interface NemDokument {
 
 function deZahl(s: string | undefined): number | null {
   if (!s) return null;
-  const n = Number(s.replace(/\./g, "").replace(",", "."));
+  const sauber = s.replace(/[€\s]/g, "");
+  if (!sauber) return null;
+  const n = Number(sauber.replace(/\./g, "").replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+/** Minimaler ZIP-Leser (Store + Deflate) über node:zlib — keine Zusatz-Dependency. */
+function zipEntpacken(buf: Buffer): Map<string, Buffer> {
+  const dateien = new Map<string, Buffer>();
+  // End Of Central Directory von hinten suchen (Signatur PK\x05\x06)
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 66000); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("Keine ZIP-Datei (Endverzeichnis fehlt).");
+  const anzahl = buf.readUInt16LE(eocd + 10);
+  let pos = buf.readUInt32LE(eocd + 16);
+
+  for (let i = 0; i < anzahl; i++) {
+    if (buf.readUInt32LE(pos) !== 0x02014b50) break; // Zentraleintrag
+    const methode = buf.readUInt16LE(pos + 10);
+    const groessePaket = buf.readUInt32LE(pos + 20);
+    const nameLen = buf.readUInt16LE(pos + 28);
+    const extraLen = buf.readUInt16LE(pos + 30);
+    const kommentarLen = buf.readUInt16LE(pos + 32);
+    const lokalOffset = buf.readUInt32LE(pos + 42);
+    const name = buf.subarray(pos + 46, pos + 46 + nameLen).toString("utf8");
+
+    // Lokaler Header → Datenanfang
+    const nameLenLokal = buf.readUInt16LE(lokalOffset + 26);
+    const extraLenLokal = buf.readUInt16LE(lokalOffset + 28);
+    const datenStart = lokalOffset + 30 + nameLenLokal + extraLenLokal;
+    const roh = buf.subarray(datenStart, datenStart + groessePaket);
+
+    if (methode === 0) {
+      dateien.set(name, Buffer.from(roh));
+    } else if (methode === 8) {
+      dateien.set(name, inflateRawSync(roh));
+    }
+    pos += 46 + nameLen + extraLen + kommentarLen;
+  }
+  return dateien;
 }
 
 /** docx (zip) → reiner Text je Absatz sowie Tabellenzeilen. */
 export function docxAuspacken(puffer: Buffer): { absaetze: string[]; tabellen: string[][][] } {
-  const dateien = unzipSync(new Uint8Array(puffer));
-  const docXml = dateien["word/document.xml"];
+  const dateien = zipEntpacken(puffer);
+  const docXml = dateien.get("word/document.xml");
   if (!docXml) throw new Error("Keine gültige Word-Datei (word/document.xml fehlt).");
-  const xml = strFromU8(docXml);
+  const xml = docXml.toString("utf8");
 
   const absaetze: string[] = [];
   const tabellen: string[][][] = [];
@@ -108,7 +148,7 @@ export function parseNemDokument(puffer: Buffer): NemDokument {
       const menge = deZahl(zeile[1]) ?? 1;
       const preis = deZahl(zeile[2]);
       if (!zeile[0] || preis === null) continue;
-      positionen.push({ bezeichnung: zeile[0], menge, einzelpreis: preis });
+      positionen.push({ bezeichnung: zeile[0].replace(/\s{2,}/g, " ").trim(), menge, einzelpreis: preis });
     }
   }
   if (positionen.length > 0) {
@@ -120,7 +160,7 @@ export function parseNemDokument(puffer: Buffer): NemDokument {
     if (/^(summe|phase\b|.*NEM[ -]?Produkte)/i.test(a)) continue;
     const m = a.match(FREITEXT_ZEILE);
     if (!m) continue;
-    const bezeichnung = m[1].trim();
+    const bezeichnung = m[1].replace(/\s{2,}/g, " ").trim();
     if (!bezeichnung || bezeichnung.length < 3) continue;
     const einzel = deZahl(m[2]);
     const menge = m[3] ? Number(m[3]) : 1;
