@@ -6,7 +6,9 @@ import {
   deliveryNoteItems,
   customers,
   invoices,
+  invoiceItems,
   companySettings,
+  bankAccounts,
 } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { nextNumber } from "./queries/invoicing";
@@ -152,8 +154,9 @@ export const deliveryNoteRouter = createRouter({
       z.object({
         customerId: z.number(),
         datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        pdfNotiz: z.string().max(500).optional(),
-        bemerkung: z.string().max(500).optional(),
+        phase: z.string().max(100).optional(),
+        dokName: z.string().max(255).optional(),
+        dateiname: z.string().max(255).default("dokument.docx"),
         items: z
           .array(
             z.object({
@@ -166,38 +169,112 @@ export const deliveryNoteRouter = createRouter({
       }),
     )
     .mutation(async ({ input }) => {
-      const db = getDb();
-      const kunde = await db.query.customers.findFirst({
-        where: eq(customers.id, input.customerId),
-      });
-      if (!kunde) throw new Error("Kunde nicht gefunden.");
+      const { legeLieferscheinAusNemAn } = await import("./lib/nemWord");
+      return legeLieferscheinAusNemAn(
+        input.customerId,
+        {
+          name: input.dokName ?? null, geburtsdatum: null, datum: null, phase: input.phase ?? null,
+          positionen: input.items.map((it) => ({
+            bezeichnung: it.bezeichnung,
+            menge: Number(it.menge),
+            einzelpreis: null,
+          })),
+          format: "tabelle",
+        },
+        input.dateiname,
+      );
+    }),
 
-      const [{ id }] = await db
-        .insert(deliveryNotes)
+  /** Rechnung aus einem finalisierten Lieferschein (Positionen bekommen
+      Preise aus dem Produktstamm, Kundenkonditionen zuerst). */
+  createInvoice: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const { besterTreffer } = await import("@contracts/fuzzy");
+      const ls = await db.query.deliveryNotes.findFirst({
+        where: eq(deliveryNotes.id, input.id),
+        with: { items: true, customer: true },
+      });
+      if (!ls) throw new Error("Lieferschein nicht gefunden.");
+      if (ls.status !== "finalisiert") {
+        throw new Error("Erst finalisieren, dann die Rechnung erstellen (Lieferung vor Rechnung).");
+      }
+      if (ls.invoiceId) throw new Error("Zu diesem Lieferschein existiert bereits eine Rechnung.");
+
+      const alleProdukte = (await db.query.products.findMany()).filter((p) => p.aktiv);
+      const konditionenRows = await db.query.konditionen.findMany({
+        where: (k, { and: a, eq: e }) =>
+          a(e(k.typ, "kunde"), e(k.partnerId, ls.customerId)),
+      });
+
+      const settings = await db.query.companySettings.findFirst({
+        where: eq(companySettings.id, 1),
+      });
+      const zielTage = ls.customer?.zahlungszielTage ?? settings?.standardZahlungsziel ?? 14;
+      const heute = new Date();
+      const faellig = new Date(heute);
+      faellig.setDate(faellig.getDate() + zielTage);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const standardBank = await db.query.bankAccounts.findFirst({
+        where: eq(bankAccounts.istStandard, true),
+      });
+
+      const [{ id: rechnungId }] = await db
+        .insert(invoices)
         .values({
-          customerId: kunde.id,
-          datum: input.datum,
-          pdfNotiz: input.pdfNotiz ?? null,
-          bemerkung: input.bemerkung ?? null,
-          kundeName: kunde.name,
-          kundeZusatz: kunde.zusatz,
-          kundeStrasse: kunde.strasse,
-          kundePlz: kunde.plz,
-          kundeOrt: kunde.ort,
-          kundeLand: kunde.land,
+          customerId: ls.customerId,
+          rechnungsdatum: fmt(heute),
+          faelligkeitsdatum: fmt(faellig),
+          bankAccountId: standardBank?.id ?? null,
+          kundeName: ls.kundeName,
+          kundeZusatz: ls.kundeZusatz,
+          kundeStrasse: ls.kundeStrasse,
+          kundePlz: ls.kundePlz,
+          kundeOrt: ls.kundeOrt,
+          kundeLand: ls.kundeLand,
+          pdfNotiz: `Lieferung laut Lieferschein ${ls.nummer ?? `#${ls.id}`} vom ${ls.datum}`,
         })
         .$returningId();
 
-      await db.insert(deliveryNoteItems).values(
-        input.items.map((it, i) => ({
-          deliveryNoteId: id,
-          position: i + 1,
+      const { computeTotals, centToDecimal } = await import("./queries/invoicing");
+      const zeilen = ls.items.map((it) => {
+        const t = besterTreffer(alleProdukte, it.bezeichnung, (p) => p.name);
+        const kondition = t
+          ? konditionenRows.find((k) => k.productId === t.treffer.id)
+          : undefined;
+        const preis = kondition?.preisNetto ?? t?.treffer.preisNetto ?? "0.00";
+        return {
+          invoiceId: rechnungId,
+          position: it.position,
           bezeichnung: it.bezeichnung,
+          beschreibung: it.beschreibung,
           menge: it.menge,
           einheit: it.einheit,
-        })),
+          einzelpreis: preis,
+          ustSatz: t?.treffer.ustSatz ?? 19,
+        };
+      });
+      if (zeilen.length > 0) await db.insert(invoiceItems).values(zeilen);
+
+      const totals = computeTotals(
+        zeilen.map((z) => ({ menge: z.menge, einzelpreis: z.einzelpreis, ustSatz: z.ustSatz })),
       );
-      return { id };
+      await db
+        .update(invoices)
+        .set({
+          netto: centToDecimal(totals.nettoCent),
+          ust: centToDecimal(totals.ustCent),
+          brutto: centToDecimal(totals.bruttoCent),
+        })
+        .where(eq(invoices.id, rechnungId));
+
+      await db
+        .update(deliveryNotes)
+        .set({ invoiceId: rechnungId })
+        .where(eq(deliveryNotes.id, ls.id));
+
+      return { id: rechnungId, positionenOhneTreffer: zeilen.filter((z) => Number(z.einzelpreis) === 0).length };
     }),
 
   /** Lieferschein aus einer Rechnung (Positionen ohne Preise). */

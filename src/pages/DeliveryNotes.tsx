@@ -288,8 +288,9 @@ export default function DeliveryNotes() {
                     anlegen.mutate({
                       customerId: Number(importKunde),
                       datum: new Date().toISOString().slice(0, 10),
-                      pdfNotiz: [d.phase, d.name ? `NEM: ${d.name}` : ""].filter(Boolean).join(" · "),
-                      bemerkung: `Import aus Word: ${importDatei}`,
+                      phase: d.phase ?? undefined,
+                      dokName: d.name ?? undefined,
+                      dateiname: importDatei,
                       items: d.positionen.map((p) => ({
                         bezeichnung: p.bezeichnung,
                         menge: String(p.menge),

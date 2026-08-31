@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { CheckCircle2, FileText, FileUp, Loader2, Trash2, Upload, XCircle } from "lucide-react";
 
-type Route = "erechnung" | "post" | "altbestand" | "kunden" | "produkte" | "bank" | "unbekannt";
+type Route = "erechnung" | "post" | "altbestand" | "kunden" | "produkte" | "bank" | "nemliste" | "unbekannt";
 
 interface DateiZustand {
   name: string;
@@ -38,6 +38,7 @@ const ROUTE_LABEL: Record<Route, string> = {
   kunden: "Kunden-CSV",
   produkte: "Produkte-CSV",
   bank: "Bank-CSV",
+  nemliste: "Produkt-/NEM-Liste → Lieferschein",
   unbekannt: "unbekannt",
 };
 

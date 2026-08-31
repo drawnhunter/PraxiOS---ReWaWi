@@ -174,3 +174,46 @@ export function parseNemDokument(puffer: Buffer): NemDokument {
   }
   return { ...meta, positionen, format: "freitext" };
 }
+
+/** Geteilte Anlage: Lieferschein-Entwurf aus einem geparsten NEM-Dokument.
+    (genutzt von Lieferscheine → NEM-Word-Import und Magic Import) */
+export async function legeLieferscheinAusNemAn(
+  customerId: number,
+  dok: NemDokument,
+  dateiname: string,
+): Promise<{ id: number }> {
+  const { getDb } = await import("../queries/connection");
+  const { deliveryNotes, deliveryNoteItems, customers } = await import("@db/schema");
+  const { eq } = await import("drizzle-orm");
+
+  const db = getDb();
+  const kunde = await db.query.customers.findFirst({ where: eq(customers.id, customerId) });
+  if (!kunde) throw new Error("Kunde nicht gefunden.");
+
+  const [{ id }] = await db
+    .insert(deliveryNotes)
+    .values({
+      customerId: kunde.id,
+      datum: new Date().toISOString().slice(0, 10),
+      pdfNotiz: [dok.phase, dok.name ? `NEM: ${dok.name}` : ""].filter(Boolean).join(" · ") || null,
+      bemerkung: `Import aus Word: ${dateiname}`,
+      kundeName: kunde.name,
+      kundeZusatz: kunde.zusatz,
+      kundeStrasse: kunde.strasse,
+      kundePlz: kunde.plz,
+      kundeOrt: kunde.ort,
+      kundeLand: kunde.land,
+    })
+    .$returningId();
+
+  await db.insert(deliveryNoteItems).values(
+    dok.positionen.map((p, i) => ({
+      deliveryNoteId: id,
+      position: i + 1,
+      bezeichnung: p.bezeichnung,
+      menge: String(p.menge),
+      einheit: "Packung",
+    })),
+  );
+  return { id };
+}

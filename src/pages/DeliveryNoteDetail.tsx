@@ -27,7 +27,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, FileCheck2, Plus, Trash2 } from "lucide-react";
 import { PdfButton } from "@/components/PdfButton";
 import { PdfVorschau } from "@/components/PdfVorschau";
 
@@ -84,6 +84,9 @@ export default function DeliveryNoteDetail() {
 
   const speichern = trpc.deliveryNotes.updateDraft.useMutation({ onSuccess: inval });
   const finalisieren = trpc.deliveryNotes.finalize.useMutation({ onSuccess: inval });
+  const rechnungErstellen = trpc.deliveryNotes.createInvoice.useMutation({
+    onSuccess: (res) => navigate(`/rechnungen/${res.id}`),
+  });
   const stornieren = trpc.deliveryNotes.stornieren.useMutation({ onSuccess: inval });
   const loeschen = trpc.deliveryNotes.delete.useMutation({
     onSuccess: () => navigate("/lieferscheine"),
@@ -143,6 +146,19 @@ export default function DeliveryNoteDetail() {
         <div className="flex items-center gap-2">
           <PdfButton art="delivery" id={l.id} />
           <PdfVorschau art="delivery" id={l.id} titel={`Lieferschein ${l.nummer ?? ''}`} />
+          {l.status === "finalisiert" && !l.invoiceId && (
+            <Button
+              size="sm"
+              onClick={() => rechnungErstellen.mutate({ id: l.id })}
+              disabled={rechnungErstellen.isPending}
+            >
+              <FileCheck2 className="mr-1.5 h-4 w-4" />
+              {rechnungErstellen.isPending ? "Erstelle …" : "Rechnung erstellen"}
+            </Button>
+          )}
+          {rechnungErstellen.error && (
+            <span className="text-xs text-red-600">{rechnungErstellen.error.message}</span>
+          )}
           {l.status === "finalisiert" && (
             <AlertDialog>
               <AlertDialogTrigger asChild>

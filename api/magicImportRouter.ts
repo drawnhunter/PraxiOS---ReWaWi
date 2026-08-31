@@ -8,8 +8,9 @@ import { extrahiereXmlAusPdf } from "./zugferdPdf";
 import { bucheEingangsrechnungAusXml } from "./lib/einrechnung";
 import { erzeugePostEingang, mimeAusName } from "./lib/posteingang";
 import { erkenneSumUpMerkmale } from "./lib/sumupPdf";
+import { getDb } from "./queries/connection";
 
-const ROUTEN = ["erechnung", "post", "altbestand", "kunden", "produkte", "bank", "unbekannt"] as const;
+const ROUTEN = ["erechnung", "post", "altbestand", "kunden", "produkte", "bank", "nemliste", "unbekannt"] as const;
 type Route = (typeof ROUTEN)[number];
 
 const dateiInput = z.object({
@@ -83,6 +84,20 @@ async function analysiereDatei(name: string, puffer: Buffer): Promise<Analyse> {
     return { name, route: "post", hinweis: "Bild/Scan — geht in den Post Manager" };
   }
 
+  if (lower.endsWith(".docx")) {
+    try {
+      const { parseNemDokument } = await import("./lib/nemWord");
+      const dok = parseNemDokument(puffer);
+      return {
+        name,
+        route: "nemliste",
+        hinweis: `Produkt-/NEM-Liste erkannt (${dok.positionen.length} Positionen${dok.name ? `, ${dok.name}` : ""}) — wird als Lieferschein-Entwurf importiert`,
+      };
+    } catch {
+      return { name, route: "unbekannt", hinweis: "Word-Datei ohne erkennbare Produktliste (keine Tabelle, keine Preiszeilen)" };
+    }
+  }
+
   if (lower.endsWith(".csv")) {
     const kopf = puffer.toString("utf8").split("\n")[0] ?? "";
     const route = csvRoute(kopf);
@@ -93,6 +108,7 @@ async function analysiereDatei(name: string, puffer: Buffer): Promise<Analyse> {
       kunden: "SumUp-Kundenexport erkannt",
       produkte: "SumUp-Produktexport erkannt",
       bank: "Bank-/Kontoauszug erkannt",
+      nemliste: "",
       unbekannt: "CSV-Format nicht erkannt",
     };
     return { name, route, hinweis: hinweise[route] };
@@ -162,6 +178,26 @@ export const magicImportRouter = createRouter({
               quelle: "Magic Import",
             });
             ergebnisse.push({ name: d.name, ok: true, ziel: "im Post Manager abgelegt", id });
+          } else if (d.route === "nemliste") {
+            const { parseNemDokument, legeLieferscheinAusNemAn } = await import("./lib/nemWord");
+            const { besterTreffer } = await import("@contracts/fuzzy");
+            const dok = parseNemDokument(puffer);
+            const kunden = await getDb().query.customers.findMany();
+            const kt = dok.name ? besterTreffer(kunden, dok.name, (k) => k.name, 60) : null;
+            if (!kt) {
+              ergebnisse.push({
+                name: d.name, ok: true,
+                ziel: `Liste erkannt (${dok.positionen.length} Positionen), aber kein Kunde „${dok.name ?? "?"}" gefunden — bitte unter Lieferscheine → NEM-Word-Import importieren (Kunde wählbar)`,
+                weiter: "/lieferscheine",
+              });
+              continue;
+            }
+            const { id } = await legeLieferscheinAusNemAn(kt.treffer.id, dok, d.name);
+            ergebnisse.push({
+              name: d.name, ok: true,
+              ziel: `Lieferschein-Entwurf #${id} für ${kt.treffer.name} angelegt (${dok.positionen.length} Positionen)`,
+              id, weiter: `/lieferscheine/${id}`,
+            });
           } else if (d.route === "kunden" || d.route === "produkte" || d.route === "bank" || d.route === "altbestand") {
             const ziele: Record<string, string> = {
               kunden: "/kunden",

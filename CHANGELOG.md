@@ -2,6 +2,21 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.9.2] — 2026-08-31
+
+### Neu
+
+- **Magic Import erkennt NEM-/Produktlisten (.docx):** Word-Listen werden
+  analysiert und als „Produkt-/NEM-Liste → Lieferschein" geroutet. Bei
+  erkanntem Kundennamen wird der Lieferschein-Entwurf direkt angelegt
+  (inkl. Verlinkung); ohne Kundentreffer verweist der Hinweis auf
+  Lieferscheine → NEM-Word-Import (Kunde waehlbar).
+- **Rechnung aus Lieferschein:** Am finalisierten Lieferschein erscheint
+  „Rechnung erstellen" — Rechnungs-Entwurf mit Positionen, Preisen aus dem
+  Produktstamm (Kundenkonditionen zuerst), Fuzzy-Match auf die
+  Positionsnamen; der Lieferschein wird mit der Rechnung verknuepft.
+  Weg: Lieferung vor Rechnung (GoBD-sauber).
+
 ## [1.9.1] — 2026-08-31
 
 ### Fehlerbehebungen
