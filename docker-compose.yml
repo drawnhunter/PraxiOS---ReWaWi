@@ -46,8 +46,11 @@ services:
       - PORT=3000
       # GEFAHR: Login ueberspringen - nur fuer lokale Tests, niemals oeffentlich!
       # - LOCAL_AUTH_BYPASS=1
+    volumes:
+      - backups-daten:/app/backups
     ports:
       - "3000:3000"
 
 volumes:
   db-daten:
+  backups-daten:

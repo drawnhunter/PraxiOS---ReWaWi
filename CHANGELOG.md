@@ -2,6 +2,24 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.10.0] — 2026-09-11
+
+### Neu
+
+- **Hub-Fernverwaltung (Pull-Modell, Auftrag Bus #18):** ReWaWi meldet sich
+  bei verbundenem Support-Schluessel alle 10 Minuten beim SupportHub
+  (Heartbeat: Version, Status, Disk, Uptime, Backup-Frische, Fehler 24 h) und
+  holt Befehle ab: `backup` (eigener DB-Dump gzipped ins Backups-Volume
+  `/app/backups`, Frische-Stempel wird gesetzt), `diagnose` (Metadaten-Paket),
+  `update-hinweis` (wird lokal als Support-Meldung registriert), `ping`→pong.
+  Bei Hub-Ausfall laeuft die App still weiter. Ohne Schluessel passiert
+  nichts. Grenzen eingehalten: keine Shell, keine Kundendaten — nur Metadaten.
+- **Support: manueller Hub-Takt** (Admin) — ein Klick statt 10 Minuten warten
+  (Diagnose-Lektion aus dem PaWaWi-Bau).
+- Neues Docker-Volume `backups-daten` fuer die Hub-Backups.
+- Spec-Faelle aus dem PaWaWi-Bau eingearbeitet: optionale Felder werden
+  weggelassen statt null gesendet; Logging pro Takt im Container-Log.
+
 ## [1.9.2] — 2026-08-31
 
 ### Neu

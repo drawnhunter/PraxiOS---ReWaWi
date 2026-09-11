@@ -63,6 +63,13 @@ if (env.isProduction) {
   } catch (e) {
     console.error("[seed] Kontierung fehlgeschlagen:", e);
   }
+  // Hub-Fernverwaltung (Pull): Heartbeat + Befehle — nur mit Support-Schluessel
+  try {
+    const { starteHubClient } = await import("./lib/hubClient");
+    starteHubClient();
+  } catch (e) {
+    console.error("[hub] Client-Start fehlgeschlagen:", e);
+  }
   try {
     const { starteImapDienst } = await import("./imapDienst");
     starteImapDienst();

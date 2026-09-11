@@ -55,6 +55,7 @@ export const companySettings = mysqlTable("company_settings", {
   pdfLayout: varchar("pdf_layout", { length: 30 }).notNull().default("klassisch"),
   // SupportHub-Verbindung (Support-Schluessel vom Dienstleister)
   supportSchluessel: varchar("support_schluessel", { length: 80 }),
+  backupZuletztAm: timestamp("backup_zuletzt_am"),
   // ICS-Abo (geheime URL fuer Zahlungsziele-Kalender)
   icsToken: varchar("ics_token", { length: 48 }),
   // E-Mail-Versand (SMTP); Passwort liegt verschluesselt vor

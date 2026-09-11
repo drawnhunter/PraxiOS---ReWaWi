@@ -46,6 +46,13 @@ async function ladeSettings() {
 }
 
 export const supportRouter = createRouter({
+  /** Manueller Hub-Takt (Diagnose — PaWaWi-Lektion: nicht auf den Intervall warten). */
+  hubTaktJetzt: adminQuery.mutation(async () => {
+    const { hubZyklus } = await import("./lib/hubClient");
+    await hubZyklus();
+    return { ok: true, hinweis: "Takt ausgeführt — Details im Container-Log ([hub])." };
+  }),
+
   status: authedQuery.query(async () => {
     const s = await ladeSettings();
     const hatSchluessel = Boolean(s?.supportSchluessel);
