@@ -2,6 +2,17 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.10.1] — 2026-09-11
+
+### Fehlerbehebungen
+
+- **Login über direkte IP/WireGuard funktioniert:** Das Session-Cookie koppelte
+  `secure` an localhost statt an TLS. Über `http://192.168.x.x` verwarf der
+  Browser das Cookie ohne Fehlermeldung — Login-Loop. Jetzt: `secure` folgt
+  `x-forwarded-proto` (Caddy schickt https), direkter Zugriff bekommt
+  `secure=false` + SameSite=Lax. Verhalten hinter Caddy unverändert.
+  (Fix aus Dr.PaWaWi v1.9.5 portiert, Bus #21 — dynv6-Flaute abgefedert.)
+
 ## [1.10.0] — 2026-09-11
 
 ### Neu
