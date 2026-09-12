@@ -2,6 +2,25 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.10.2] — 2026-09-12
+
+### Fehlerbehebungen (Banking)
+
+- **Duplikate beim Mehrformat-Import ausgeschlossen:** Neue Spalte
+  `quell_id` speichert die Anbieter-Transaktions-ID; die Dedup prueft sie
+  format- UND kontoübergreifend (CSV-Vollexport, schlanker
+  Transaktionsbericht und Kontoauszug-PDF tragen dieselbe ID).
+- **Neues SumUp-CSV-Format erkannt:** der schlanke Transaktionsbericht
+  (5 Spalten, ISO-Datum, vorzeichenbehafteter Betrag) hat jetzt einen
+  dedizierten Parser inkl. Transaktions-ID — landet nicht mehr im
+  generischen Mapping (das die ID verlor und so Duplikate erzeugte).
+
+### Neu
+
+- **Duplikat-Pruefung (Banking):** Button „Duplikate" gruppiert Buchungen
+  mit gleichem Datum+Betrag, empfiehlt Behalten/Löschen und loescht nur
+  nicht zugeordnete Eintraege (GoBD-sicher).
+
 ## [1.10.1] — 2026-09-11
 
 ### Fehlerbehebungen

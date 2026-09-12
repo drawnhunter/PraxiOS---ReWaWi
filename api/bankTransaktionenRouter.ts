@@ -14,7 +14,7 @@ import {
   invoices,
   incomingInvoices,
 } from "@db/schema";
-import { and, asc, desc, eq, gte, lte, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, isNull, or, sql } from "drizzle-orm";
 import { erstelleKontoauszugPdf } from "./pdfKontoauszug";
 
 // ── CSV-Parsing (aus dem bisherigen bankImportRouter, erweitert) ───────────
@@ -82,6 +82,24 @@ function errate(spalten: string[]): Mapping & { vorlage: string } {
       gebuehr: "Gebühr",
       saldo: "Verfügbares Guthaben",
       vorlage: "SumUp-Konto (Vollexport)",
+    };
+  }
+  // SumUp-Konto TRANSAKTIONSBERICHT (schlank, 5 Spalten, ISO-Datum,
+  // vorzeichenbehafteter Betrag) — dedizierter Parser wegen Transaktions-ID.
+  const istSumUpBericht =
+    lower.includes("transaktions-id") &&
+    lower.includes("betrag") &&
+    lower.includes("verfügbares guthaben") &&
+    !lower.includes("rechnungsbetrag ausgehend") &&
+    !lower.includes("art der transaktion");
+  if (istSumUpBericht) {
+    return {
+      datum: "Datum der Transaktion",
+      betrag: "__sumup_bericht__",
+      name: "Referenz",
+      zweck: "",
+      saldo: "Verfügbares Guthaben",
+      vorlage: "SumUp-Konto (Transaktionsbericht)",
     };
   }
   const mapping = {
@@ -212,6 +230,46 @@ function parseSumUpVollZeilen(rows: Record<string, string>[]): { zeilen: Zeile[]
   return { zeilen, uebersprungen };
 }
 
+// ── SumUp-Konto TRANSAKTIONSBERICHT (schlank, 5 Spalten) ───────────────────
+// Spalten: Datum der Transaktion (ISO), Transaktions-ID, Referenz, Betrag
+// (vorzeichenbehaftet, Punkt-Dezimal), Verfügbares Guthaben
+export function parseSumUpBerichtZeilen(rows: Record<string, string>[]): { zeilen: Zeile[]; uebersprungen: number } {
+  const zeilen: Zeile[] = [];
+  let uebersprungen = 0;
+  for (const row of rows) {
+    const datum = (row["Datum der Transaktion"] ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) { uebersprungen++; continue; }
+    const betrag = betragLesen(row["Betrag"] ?? "");
+    if (betrag === null || Math.abs(betrag) < 0.005) { uebersprungen++; continue; }
+    const referenz = (row["Referenz"] ?? "").trim();
+    zeilen.push({
+      datum,
+      betrag,
+      name: sumUpName(referenz) || referenz,
+      zweck: "",
+      gebuehr: null,
+      saldo: betragLesen(row["Verfügbares Guthaben"] ?? ""),
+      txId: (row["Transaktions-ID"] ?? "").trim() || undefined,
+    });
+  }
+  return { zeilen, uebersprungen };
+}
+
+/** Duplikat-Prüfung: Anbieter-ID format- UND kontoübergreifend, sonst Hash. */
+async function existiertBereits(kontoId: number, z: Zeile, hash: string): Promise<boolean> {
+  const db = getDb();
+  const vorhanden = await db.query.bankTransaktionen.findFirst({
+    columns: { id: true },
+    where: z.txId
+      ? or(
+          eq(bankTransaktionen.quellId, z.txId),
+          and(eq(bankTransaktionen.bankAccountId, kontoId), eq(bankTransaktionen.hash, hash)),
+        )
+      : and(eq(bankTransaktionen.bankAccountId, kontoId), eq(bankTransaktionen.hash, hash)),
+  });
+  return Boolean(vorhanden);
+}
+
 function txHash(kontoId: number, z: Zeile): string {
   // Stabile Anbieter-ID bevorzugen (SumUp): identische Betraege/Texte
   // (z. B. zwei gleiche Rueckerstattungen) bleiben so unterscheidbar.
@@ -330,10 +388,7 @@ async function persistiereUndMatche(
 
   for (const z of zeilen) {
     const hash = txHash(bankAccountId, z);
-    const vorhanden = await db.query.bankTransaktionen.findFirst({
-      where: and(eq(bankTransaktionen.bankAccountId, bankAccountId), eq(bankTransaktionen.hash, hash)),
-    });
-    if (vorhanden) { duplikate++; continue; }
+    if (await existiertBereits(bankAccountId, z, hash)) { duplikate++; continue; }
     const [{ id }] = await db
       .insert(bankTransaktionen)
       .values({
@@ -398,9 +453,12 @@ export const bankTransaktionenRouter = createRouter({
     .mutation(async ({ input }) => {
       const csvRows = parseCsv(input.csvText);
       const istSumUpVoll = input.mapping.betrag === "__sumup_voll__";
+      const istSumUpBericht = input.mapping.betrag === "__sumup_bericht__";
       const { zeilen, uebersprungen } = istSumUpVoll
         ? parseSumUpVollZeilen(csvRows)
-        : { zeilen: parseZeilen(csvRows, input.mapping), uebersprungen: 0 };
+        : istSumUpBericht
+          ? parseSumUpBerichtZeilen(csvRows)
+          : { zeilen: parseZeilen(csvRows, input.mapping), uebersprungen: 0 };
       const { vorlage } = errate(Object.keys(csvRows[0] ?? {}));
       return persistiereUndMatche(input.bankAccountId, input.dateiname, vorlage, zeilen, uebersprungen);
     }),
@@ -712,6 +770,66 @@ export const bankTransaktionenRouter = createRouter({
         .leftJoin(bankAccounts, eq(bankTransaktionen.bankAccountId, bankAccounts.id))
         .where(and(eq(bankTransaktionen.invoiceId, input.invoiceId), eq(bankTransaktionen.status, "zugeordnet")))
         .orderBy(asc(bankTransaktionen.datum));
+    }),
+
+  /** Duplikat-Pruefung: Gruppen gleicher Buchungen (Datum+Betrag, Name aehnlich). */
+  duplikate: authedQuery.query(async () => {
+    const db = getDb();
+    const alle = await db
+      .select()
+      .from(bankTransaktionen)
+      .orderBy(asc(bankTransaktionen.datum));
+
+    // Gruppierung nach Datum+Betrag (Name kann je nach Importweg leer/abweichend
+    // sein — der eigentliche Duplikat-Fall aus der Praxis). Der erste Eintrag
+    // (aeltester) wird als „behalten" empfohlen.
+    const gruppen = new Map<string, typeof alle>();
+    for (const t of alle) {
+      const key = `${t.datum}|${Number(t.betrag).toFixed(2)}`;
+      const g = gruppen.get(key) ?? [];
+      g.push(t);
+      gruppen.set(key, g);
+    }
+    return [...gruppen.values()]
+      .filter((g) => g.length > 1)
+      .map((g) => ({
+        datum: g[0].datum,
+        betrag: Number(g[0].betrag),
+        name: g.map((x) => x.name).find((n) => n) ?? g[0].name,
+        eintraege: g.map((t, i) => ({
+          id: t.id,
+          status: t.status,
+          importId: t.importId,
+          quellId: t.quellId,
+          bankAccountId: t.bankAccountId,
+          name: t.name,
+          zweck: t.zweck,
+          createdAt: t.createdAt,
+          empfehlung: (i === 0 ? "behalten" : "loeschen") as "behalten" | "loeschen",
+        })),
+      }));
+  }),
+
+  /** Duplikate loeschen — nur nicht zugeordnete Eintraege (GoBD-sicher). */
+  duplikateLoeschen: authedQuery
+    .input(z.object({ ids: z.array(z.number()).min(1).max(200) }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      let geloescht = 0;
+      const uebersprungen: number[] = [];
+      for (const id of input.ids) {
+        const t = await db.query.bankTransaktionen.findFirst({
+          where: eq(bankTransaktionen.id, id),
+        });
+        if (!t) { uebersprungen.push(id); continue; }
+        if (t.status === "zugeordnet" || t.invoiceId || t.incomingInvoiceId) {
+          uebersprungen.push(id); // Zugeordnete Buchungen bleiben unangetastet
+          continue;
+        }
+        await db.delete(bankTransaktionen).where(eq(bankTransaktionen.id, id));
+        geloescht++;
+      }
+      return { geloescht, uebersprungen };
     }),
 });
 

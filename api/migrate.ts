@@ -60,6 +60,7 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "company_settings", spalte: "waehrung", ddl: "ALTER TABLE company_settings ADD COLUMN waehrung VARCHAR(10) NOT NULL DEFAULT '€' AFTER ust_id_nr" },
   { tabelle: "company_settings", spalte: "monats_budget", ddl: "ALTER TABLE company_settings ADD COLUMN monats_budget DECIMAL(12,2) NULL AFTER waehrung" },
   { tabelle: "company_settings", spalte: "backup_zuletzt_am", ddl: "ALTER TABLE company_settings ADD COLUMN backup_zuletzt_am DATETIME NULL AFTER support_schluessel" },
+  { tabelle: "bank_transaktionen", spalte: "quell_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN quell_id VARCHAR(40) NULL AFTER hash, ADD INDEX bank_tx_quell_idx (quell_id)" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

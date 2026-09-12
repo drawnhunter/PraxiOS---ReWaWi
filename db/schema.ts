@@ -731,6 +731,7 @@ export const bankTransaktionen = mysqlTable(
     gebuehr: decimal("gebuehr", { precision: 12, scale: 2 }),
     saldoNach: decimal("saldo_nach", { precision: 14, scale: 2 }),
     hash: varchar("hash", { length: 64 }).notNull(), // Duplikat-Erkennung je Konto
+    quellId: varchar("quell_id", { length: 40 }), // Anbieter-ID (z. B. SumUp) — formatübergreifende Duplikat-Erkennung
     status: mysqlEnum("status", ["offen", "zugeordnet", "ignoriert"]).notNull().default("offen"),
     invoiceId: bigint("invoice_id", { mode: "number", unsigned: true }).references(
       () => invoices.id,
@@ -747,6 +748,7 @@ export const bankTransaktionen = mysqlTable(
   },
   (t) => [
     uniqueIndex("bank_tx_hash_uniq").on(t.bankAccountId, t.hash),
+    index("bank_tx_quell_idx").on(t.quellId),
     index("bank_tx_konto_datum").on(t.bankAccountId, t.datum),
     index("bank_tx_status").on(t.status),
   ],

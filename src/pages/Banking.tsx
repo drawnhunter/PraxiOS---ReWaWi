@@ -14,7 +14,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Upload, Landmark, CheckCircle2, FileDown, Link2, Unlink, Ban, Trash2,
+  Upload, Landmark, CheckCircle2, FileDown, Link2, Unlink, Ban, Trash2, Copy,
   RotateCcw, Search, AlertTriangle, Settings2,
 } from "lucide-react";
 
@@ -195,6 +195,12 @@ function TransaktionsTab({ kontoId, onChanged }: { kontoId: number; onChanged: (
   const loesen = trpc.bankTrans.zuordnungLoesen.useMutation({ onSuccess: onChanged });
   const setStatusM = trpc.bankTrans.setStatus.useMutation({ onSuccess: onChanged });
   const loeschen = trpc.bankTrans.loeschen.useMutation({ onSuccess: onChanged });
+  const [dupOffen, setDupOffen] = useState(false);
+  const [dupAuswahl, setDupAuswahl] = useState<Set<number>>(new Set());
+  const duplikate = trpc.bankTrans.duplikate.useQuery(undefined, { enabled: dupOffen });
+  const dupLoeschen = trpc.bankTrans.duplikateLoeschen.useMutation({
+    onSuccess: () => { onChanged(); duplikate.refetch(); },
+  });
 
   const pdfLaden = async () => {
     const r = await utils.bankTrans.kontoauszugPdf.fetch({
@@ -260,6 +266,13 @@ function TransaktionsTab({ kontoId, onChanged }: { kontoId: number; onChanged: (
         <Input type="date" value={bis} onChange={(e) => setBis(e.target.value)} className="w-36" title="Bis" />
         <Button variant="outline" onClick={pdfLaden} title="Aktuelle Ansicht als PDF herunterladen">
           <FileDown className="mr-1.5 h-4 w-4" /> PDF
+        </Button>
+        <Button
+          variant="outline"
+          title="Doppelte Buchungen finden und aufräumen"
+          onClick={() => { setDupOffen(true); setDupAuswahl(new Set()); }}
+        >
+          <Copy className="mr-1.5 h-4 w-4" /> Duplikate
         </Button>
       </div>
 
@@ -392,6 +405,80 @@ function TransaktionsTab({ kontoId, onChanged }: { kontoId: number; onChanged: (
           onChanged={() => { onChanged(); setZuordnenTx(null); }}
         />
       )}
+
+      {/* Duplikat-Prüfung */}
+      <Dialog open={dupOffen} onOpenChange={setDupOffen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Duplikat-Prüfung</DialogTitle>
+          </DialogHeader>
+          {duplikate.isLoading && <p className="text-sm text-neutral-500">Prüfe …</p>}
+          {duplikate.data && duplikate.data.length === 0 && (
+            <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+              Keine Duplikate gefunden — alle Buchungen sind eindeutig.
+            </p>
+          )}
+          {duplikate.data && duplikate.data.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm text-neutral-600">
+                {duplikate.data.length} Gruppen mit gleichem Datum + Betrag. Häkchen = wird gelöscht.
+                Zugeordnete Buchungen bleiben immer unangetastet.
+              </p>
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {duplikate.data.map((g, gi) => (
+                  <div key={gi} className="rounded-md border border-neutral-200 p-3">
+                    <div className="mb-1.5 text-sm font-medium">
+                      {g.name || "—"} · {g.datum} · {geld(g.betrag)}
+                    </div>
+                    {g.eintraege.map((e) => {
+                      const gesperrt = e.status === "zugeordnet";
+                      return (
+                        <label key={e.id} className={`flex items-center gap-2 py-1 text-sm ${gesperrt ? "opacity-50" : "cursor-pointer"}`}>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            disabled={gesperrt}
+                            checked={dupAuswahl.has(e.id)}
+                            onChange={(ev) => {
+                              const neu = new Set(dupAuswahl);
+                              if (ev.target.checked) neu.add(e.id); else neu.delete(e.id);
+                              setDupAuswahl(neu);
+                            }}
+                          />
+                          <span className="flex-1 truncate">
+                            #{e.id} {e.name || "—"} <span className="text-xs text-neutral-400">{e.zweck ?? ""}</span>
+                          </span>
+                          <span className={`text-xs ${e.empfehlung === "behalten" ? "text-green-700" : "text-red-700"}`}>
+                            {e.empfehlung === "behalten" ? "behalten" : "Duplikat"}
+                            {gesperrt ? " · zugeordnet" : ""}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              {dupLoeschen.error && (
+                <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{dupLoeschen.error.message}</p>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDupOffen(false)}>Schließen</Button>
+                <Button
+                  variant="destructive"
+                  disabled={dupAuswahl.size === 0 || dupLoeschen.isPending}
+                  onClick={() => {
+                    if (confirm(`${dupAuswahl.size} Buchung(en) löschen? Zugeordnete bleiben unberührt.`)) {
+                      dupLoeschen.mutate({ ids: [...dupAuswahl] }, { onSuccess: () => setDupAuswahl(new Set()) });
+                    }
+                  }}
+                >
+                  {dupLoeschen.isPending ? "Lösche …" : `${dupAuswahl.size} löschen`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -651,9 +738,9 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
         </section>
       )}
 
-      {erkennen.data && mapping && !ergebnis && (erkennen.data.vorlage.includes("Vollexport")) && (
+      {erkennen.data && mapping && !ergebnis && ((erkennen.data.vorlage.includes("Vollexport") || erkennen.data.vorlage.includes("Transaktionsbericht"))) && (
         <section className="rounded-lg border border-green-200 bg-green-50 p-5">
-          <h2 className="mb-1 text-sm font-medium text-green-900">2. SumUp-Vollexport erkannt</h2>
+          <h2 className="mb-1 text-sm font-medium text-green-900">2. SumUp-Export erkannt ({erkennen.data?.vorlage})</h2>
           <p className="text-sm text-green-800">
             Alle Spalten werden automatisch zugeordnet — inkl. Zahlungsreferenz, Gebuehren,
             Saldo und Fremdwaehrungs-Hinweisen. Vorgemerkte Buchungen („In Bearbeitung")
@@ -668,7 +755,7 @@ function ImportTab({ kontoId, konten, onKontoWahl, onChanged }: {
           )}
         </section>
       )}
-      {erkennen.data && mapping && !ergebnis && !(erkennen.data.vorlage.includes("Vollexport")) && (
+      {erkennen.data && mapping && !ergebnis && !((erkennen.data.vorlage.includes("Vollexport") || erkennen.data.vorlage.includes("Transaktionsbericht"))) && (
         <section className="rounded-lg border border-neutral-200 bg-white p-5">
           <h2 className="mb-3 text-sm font-medium text-neutral-700">2. Spalten zuordnen</h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
