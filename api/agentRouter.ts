@@ -306,27 +306,55 @@ app.get("/rechnung/:id", async (c) => {
   });
 });
 
+/** Body tolerant lesen: JSON (application/json) ODER Formular (urlencoded). */
+async function bodyLesen(c: { req: { json: () => Promise<Record<string, unknown>>; parseBody: () => Promise<Record<string, unknown>> } }): Promise<Record<string, unknown>> {
+  try {
+    return await c.req.json();
+  } catch {
+    try {
+      return await c.req.parseBody();
+    } catch {
+      return {};
+    }
+  }
+}
+
+/** Ausgangsrechnung per interner ID ODER Nummer (Agent denkt in Nummern). */
+async function rechnungFinden(idOderNummer: number | string) {
+  const db = getDb();
+  const n = Number(idOderNummer);
+  if (Number.isFinite(n) && n > 0 && String(idOderNummer).match(/^\d+$/)) {
+    const perId = await db.query.invoices.findFirst({ where: eq(invoices.id, n) });
+    if (perId) return perId;
+  }
+  return db.query.invoices.findFirst({ where: eq(invoices.nummer, String(idOderNummer)) });
+}
+
 // ── Zuordnung schreiben/loesen (produktionserprobte Logik mit Reversal) ────
 app.post("/bankbuchung/:id/zuordnen", async (c) => {
   const id = Number(c.req.param("id"));
-  const body = await c.req.json().catch(() => ({}));
-  const rechnungId = body.rechnungId ? Number(body.rechnungId) : null;
+  const body = await bodyLesen(c);
+  const rechnungKey = body.rechnungId ?? body.nummer ?? null;
   const eingangsrechnungId = body.eingangsrechnungId ? Number(body.eingangsrechnungId) : null;
-  if (!rechnungId && !eingangsrechnungId) {
-    return c.json({ fehler: "rechnungId (Ausgangsrechnung) oder eingangsrechnungId (Eingangsbeleg) angeben." }, 400);
+  if (!rechnungKey && !eingangsrechnungId) {
+    return c.json({ ok: false, fehler: "rechnungId/nummer (Ausgangsrechnung) oder eingangsrechnungId (Eingangsbeleg) angeben." }, 400);
   }
   const { zuordneIntern } = await import("./bankTransaktionenRouter");
   try {
-    if (rechnungId) {
-      await zuordneIntern(id, "ausgang", rechnungId);
-      await audit("buchung_zugeordnet", { transaktionId: id, typ: "ausgang", rechnungId });
-      return c.json({ ok: true, typ: "ausgang", rechnungId });
+    if (rechnungKey) {
+      const r = await rechnungFinden(rechnungKey as number | string);
+      if (!r) {
+        return c.json({ ok: false, fehler: `Ausgangsrechnung „${rechnungKey}" nicht gefunden — interne ID (z. B. 17) oder Nummer (z. B. 2026-017) angeben.` }, 404);
+      }
+      await zuordneIntern(id, "ausgang", r.id);
+      await audit("buchung_zugeordnet", { transaktionId: id, typ: "ausgang", rechnungId: r.id, nummer: r.nummer });
+      return c.json({ ok: true, typ: "ausgang", rechnungId: r.id, nummer: r.nummer });
     }
     await zuordneIntern(id, "eingang", eingangsrechnungId!);
     await audit("buchung_zugeordnet", { transaktionId: id, typ: "eingang", eingangsrechnungId });
     return c.json({ ok: true, typ: "eingang", eingangsrechnungId });
   } catch (e) {
-    return c.json({ fehler: e instanceof Error ? e.message : String(e) }, 409);
+    return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 409);
   }
 });
 
@@ -344,7 +372,7 @@ app.post("/bankbuchung/:id/loesen", async (c) => {
 
 // ── Mahnung anlegen (Vorschlag — Versand bleibt beim Menschen) ─────────────
 app.post("/mahnung", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+  const body = await bodyLesen(c);
   const rechnungId = Number(body.rechnungId);
   const stufe = Number(body.stufe ?? 1);
   if (!rechnungId || ![1, 2, 3].includes(stufe)) {
@@ -412,7 +440,7 @@ app.get("/aufgaben", async (c) => {
 });
 
 app.post("/aufgaben", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+  const body = await bodyLesen(c);
   const text = String(body.text ?? "").trim();
   if (!text || text.length > 500) return c.json({ fehler: "text fehlt (max. 500 Zeichen)." }, 400);
   const [{ id }] = await getDb()
@@ -438,7 +466,7 @@ app.post("/aufgaben/:id/erledigt", async (c) => {
 
 // ── Schreiben ──────────────────────────────────────────────────────────────
 app.post("/kunde", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+  const body = await bodyLesen(c);
   const name = String(body.name ?? "").trim();
   if (!name) return c.json({ fehler: "name fehlt." }, 400);
   const db = getDb();
@@ -459,7 +487,7 @@ app.post("/kunde", async (c) => {
 });
 
 app.post("/rechnung-entwurf", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+  const body = await bodyLesen(c);
   const db = getDb();
 
   // Kunde: per ID oder per Namen (Fuzzy)
@@ -514,7 +542,18 @@ app.post("/rechnung-entwurf", async (c) => {
       brutto: centToDecimal(totals.bruttoCent),
     })
     .$returningId();
-  await db.insert(invoiceItems).values(positionen.map((p: Record<string, unknown>) => ({ ...p, invoiceId: id })));
+  await db.insert(invoiceItems).values(
+    positionen.map((p) => ({
+      invoiceId: id,
+      position: p.position,
+      bezeichnung: p.bezeichnung,
+      beschreibung: p.beschreibung,
+      menge: p.menge,
+      einheit: p.einheit,
+      einzelpreis: p.einzelpreis,
+      ustSatz: p.ustSatz,
+    })),
+  );
   await audit("rechnung_entwurf", { id, kunde: kunde.name, positionen: positionen.length, brutto: centToDecimal(totals.bruttoCent) });
   return c.json({ ok: true, id, kunde: kunde.name, brutto: centToDecimal(totals.bruttoCent), hinweis: "Entwurf angelegt — Freigabe erfolgt durch einen Menschen (oder Vollautomatik in Einstellungen)." });
 });
@@ -530,7 +569,7 @@ app.post("/rechnung/:id/versenden", async (c) => {
     );
   }
   const id = Number(c.req.param("id"));
-  const body = await c.req.json().catch(() => ({}));
+  const body = await bodyLesen(c);
   const db = getDb();
   const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id), with: { items: true, bankAccount: true } });
   if (!r) return c.json({ fehler: "Rechnung nicht gefunden." }, 404);

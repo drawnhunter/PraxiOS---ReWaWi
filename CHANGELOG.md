@@ -2,6 +2,19 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.11.3] — 2026-09-13
+
+### Fehlerbehebungen (Agent-API Robustheit)
+
+- **Body-Parsing tolerant:** POST-Endpunkte akzeptieren jetzt JSON
+  (`application/json`) UND Formular-Daten (`x-www-form-urlencoded`) —
+  Agenten-Clients mit form-encoded Bodies schlagen nicht mehr fehl.
+- **Zuordnen per Nummer:** `POST /bankbuchung/:id/zuordnen` akzeptiert
+  neben `rechnungId` auch `nummer` (z. B. „2026-017") — Agenten denken in
+  Rechnungsnummern, nicht in internen IDs. Klare 404 mit Hinweistext bei
+  Nicht-Funden.
+- Fehlerantworten traegen jetzt `ok: false` (einheitlich mit Erfolgen).
+
 ## [1.11.2] — 2026-09-13
 
 ### Neu (Agent-API: Maximum)
