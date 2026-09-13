@@ -145,6 +145,214 @@ app.get("/mahnungen", async (c) => {
   });
 });
 
+// ── Bank: Buchungen, Abgleich, Kontostand ──────────────────────────────────
+app.get("/bankbuchungen", async (c) => {
+  const tage = Math.max(1, Math.min(365, Number(c.req.query("tage") ?? "30")));
+  const seit = new Date(Date.now() - tage * 86400000).toISOString().slice(0, 10);
+  const { bankTransaktionen, bankAccounts } = await import("@db/schema");
+  const { gte, asc } = await import("drizzle-orm");
+  const rows = await getDb()
+    .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung })
+    .from(bankTransaktionen)
+    .leftJoin(bankAccounts, eq(bankTransaktionen.bankAccountId, bankAccounts.id))
+    .where(gte(bankTransaktionen.datum, seit))
+    .orderBy(asc(bankTransaktionen.datum));
+  return c.json({
+    tage,
+    anzahl: rows.length,
+    buchungen: rows.map((r) => ({
+      id: r.t.id,
+      datum: r.t.datum,
+      betrag: Number(r.t.betrag),
+      name: r.t.name,
+      zweck: r.t.zweck,
+      konto: r.konto,
+      status: r.t.status,
+      quellId: r.t.quellId,
+      gebuehr: r.t.gebuehr ? Number(r.t.gebuehr) : null,
+    })),
+  });
+});
+
+app.get("/bankbuchung/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { bankTransaktionen } = await import("@db/schema");
+  const t = await getDb().query.bankTransaktionen.findFirst({
+    where: eq(bankTransaktionen.id, id),
+  });
+  if (!t) return c.json({ fehler: "Buchung nicht gefunden." }, 404);
+  return c.json(t);
+});
+
+app.get("/kontostand", async (c) => {
+  const { bankAccounts, bankTransaktionen } = await import("@db/schema");
+  const { and, desc, sql } = await import("drizzle-orm");
+  const db = getDb();
+  const konten = await db.select().from(bankAccounts);
+  const aus = [];
+  for (const k of konten) {
+    const letzteSaldo = await db
+      .select({ saldo: bankTransaktionen.saldoNach })
+      .from(bankTransaktionen)
+      .where(and(eq(bankTransaktionen.bankAccountId, k.id), sql`${bankTransaktionen.saldoNach} IS NOT NULL`))
+      .orderBy(desc(bankTransaktionen.datum), desc(bankTransaktionen.id))
+      .limit(1);
+    const [agg] = await db
+      .select({ summe: sql<string>`COALESCE(SUM(${bankTransaktionen.betrag}), 0)` })
+      .from(bankTransaktionen)
+      .where(eq(bankTransaktionen.bankAccountId, k.id));
+    aus.push({
+      kontoId: k.id,
+      bezeichnung: k.bezeichnung,
+      iban: k.iban,
+      saldo: letzteSaldo[0]?.saldo !== null && letzteSaldo[0]?.saldo !== undefined
+        ? Number(letzteSaldo[0].saldo)
+        : Number(agg?.summe ?? 0),
+      quelle: letzteSaldo.length > 0 ? "saldoNach" : "summe",
+    });
+  }
+  return c.json({ konten: aus });
+});
+
+app.get("/zahlungsabgleich", async (c) => {
+  const { autoMatch } = await import("./bankTransaktionenRouter");
+  const { bankTransaktionen, bankAccounts } = await import("@db/schema");
+  const { asc } = await import("drizzle-orm");
+  const db = getDb();
+  const offene = await db
+    .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung })
+    .from(bankTransaktionen)
+    .leftJoin(bankAccounts, eq(bankTransaktionen.bankAccountId, bankAccounts.id))
+    .where(eq(bankTransaktionen.status, "offen"))
+    .orderBy(asc(bankTransaktionen.datum))
+    .limit(60);
+  const aus = [];
+  for (const r of offene) {
+    const vorschlag = await autoMatch({
+      datum: r.t.datum,
+      betrag: Number(r.t.betrag),
+      name: r.t.name,
+      zweck: r.t.zweck ?? "",
+      gebuehr: r.t.gebuehr ? Number(r.t.gebuehr) : null,
+      saldo: r.t.saldoNach ? Number(r.t.saldoNach) : null,
+    });
+    aus.push({
+      transaktionId: r.t.id,
+      datum: r.t.datum,
+      betrag: Number(r.t.betrag),
+      name: r.t.name,
+      konto: r.konto,
+      vorschlag: vorschlag
+        ? {
+            typ: vorschlag.typ,
+            rechnungOderBeleg: vorschlag.nummer,
+            kunde: vorschlag.bezeichner,
+            offenBetrag: vorschlag.offenBetrag,
+            sicherheit: vorschlag.sicherheit,
+          }
+        : null,
+    });
+  }
+  return c.json({
+    anzahl: aus.length,
+    mitVorschlag: aus.filter((a) => a.vorschlag).length,
+    buchungen: aus,
+  });
+});
+
+// ── Kunden & Katalog & Einzelbeleg ─────────────────────────────────────────
+app.get("/kunden", async (c) => {
+  const rows = await getDb().select().from(customers);
+  return c.json({
+    anzahl: rows.length,
+    kunden: rows.map((k) => ({
+      id: k.id, name: k.name, zusatz: k.zusatz, strasse: k.strasse,
+      plz: k.plz, ort: k.ort, land: k.land, email: k.email,
+      zahlungszielTage: k.zahlungszielTage,
+    })),
+  });
+});
+
+app.get("/leistungskatalog", async (c) => {
+  const rows = (await getDb().query.products.findMany()).filter((p) => p.aktiv);
+  return c.json({
+    anzahl: rows.length,
+    produkte: rows.map((p) => ({
+      id: p.id, name: p.name, artikelnummer: p.artikelnummer,
+      beschreibung: p.beschreibung, einheit: p.einheit,
+      preisNetto: Number(p.preisNetto), ustSatz: p.ustSatz, kategorie: p.kategorie,
+    })),
+  });
+});
+
+app.get("/rechnung/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const r = await getDb().query.invoices.findFirst({
+    where: eq(invoices.id, id),
+    with: { items: true },
+  });
+  if (!r) return c.json({ fehler: "Rechnung nicht gefunden." }, 404);
+  r.items.sort((a, b) => a.position - b.position);
+  return c.json({
+    id: r.id, nummer: r.nummer, status: r.status,
+    kunde: r.kundeName, kundenId: r.customerId,
+    rechnungsdatum: r.rechnungsdatum, faelligkeitsdatum: r.faelligkeitsdatum,
+    netto: Number(r.netto), ust: Number(r.ust), brutto: Number(r.brutto),
+    bezahltBetrag: Number(r.bezahltBetrag),
+    positionen: r.items.map((it) => ({
+      position: it.position, bezeichnung: it.bezeichnung, beschreibung: it.beschreibung,
+      menge: Number(it.menge), einheit: it.einheit, einzelpreis: Number(it.einzelpreis), ustSatz: it.ustSatz,
+    })),
+  });
+});
+
+// ── Mahnung anlegen (Vorschlag — Versand bleibt beim Menschen) ─────────────
+app.post("/mahnung", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const rechnungId = Number(body.rechnungId);
+  const stufe = Number(body.stufe ?? 1);
+  if (!rechnungId || ![1, 2, 3].includes(stufe)) {
+    return c.json({ fehler: "rechnungId und stufe (1–3) nötig." }, 400);
+  }
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, rechnungId) });
+  if (!r) return c.json({ fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status !== "finalisiert") return c.json({ fehler: "Mahnungen gibt es nur zu finalisierten Rechnungen." }, 409);
+  const offen = Number(r.brutto) - Number(r.bezahltBetrag);
+  if (offen <= 0) return c.json({ fehler: "Die Rechnung ist bereits bezahlt." }, 409);
+
+  const frist = new Date();
+  frist.setDate(frist.getDate() + 10);
+  const [{ id }] = await db
+    .insert(reminders)
+    .values({
+      invoiceId: r.id,
+      stufe,
+      datum: heute(),
+      zahlungsfrist: body.zahlungsfrist ? String(body.zahlungsfrist) : frist.toISOString().slice(0, 10),
+      offenBetrag: offen.toFixed(2),
+      bemerkung: "Per Agent-API (Kimi Claw) angelegt",
+    })
+    .$returningId();
+  await audit("mahnung_angelegt", { id, rechnungId, stufe, nummer: r.nummer });
+  return c.json({ ok: true, id, stufe, nummer: r.nummer, hinweis: "Mahnung angelegt — PDF/Versand erfolgt durch einen Menschen." });
+});
+
+// ── Entwurf löschen (nur Entwürfe, GoBD) ───────────────────────────────────
+app.delete("/entwurf/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status !== "entwurf") return c.json({ fehler: "Nur Entwürfe sind löschbar (GoBD). Finalisierte Rechnungen bleiben unveränderbar." }, 409);
+  await db.transaction(async (tx) => {
+    await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
+    await tx.delete(invoices).where(eq(invoices.id, id));
+  });
+  await audit("entwurf_geloescht", { id, kunde: r.kundeName });
+  return c.json({ ok: true, geloescht: id, kunde: r.kundeName });
+});
+
 app.get("/import-status", async (c) => {
   const rows = await getDb().query.bankImporte.findMany({ orderBy: [desc(bankImporte.createdAt)] });
   const letzter = rows[0];

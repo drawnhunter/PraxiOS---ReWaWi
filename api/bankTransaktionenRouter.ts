@@ -287,7 +287,7 @@ type Vorschlag =
   | { typ: "ausgang"; zielId: number; nummer: string; bezeichner: string; offenBetrag: number; sicherheit: "sicher" | "wahrscheinlich"; teil: boolean }
   | { typ: "eingang"; zielId: number; nummer: string; bezeichner: string; offenBetrag: number; sicherheit: "sicher" | "wahrscheinlich" };
 
-async function autoMatch(z: Zeile): Promise<Vorschlag | null> {
+export async function autoMatch(z: Zeile): Promise<Vorschlag | null> {
   const db = getDb();
   if (z.betrag > 0) {
     const offene = await db.select().from(invoices).where(eq(invoices.status, "finalisiert"));

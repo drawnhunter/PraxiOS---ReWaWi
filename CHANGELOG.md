@@ -2,6 +2,20 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.11.1] — 2026-09-13
+
+### Neu (Agent-API Erweiterung)
+
+- **Banking fuer den Agenten:** `GET /bankbuchungen?tage=X`,
+  `GET /bankbuchung/:id`, `GET /kontostand` (je Konto: saldoNach oder
+  Summe), `GET /zahlungsabgleich` (offene Buchungen mit Auto-Match-
+  Vorschlag, gleiche Logik wie die UI).
+- **Stammdaten fuer den Agenten:** `GET /kunden`, `GET /leistungskatalog`
+  (aktive Produkte mit Preisen/USt), `GET /rechnung/:id` (mit Positionen).
+- **Schreiben:** `POST /mahnung` (Stufe 1-3 anlegen — Versand bleibt beim
+  Menschen) und `DELETE /entwurf/:id` (nur Entwuerfe, GoBD-sicher, mit
+  Audit-Eintrag).
+
 ## [1.11.0] — 2026-09-12
 
 ### Neu
