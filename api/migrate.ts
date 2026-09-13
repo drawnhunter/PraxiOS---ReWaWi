@@ -62,6 +62,7 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "company_settings", spalte: "backup_zuletzt_am", ddl: "ALTER TABLE company_settings ADD COLUMN backup_zuletzt_am DATETIME NULL AFTER support_schluessel" },
   { tabelle: "bank_transaktionen", spalte: "quell_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN quell_id VARCHAR(40) NULL AFTER hash, ADD INDEX bank_tx_quell_idx (quell_id)" },
   { tabelle: "company_settings", spalte: "agent_autonomie", ddl: "ALTER TABLE company_settings ADD COLUMN agent_autonomie VARCHAR(20) NOT NULL DEFAULT 'vorschlag' AFTER support_schluessel" },
+  { tabelle: "company_settings", spalte: "modul_konfig", ddl: "ALTER TABLE company_settings ADD COLUMN modul_konfig TEXT NULL AFTER agent_autonomie" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

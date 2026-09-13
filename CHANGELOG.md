@@ -2,6 +2,20 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.12.0] — 2026-09-14
+
+### Neu
+
+- **Modul-Konfiguration (Feature-Flags):** Instanzen schalten Module per
+  Klick ein/aus — **Zeiterfassung, Banking, Post Manager, Lager** (weitere
+  folgen). Sidebar blendet deaktivierte Module aus, ein tRPC-Gate
+  (`/api/trpc/*`) antwortet deaktivierten Router-Praefixen mit 403 +
+  Hinweistext. Deaktivieren loescht keine Daten; Wiederaktivieren stellt
+  alles wieder her. Einstellungen → Module.
+- Grundstein fuer die Modul-Roadmap: Neue Features kommen künftig per
+  Update ins Release (signiert, getestet) — kein Runtime-Plugin-Loader
+  (GoBD/Integritaet).
+
 ## [1.11.3] — 2026-09-13
 
 ### Fehlerbehebungen (Agent-API Robustheit)

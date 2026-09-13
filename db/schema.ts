@@ -56,6 +56,7 @@ export const companySettings = mysqlTable("company_settings", {
   // SupportHub-Verbindung (Support-Schluessel vom Dienstleister)
   supportSchluessel: varchar("support_schluessel", { length: 80 }),
   agentAutonomie: varchar("agent_autonomie", { length: 20 }).notNull().default("vorschlag"),
+  modulKonfig: text("modul_konfig"),
   backupZuletztAm: timestamp("backup_zuletzt_am"),
   // ICS-Abo (geheime URL fuer Zahlungsziele-Kalender)
   icsToken: varchar("ics_token", { length: 48 }),

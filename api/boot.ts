@@ -35,6 +35,24 @@ try {
   console.error("[agent] Router-Mount fehlgeschlagen:", e);
 }
 
+// Modul-Gate: deaktivierte Module antworten mit 403 (vor dem tRPC-Handler)
+app.use("/api/trpc/*", async (c, next) => {
+  const { modulFuerRouter, modulAktiv } = await import("./lib/module");
+  const pfad = c.req.path.replace(/^\/api\/trpc\//, "").split("?")[0];
+  // Batching: Pfade sind kommagetrennt (zeit.a,zeit.b)
+  const routerNamen = [...new Set(pfad.split(",").map((x) => x.split(".")[0]))];
+  for (const name of routerNamen) {
+    const def = modulFuerRouter(name);
+    if (def && !(await modulAktiv(def.id))) {
+      return c.json(
+        [{ error: { message: `Modul „${def.titel}" ist deaktiviert (Einstellungen → Module).`, code: -32403, data: { code: "FORBIDDEN", httpStatus: 403 } } }],
+        403,
+      );
+    }
+  }
+  return next();
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

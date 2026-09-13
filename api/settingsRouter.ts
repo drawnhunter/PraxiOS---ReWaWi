@@ -122,6 +122,28 @@ export const settingsRouter = createRouter({
       return { ok: true };
     }),
 
+  // ── Modul-Konfiguration ──
+  moduleUebersicht: authedQuery.query(async () => {
+    const { MODUL_DEFS, ladeModulKonfig } = await import("./lib/module");
+    const konfig = await ladeModulKonfig();
+    return MODUL_DEFS.map((d) => ({ ...d, aktiv: konfig[d.id] !== false }));
+  }),
+
+  modulSetzen: adminQuery
+    .input(z.object({ modul: z.string().min(2).max(40), aktiv: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const { MODUL_DEFS, ladeModulKonfig, modulCacheLeeren } = await import("./lib/module");
+      if (!MODUL_DEFS.some((d) => d.id === input.modul)) throw new Error("Unbekanntes Modul.");
+      const konfig = await ladeModulKonfig();
+      const neu = { ...konfig, [input.modul]: input.aktiv };
+      await getDb()
+        .insert(companySettings)
+        .values({ id: 1, modulKonfig: JSON.stringify(neu) } as never)
+        .onDuplicateKeyUpdate({ set: { modulKonfig: JSON.stringify(neu) } as never });
+      modulCacheLeeren();
+      return { ok: true };
+    }),
+
   sequences: authedQuery.query(async () => {
     return getDb().select().from(numberSequences);
   }),

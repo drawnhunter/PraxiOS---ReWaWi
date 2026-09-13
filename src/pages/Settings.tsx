@@ -653,6 +653,8 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <ModulSection />
+
       <AgentApiSection />
 
       {/* ── Nummernkreise ── */}
@@ -951,6 +953,49 @@ Header: Authorization: Bearer ax_…`}</pre>
           )}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+/** Modul-Konfiguration: Features pro Instanz ein-/ausschalten. */
+function ModulSection() {
+  const utils = trpc.useUtils();
+  const module = trpc.settings.moduleUebersicht.useQuery();
+  const setzen = trpc.settings.modulSetzen.useMutation({
+    onSuccess: () => {
+      utils.settings.moduleUebersicht.invalidate();
+      utils.settings.get.invalidate();
+    },
+  });
+
+  return (
+    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <h2 className="mb-2 text-sm font-medium text-neutral-700">Module</h2>
+      <p className="mb-4 text-xs text-neutral-500">
+        Features pro Instanz ein-/ausschalten — Sidebar und API folgen sofort.
+        Deaktivieren löscht <strong>keine</strong> Daten; Wiederaktivieren stellt alles wieder her.
+      </p>
+      <div className="space-y-2">
+        {(module.data ?? []).map((m) => (
+          <div key={m.id} className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">{m.titel}</div>
+              <div className="text-xs text-neutral-500">{m.beschreibung}</div>
+            </div>
+            <Button
+              size="sm"
+              variant={m.aktiv ? "default" : "outline"}
+              disabled={setzen.isPending}
+              onClick={() => setzen.mutate({ modul: m.id, aktiv: !m.aktiv })}
+            >
+              {m.aktiv ? "Aktiv" : "Deaktiviert"}
+            </Button>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-neutral-400">
+        Neue Module kommen per Update (Einstellungen → Update — sobald der Hub-Befehl steht).
+      </p>
     </section>
   );
 }

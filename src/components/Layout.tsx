@@ -39,6 +39,14 @@ const OBEN: NavEintrag[] = [
       { to: "/zeit", label: "Zeiterfassung", icon: Clock },
 ];
 
+/** Pfad → Modul-ID (null = immer sichtbar). Spiegelt api/lib/module MODUL_DEFS. */
+const MODUL_JE_PFAD: Record<string, string> = {
+  "/zeit": "zeiterfassung",
+  "/bank": "banking",
+  "/posteingang": "postmanager",
+  "/lager": "lager",
+};
+
 const GRUPPEN: NavGruppe[] = [
   {
     id: "eingang",
@@ -95,6 +103,17 @@ function ladeZugeklappt(): Record<string, boolean> {
 
 export default function Layout() {
   const { user, isLoading, logout } = useAuth({ redirectOnUnauthenticated: true });
+  const module = trpc.settings.moduleUebersicht.useQuery(undefined, { staleTime: 60_000 });
+  const modulAktiv = (pfad: string) => {
+    const id = MODUL_JE_PFAD[pfad];
+    if (!id) return true;
+    const def = module.data?.find((d) => d.id === id);
+    return def ? def.aktiv : true;
+  };
+  const gruppen = GRUPPEN
+    .map((g) => ({ ...g, eintraege: g.eintraege.filter((e) => modulAktiv(e.to)) }))
+    .filter((g) => g.eintraege.length > 0);
+  const oben = OBEN.filter((e) => modulAktiv(e.to));
   const [navOffen, setNavOffen] = useState(false);
   const [zugeklappt, setZugeklappt] = useState<Record<string, boolean>>(ladeZugeklappt);
 
@@ -160,8 +179,8 @@ export default function Layout() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-2">
-        {OBEN.map(eintrag)}
-        {GRUPPEN.map((g) => (
+        {oben.map(eintrag)}
+        {gruppen.map((g) => (
           <div key={g.id} className="mt-1">
             <button
               onClick={() => klappen(g.id)}
