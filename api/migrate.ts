@@ -61,12 +61,45 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "company_settings", spalte: "monats_budget", ddl: "ALTER TABLE company_settings ADD COLUMN monats_budget DECIMAL(12,2) NULL AFTER waehrung" },
   { tabelle: "company_settings", spalte: "backup_zuletzt_am", ddl: "ALTER TABLE company_settings ADD COLUMN backup_zuletzt_am DATETIME NULL AFTER support_schluessel" },
   { tabelle: "bank_transaktionen", spalte: "quell_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN quell_id VARCHAR(40) NULL AFTER hash, ADD INDEX bank_tx_quell_idx (quell_id)" },
+  { tabelle: "company_settings", spalte: "agent_autonomie", ddl: "ALTER TABLE company_settings ADD COLUMN agent_autonomie VARCHAR(20) NOT NULL DEFAULT 'vorschlag' AFTER support_schluessel" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
 // post_eingang referenziert kategorien, suppliers und incoming_invoices
 // und muss daher am Ende stehen.
 const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
+  {
+    tabelle: "agent_tokens",
+    ddl: `CREATE TABLE IF NOT EXISTS agent_tokens (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      token_hash VARCHAR(64) NOT NULL,
+      aktiv TINYINT(1) NOT NULL DEFAULT 1,
+      letzte_nutzung DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX agent_tokens_hash (token_hash)
+    )`,
+  },
+  {
+    tabelle: "agent_aufgaben",
+    ddl: `CREATE TABLE IF NOT EXISTS agent_aufgaben (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      text VARCHAR(500) NOT NULL,
+      erledigt TINYINT(1) NOT NULL DEFAULT 0,
+      erledigt_am DATETIME NULL,
+      quelle VARCHAR(20) NOT NULL DEFAULT 'mensch',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    tabelle: "agent_log",
+    ddl: `CREATE TABLE IF NOT EXISTS agent_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      aktion VARCHAR(100) NOT NULL,
+      details TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
   {
     tabelle: "invoice_series",
     ddl: `CREATE TABLE IF NOT EXISTS invoice_series (

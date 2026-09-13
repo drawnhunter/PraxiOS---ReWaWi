@@ -653,6 +653,8 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <AgentApiSection />
+
       {/* ── Nummernkreise ── */}
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-2 text-sm font-medium text-neutral-700">Nummernkreise</h2>
@@ -804,5 +806,151 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Agent-API (Kimi Claw): Token, Autonomie-Stufe, Endpunkte, Aktions-Log. */
+function AgentApiSection() {
+  const utils = trpc.useUtils();
+  const status = trpc.settings.agentStatus.useQuery();
+  const erstellen = trpc.settings.agentTokenErstellen.useMutation({
+    onSuccess: () => utils.settings.agentStatus.invalidate(),
+  });
+  const umschalten = trpc.settings.agentTokenUmschalten.useMutation({
+    onSuccess: () => utils.settings.agentStatus.invalidate(),
+  });
+  const autonomie = trpc.settings.agentAutonomieSetzen.useMutation({
+    onSuccess: () => utils.settings.agentStatus.invalidate(),
+  });
+  const [neuerName, setNeuerName] = useState("");
+  const [frisch, setFrisch] = useState<string | null>(null);
+  const host = typeof window !== "undefined" ? window.location.origin : "";
+
+  return (
+    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <h2 className="mb-2 text-sm font-medium text-neutral-700">Agent-API (Kimi Claw)</h2>
+      <p className="mb-4 text-xs text-neutral-500">
+        REST-Endpunkte unter <code>/api/agent/*</code> für externe Agenten. Token nur per
+        Bearer — der Klartext wird bei der Anlage <strong>einmalig</strong> gezeigt.
+      </p>
+
+      {/* Autonomie-Stufe */}
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md bg-neutral-50 px-3 py-2">
+        <span className="text-sm">Autonomie-Stufe:</span>
+        {(["vorschlag", "vollautomatik"] as const).map((st) => (
+          <Button
+            key={st}
+            size="sm"
+            variant={status.data?.autonomie === st ? "default" : "outline"}
+            onClick={() => autonomie.mutate({ stufe: st })}
+          >
+            {st === "vorschlag" ? "Vorschlag (empfohlen)" : "Vollautomatik"}
+          </Button>
+        ))}
+        <span className="text-xs text-neutral-500">
+          „Vorschlag“: Lesen + Entwürfe/Aufgaben. „Vollautomatik“: zusätzlich E-Mail-Versand.
+          Umstellen, wenn die Vorschläge eine Weile korrekt waren.
+        </span>
+      </div>
+
+      {/* Neues Token */}
+      <div className="mb-4 flex items-end gap-2">
+        <div className="flex-1">
+          <Label>Neues Token</Label>
+          <Input
+            value={neuerName}
+            onChange={(e) => setNeuerName(e.target.value)}
+            placeholder="Name, z. B. Kimi Claw Laptop"
+          />
+        </div>
+        <Button
+          disabled={neuerName.trim().length < 2 || erstellen.isPending}
+          onClick={() =>
+            erstellen.mutate({ name: neuerName.trim() }, {
+              onSuccess: (d) => { setFrisch(d.token); setNeuerName(""); },
+            })
+          }
+        >
+          Erstellen
+        </Button>
+      </div>
+      {frisch && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3">
+          <p className="mb-1 text-sm font-medium text-amber-900">
+            Token — jetzt einmalig kopieren, danach nie wieder sichtbar:
+          </p>
+          <code className="block break-all rounded bg-white px-2 py-1 text-xs">{frisch}</code>
+          <Button variant="ghost" size="sm" className="mt-1" onClick={() => navigator.clipboard.writeText(frisch)}>
+            Kopieren
+          </Button>
+        </div>
+      )}
+
+      {/* Token-Liste */}
+      <table className="mb-4 w-full text-sm">
+        <thead>
+          <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500">
+            <th className="py-2 font-medium">Name</th>
+            <th className="py-2 font-medium">Status</th>
+            <th className="py-2 font-medium">Letzte Nutzung</th>
+            <th className="py-2 font-medium" />
+          </tr>
+        </thead>
+        <tbody>
+          {(status.data?.tokens ?? []).map((t) => (
+            <tr key={t.id} className="border-b border-neutral-100 last:border-0">
+              <td className="py-2">{t.name}</td>
+              <td className="py-2">{t.aktiv ? "aktiv" : "deaktiviert"}</td>
+              <td className="py-2 text-neutral-500">
+                {t.letzteNutzung ? new Date(t.letzteNutzung).toLocaleString("de-DE") : "noch nie"}
+              </td>
+              <td className="py-2 text-right">
+                <Button variant="ghost" size="sm" onClick={() => umschalten.mutate({ id: t.id, aktiv: !t.aktiv })}>
+                  {t.aktiv ? "Deaktivieren" : "Aktivieren"}
+                </Button>
+              </td>
+            </tr>
+          ))}
+          {(status.data?.tokens ?? []).length === 0 && (
+            <tr><td colSpan={4} className="py-2 text-neutral-400">Noch keine Tokens.</td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {/* Endpunkt-Doku */}
+      <details className="mb-4">
+        <summary className="cursor-pointer text-sm font-medium text-neutral-700">Endpunkte (für Claw-Konfiguration)</summary>
+        <pre className="mt-2 overflow-x-auto rounded-md bg-neutral-50 p-3 text-xs leading-relaxed">{`GET  ${host}/api/agent/status
+GET  ${host}/api/agent/offene-rechnungen
+GET  ${host}/api/agent/entwuerfe
+GET  ${host}/api/agent/kunden-ohne-rechnung?tage=30
+GET  ${host}/api/agent/mahnungen
+GET  ${host}/api/agent/import-status
+GET  ${host}/api/agent/aufgaben
+POST ${host}/api/agent/aufgaben          {"text":"…"}
+POST ${host}/api/agent/aufgaben/:id/erledigt
+POST ${host}/api/agent/kunde             {"name":"…","email":"…"}
+POST ${host}/api/agent/rechnung-entwurf  {"kunde":"Müller","items":[{"bezeichnung":"…","einzelpreis":"49.00"}]}
+POST ${host}/api/agent/rechnung/:id/versenden   (nur Vollautomatik)
+Header: Authorization: Bearer ax_…`}</pre>
+      </details>
+
+      {/* Letzte Aktionen */}
+      <h3 className="mb-2 text-xs font-medium text-neutral-600">Letzte Agent-Aktionen</h3>
+      <table className="w-full text-xs">
+        <tbody>
+          {(status.data?.letzteAktionen ?? []).map((a) => (
+            <tr key={a.id} className="border-b border-neutral-100 last:border-0">
+              <td className="py-1.5 text-neutral-500">{new Date(a.createdAt).toLocaleString("de-DE")}</td>
+              <td className="py-1.5 font-medium">{a.aktion}</td>
+              <td className="py-1.5 max-w-xs truncate text-neutral-500">{a.details ?? ""}</td>
+            </tr>
+          ))}
+          {(status.data?.letzteAktionen ?? []).length === 0 && (
+            <tr><td className="py-1.5 text-neutral-400">Noch keine Aktionen.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </section>
   );
 }

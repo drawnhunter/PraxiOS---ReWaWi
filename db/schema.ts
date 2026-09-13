@@ -55,6 +55,7 @@ export const companySettings = mysqlTable("company_settings", {
   pdfLayout: varchar("pdf_layout", { length: 30 }).notNull().default("klassisch"),
   // SupportHub-Verbindung (Support-Schluessel vom Dienstleister)
   supportSchluessel: varchar("support_schluessel", { length: 80 }),
+  agentAutonomie: varchar("agent_autonomie", { length: 20 }).notNull().default("vorschlag"),
   backupZuletztAm: timestamp("backup_zuletzt_am"),
   // ICS-Abo (geheime URL fuer Zahlungsziele-Kalender)
   icsToken: varchar("ics_token", { length: 48 }),
@@ -614,6 +615,32 @@ export const supportMeldungen = mysqlTable("support_meldungen", {
   version: varchar("version", { length: 20 }).notNull(),
   status: mysqlEnum("status", ["gesendet", "fehlgeschlagen"]).notNull(),
   fehler: varchar("fehler", { length: 500 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ── Agent-API (Kimi Claw): Tokens, Aufgabenliste, Aktions-Log ─────────────
+export const agentTokens = mysqlTable("agent_tokens", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+  aktiv: boolean("aktiv").notNull().default(true),
+  letzteNutzung: timestamp("letzte_nutzung"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const agentAufgaben = mysqlTable("agent_aufgaben", {
+  id: serial("id").primaryKey(),
+  text: varchar("text", { length: 500 }).notNull(),
+  erledigt: boolean("erledigt").notNull().default(false),
+  erledigtAm: timestamp("erledigt_am"),
+  quelle: varchar("quelle", { length: 20 }).notNull().default("mensch"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const agentLog = mysqlTable("agent_log", {
+  id: serial("id").primaryKey(),
+  aktion: varchar("aktion", { length: 100 }).notNull(),
+  details: text("details"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

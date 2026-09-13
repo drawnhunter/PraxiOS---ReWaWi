@@ -72,6 +72,56 @@ export const settingsRouter = createRouter({
     return { ok: true };
   }),
 
+  // ── Agent-API (Kimi Claw) ──
+  agentStatus: authedQuery.query(async () => {
+    const { agentTokens, agentLog, companySettings } = await import("@db/schema");
+    const { desc, eq } = await import("drizzle-orm");
+    const db = getDb();
+    const [tokens, log, einstellungen] = await Promise.all([
+      db.query.agentTokens.findMany({ orderBy: [desc(agentTokens.createdAt)] }),
+      db.query.agentLog.findMany({ orderBy: [desc(agentLog.createdAt)], limit: 20 }),
+      db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) }),
+    ]);
+    return {
+      autonomie: einstellungen?.agentAutonomie ?? "vorschlag",
+      tokens: tokens.map((t) => ({ id: t.id, name: t.name, aktiv: t.aktiv, letzteNutzung: t.letzteNutzung, createdAt: t.createdAt })),
+      letzteAktionen: log,
+    };
+  }),
+
+  agentTokenErstellen: adminQuery
+    .input(z.object({ name: z.string().trim().min(2).max(100) }))
+    .mutation(async ({ input }) => {
+      const { agentTokens } = await import("@db/schema");
+      const { erzeugeAgentToken, hashToken } = await import("./agentRouter");
+      const klar = erzeugeAgentToken();
+      const [{ id }] = await getDb()
+        .insert(agentTokens)
+        .values({ name: input.name, tokenHash: hashToken(klar) })
+        .$returningId();
+      // Klartext-Token wird NUR jetzt einmalig ausgeliefert
+      return { id, name: input.name, token: klar };
+    }),
+
+  agentTokenUmschalten: adminQuery
+    .input(z.object({ id: z.number(), aktiv: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const { agentTokens } = await import("@db/schema");
+      const { eq } = await import("drizzle-orm");
+      await getDb().update(agentTokens).set({ aktiv: input.aktiv }).where(eq(agentTokens.id, input.id));
+      return { ok: true };
+    }),
+
+  agentAutonomieSetzen: adminQuery
+    .input(z.object({ stufe: z.enum(["vorschlag", "vollautomatik"]) }))
+    .mutation(async ({ input }) => {
+      await getDb()
+        .insert(companySettings)
+        .values({ id: 1, agentAutonomie: input.stufe } as never)
+        .onDuplicateKeyUpdate({ set: { agentAutonomie: input.stufe } as never });
+      return { ok: true };
+    }),
+
   sequences: authedQuery.query(async () => {
     return getDb().select().from(numberSequences);
   }),

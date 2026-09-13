@@ -26,6 +26,15 @@ app.get("/ics/zahlungsziele.ics", async (c) => {
   return c.body(ics, 200, { "Content-Type": "text/calendar; charset=utf-8" });
 });
 
+// Agent-API (Kimi Claw): REST mit Bearer-Token, unabhängig von der Session
+try {
+  const { default: agentRouter } = await import("./agentRouter");
+  app.route("/api/agent", agentRouter);
+  console.log("[agent] API unter /api/agent aktiv (Bearer-Token in Einstellungen)");
+} catch (e) {
+  console.error("[agent] Router-Mount fehlgeschlagen:", e);
+}
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

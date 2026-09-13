@@ -2,6 +2,26 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.11.0] — 2026-09-12
+
+### Neu
+
+- **Agent-API (Kimi Claw):** REST-Endpunkte unter `/api/agent/*` mit
+  Bearer-Token (Klartext nur einmalig bei der Anlage sichtbar, sha256 in
+  `agent_tokens`). Lesen: offene/ueberfaellige Rechnungen, Entwuerfe,
+  Kunden ohne Rechnung seit X Tagen, Mahnungen, Import-Status. Schreiben:
+  Aufgabenliste (anlegen/erledigt, Quelle wird mitprotokolliert),
+  Kunden-Quick-Add, Rechnungs-Entwurf (Kunde per ID oder Fuzzy-Name,
+  Positionen mit USt-Satz, Summen konsistent).
+- **Autonomie-Stufen:** `vorschlag` (Standard: Lesen + Entwuerfe) und
+  `vollautomatik` (zusaetzlich Beleg-Versand per E-Mail). Umstellbar in
+  Einstellungen → Agent-API — Versand unter „vorschlag" ist serverseitig
+  gesperrt (403 mit Hinweis).
+- **Agent-Audit:** Jede Schreib-Aktion landet in `agent_log`, sichtbar in
+  den Einstellungen inkl. Token-Verwaltung, Stufe, Endpunkt-Doku.
+- Settings-Sektion „Agent-API (Kimi Claw)": Token erstellen/deaktivieren,
+  Stufe waehlen, curl-Doku fuer die Claw-Konfiguration.
+
 ## [1.10.2] — 2026-09-12
 
 ### Fehlerbehebungen (Banking)
