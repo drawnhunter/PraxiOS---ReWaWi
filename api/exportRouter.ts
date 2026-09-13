@@ -2,12 +2,216 @@
 import { z } from "zod";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
-import { invoices, creditNotes, customers, companySettings, incomingInvoices, postEingang } from "@db/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { invoices, creditNotes, customers, companySettings, incomingInvoices, postEingang, bankTransaktionen, kategorien } from "@db/schema";
+import { eq, and, gte, lte, isNull, sql } from "drizzle-orm";
 import { erzeugeXrechnung } from "./xrechnung";
 import { ladeFirmaLive } from "./pdfBelege";
 import { erzeugeBuchungsstapel, type DatevBuchung } from "./datev";
 import { computeTotals } from "@contracts/invoicing";
+
+/** DATEV-Buchungsstapel (Rechnungsausgang + Gutschriften + Eingangsbelege +
+    kategorisierte Bank-Buchungen) für einen Zeitraum — geteilt mit der Agent-API. */
+export async function baueDatevStapel(von: string, bis: string) {
+
+    const db = getDb();
+    const s = await db.query.companySettings.findFirst({
+      where: eq(companySettings.id, 1),
+    });
+    if (!s) throw new Error("Firmen-Einstellungen fehlen.");
+
+    const [rechnungen, gutschriften, kunden] = await Promise.all([
+      db.query.invoices.findMany({
+        where: and(
+          eq(invoices.status, "finalisiert"),
+          gte(invoices.rechnungsdatum, von),
+          lte(invoices.rechnungsdatum, bis),
+        ),
+        with: { items: true },
+      }),
+      db.query.creditNotes.findMany({
+        where: and(
+          eq(creditNotes.status, "finalisiert"),
+          gte(creditNotes.datum, von),
+          lte(creditNotes.datum, bis),
+        ),
+        with: { items: true, invoice: true },
+      }),
+      db.query.customers.findMany(),
+    ]);
+
+    const [eingaenge] = await Promise.all([
+      db
+        .select({
+          id: incomingInvoices.id,
+          lieferantName: incomingInvoices.lieferantName,
+          nummer: incomingInvoices.nummer,
+          rechnungsdatum: incomingInvoices.rechnungsdatum,
+          netto: incomingInvoices.netto,
+          ust: incomingInvoices.ust,
+          brutto: incomingInvoices.brutto,
+          konto: incomingInvoices.konto,
+          gegenkonto: incomingInvoices.gegenkonto,
+          postLieferantId: postEingang.absenderLieferantId,
+        })
+        .from(incomingInvoices)
+        .leftJoin(postEingang, eq(incomingInvoices.id, postEingang.incomingInvoiceId))
+        .where(
+          and(
+            gte(incomingInvoices.rechnungsdatum, von),
+            lte(incomingInvoices.rechnungsdatum, bis),
+          ),
+        ),
+    ]);
+
+    const hinweise: string[] = [];
+
+
+    // ── Debitornummern vergeben (einmalig, persistent) ──────────────────
+    const kundeById = new Map(kunden.map((k) => [k.id, k]));
+    let naechste = Math.max(
+      s.debitorStartnummer,
+      ...kunden.map((k) => (k.debitornummer ?? 0) + 1),
+      s.debitorStartnummer,
+    );
+    const debitorFuer = async (customerId: number): Promise<number> => {
+      const k = kundeById.get(customerId);
+      if (k?.debitornummer) return k.debitornummer;
+      const nr = naechste++;
+      await db.update(customers).set({ debitornummer: nr }).where(eq(customers.id, customerId));
+      if (k) k.debitornummer = nr;
+      hinweise.push(`Kunde „${k?.name ?? customerId}“ erhielt Debitornummer ${nr}.`);
+      return nr;
+    };
+
+    const buchungen: DatevBuchung[] = [];
+
+    for (const r of rechnungen) {
+      const deb = await debitorFuer(r.customerId);
+      const totals = computeTotals(
+        r.items.map((it) => ({ einzelpreis: it.einzelpreis, menge: it.menge, ustSatz: it.ustSatz })),
+      );
+      for (const u of totals.ustProSatz) {
+        buchungen.push({
+          debitornummer: deb,
+          belegdatum: r.rechnungsdatum,
+          belegfeld1: r.nummer ?? String(r.id),
+          buchungstext: `Rechnung ${r.nummer ?? r.id} ${r.kundeName}`,
+          betragCent: u.basisCent + u.betragCent,
+          ustSatz: u.satz,
+        });
+      }
+    }
+
+    for (const g of gutschriften) {
+      const deb = await debitorFuer(g.invoice.customerId);
+      const totals = computeTotals(
+        g.items.map((it) => ({ einzelpreis: it.einzelpreis, menge: it.menge, ustSatz: it.ustSatz })),
+      );
+      for (const u of totals.ustProSatz) {
+        buchungen.push({
+          debitornummer: deb,
+          belegdatum: g.datum,
+          belegfeld1: g.nummer ?? String(g.id),
+          buchungstext: `Gutschrift ${g.nummer ?? g.id} zu ${g.invoice.nummer ?? g.invoiceId} ${g.kundeName}`,
+          betragCent: -(u.basisCent + u.betragCent),
+          ustSatz: u.satz,
+        });
+      }
+    }
+
+    // ── Eingangsrechnungen: Soll Aufwandskonto an Kreditor (BU 9 = 19 % VSt,
+    // 8 = 7 % VSt). Kreditor = Startnummer + Lieferanten-ID, sonst Sammelkonto.
+    const sammelKreditor = s.datevKontenrahmen === "SKR04" ? "3300" : "1600";
+    const standardAufwand =
+      s.aufwandskontoDefault ?? (s.datevKontenrahmen === "SKR04" ? "6305" : "4900");
+    for (const e of eingaenge) {
+      const netto = Number(e.netto);
+      const ust = Number(e.ust);
+      const satz = netto > 0 ? Math.round((ust / netto) * 100) : 0;
+      const bu = ust <= 0 ? "" : satz === 19 ? "9" : satz === 7 ? "8" : "";
+      const kreditor = e.postLieferantId
+        ? String(s.kreditorStartnummer + e.postLieferantId)
+        : sammelKreditor;
+      buchungen.push({
+        debitornummer: 0,
+        belegdatum: e.rechnungsdatum,
+        belegfeld1: e.nummer,
+        buchungstext: `Eingangsrechnung ${e.nummer} ${e.lieferantName}`.slice(0, 60),
+        betragCent: Math.round(Number(e.brutto) * 100),
+        ustSatz: 0,
+        direkt: {
+          konto: e.konto ?? standardAufwand,
+          gegenkonto: e.gegenkonto ?? kreditor,
+          bu,
+        },
+      });
+    }
+    if (eingaenge.length > 0) {
+      hinweise.push(`${eingaenge.length} Eingangsrechnung(en) mit exportiert.`);
+    }
+
+    // ── Kategorisierte Bank-Buchungen ohne Belegbezug (z. B. POS ohne Rechnung):
+    // Soll Kategorie-Konto an Bank (Gegenkonto = company_settings.bank_konto).
+    const bankZeilen = await db
+      .select()
+      .from(bankTransaktionen)
+      .where(
+        and(
+          gte(bankTransaktionen.datum, von),
+          lte(bankTransaktionen.datum, bis),
+          sql`${bankTransaktionen.kategorieId} IS NOT NULL`,
+          isNull(bankTransaktionen.invoiceId),
+          isNull(bankTransaktionen.incomingInvoiceId),
+        ),
+      );
+    const kategorienAlle = await db.select().from(kategorien);
+    const katById = new Map(kategorienAlle.map((k) => [k.id, k]));
+    let bankAnzahl = 0;
+    for (const t of bankZeilen) {
+      const kat = t.kategorieId ? katById.get(t.kategorieId) : undefined;
+      const ust = kat?.ustSatz ?? 0;
+      const bu = ust === 19 ? "9" : ust === 7 ? "8" : "";
+      buchungen.push({
+        debitornummer: 0,
+        belegdatum: t.datum,
+        belegfeld1: `BANK-${t.id}`,
+        buchungstext: `Bank ${t.name}${kat ? ` (${kat.name})` : ""}`.slice(0, 60),
+        betragCent: Math.round(Number(t.betrag) * 100),
+        ustSatz: 0,
+        direkt: {
+          konto: kat?.konto ?? standardAufwand,
+          gegenkonto: s.bankKonto ?? "1200",
+          bu,
+        },
+      });
+      bankAnzahl++;
+    }
+    if (bankAnzahl > 0) hinweise.push(`${bankAnzahl} kategorisierte Bank-Buchung(en) mit exportiert.`);
+
+    buchungen.sort((a, b) => a.belegdatum.localeCompare(b.belegdatum));
+
+    const csv = erzeugeBuchungsstapel(
+      {
+        beraternummer: s.datevBeraternummer ?? "",
+        mandantennummer: s.datevMandantennummer ?? "",
+        kontenrahmen: s.datevKontenrahmen,
+        erloeskonto19: s.erloeskonto19,
+        erloeskonto7: s.erloeskonto7,
+        erloeskonto0: s.erloeskonto0,
+      },
+      von,
+      bis,
+      buchungen,
+    );
+
+    return {
+      dateiname: `EXTF_Buchungsstapel_${von}_${bis}.csv`,
+      csv,
+      anzahlBuchungen: buchungen.length,
+      hinweise,
+    };
+
+}
 
 export const exportRouter = createRouter({
   xrechnungRechnung: authedQuery
@@ -85,7 +289,8 @@ export const exportRouter = createRouter({
       };
     }),
 
-  /** DATEV-Buchungsstapel (Rechnungsausgang + Gutschriften) für einen Zeitraum. */
+
+  /** DATEV-Buchungsstapel für einen Zeitraum (UI). */
   datevBuchungsstapel: authedQuery
     .input(
       z.object({
@@ -93,167 +298,5 @@ export const exportRouter = createRouter({
         bis: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       }),
     )
-    .query(async ({ input }) => {
-      const db = getDb();
-      const s = await db.query.companySettings.findFirst({
-        where: eq(companySettings.id, 1),
-      });
-      if (!s) throw new Error("Firmen-Einstellungen fehlen.");
-
-      const [rechnungen, gutschriften, kunden] = await Promise.all([
-        db.query.invoices.findMany({
-          where: and(
-            eq(invoices.status, "finalisiert"),
-            gte(invoices.rechnungsdatum, input.von),
-            lte(invoices.rechnungsdatum, input.bis),
-          ),
-          with: { items: true },
-        }),
-        db.query.creditNotes.findMany({
-          where: and(
-            eq(creditNotes.status, "finalisiert"),
-            gte(creditNotes.datum, input.von),
-            lte(creditNotes.datum, input.bis),
-          ),
-          with: { items: true, invoice: true },
-        }),
-        db.query.customers.findMany(),
-      ]);
-
-      const [eingaenge] = await Promise.all([
-        db
-          .select({
-            id: incomingInvoices.id,
-            lieferantName: incomingInvoices.lieferantName,
-            nummer: incomingInvoices.nummer,
-            rechnungsdatum: incomingInvoices.rechnungsdatum,
-            netto: incomingInvoices.netto,
-            ust: incomingInvoices.ust,
-            brutto: incomingInvoices.brutto,
-            konto: incomingInvoices.konto,
-            gegenkonto: incomingInvoices.gegenkonto,
-            postLieferantId: postEingang.absenderLieferantId,
-          })
-          .from(incomingInvoices)
-          .leftJoin(postEingang, eq(incomingInvoices.id, postEingang.incomingInvoiceId))
-          .where(
-            and(
-              gte(incomingInvoices.rechnungsdatum, input.von),
-              lte(incomingInvoices.rechnungsdatum, input.bis),
-            ),
-          ),
-      ]);
-
-      const hinweise: string[] = [];
-      if (rechnungen.length === 0 && gutschriften.length === 0 && eingaenge.length === 0) {
-        throw new Error("Keine finalisierten Rechnungen, Gutschriften oder Eingangsrechnungen im Zeitraum.");
-      }
-
-      // ── Debitornummern vergeben (einmalig, persistent) ──────────────────
-      const kundeById = new Map(kunden.map((k) => [k.id, k]));
-      let naechste = Math.max(
-        s.debitorStartnummer,
-        ...kunden.map((k) => (k.debitornummer ?? 0) + 1),
-        s.debitorStartnummer,
-      );
-      const debitorFuer = async (customerId: number): Promise<number> => {
-        const k = kundeById.get(customerId);
-        if (k?.debitornummer) return k.debitornummer;
-        const nr = naechste++;
-        await db.update(customers).set({ debitornummer: nr }).where(eq(customers.id, customerId));
-        if (k) k.debitornummer = nr;
-        hinweise.push(`Kunde „${k?.name ?? customerId}“ erhielt Debitornummer ${nr}.`);
-        return nr;
-      };
-
-      const buchungen: DatevBuchung[] = [];
-
-      for (const r of rechnungen) {
-        const deb = await debitorFuer(r.customerId);
-        const totals = computeTotals(
-          r.items.map((it) => ({ einzelpreis: it.einzelpreis, menge: it.menge, ustSatz: it.ustSatz })),
-        );
-        for (const u of totals.ustProSatz) {
-          buchungen.push({
-            debitornummer: deb,
-            belegdatum: r.rechnungsdatum,
-            belegfeld1: r.nummer ?? String(r.id),
-            buchungstext: `Rechnung ${r.nummer ?? r.id} ${r.kundeName}`,
-            betragCent: u.basisCent + u.betragCent,
-            ustSatz: u.satz,
-          });
-        }
-      }
-
-      for (const g of gutschriften) {
-        const deb = await debitorFuer(g.invoice.customerId);
-        const totals = computeTotals(
-          g.items.map((it) => ({ einzelpreis: it.einzelpreis, menge: it.menge, ustSatz: it.ustSatz })),
-        );
-        for (const u of totals.ustProSatz) {
-          buchungen.push({
-            debitornummer: deb,
-            belegdatum: g.datum,
-            belegfeld1: g.nummer ?? String(g.id),
-            buchungstext: `Gutschrift ${g.nummer ?? g.id} zu ${g.invoice.nummer ?? g.invoiceId} ${g.kundeName}`,
-            betragCent: -(u.basisCent + u.betragCent),
-            ustSatz: u.satz,
-          });
-        }
-      }
-
-      // ── Eingangsrechnungen: Soll Aufwandskonto an Kreditor (BU 9 = 19 % VSt,
-      // 8 = 7 % VSt). Kreditor = Startnummer + Lieferanten-ID, sonst Sammelkonto.
-      const sammelKreditor = s.datevKontenrahmen === "SKR04" ? "3300" : "1600";
-      const standardAufwand =
-        s.aufwandskontoDefault ?? (s.datevKontenrahmen === "SKR04" ? "6305" : "4900");
-      for (const e of eingaenge) {
-        const netto = Number(e.netto);
-        const ust = Number(e.ust);
-        const satz = netto > 0 ? Math.round((ust / netto) * 100) : 0;
-        const bu = ust <= 0 ? "" : satz === 19 ? "9" : satz === 7 ? "8" : "";
-        const kreditor = e.postLieferantId
-          ? String(s.kreditorStartnummer + e.postLieferantId)
-          : sammelKreditor;
-        buchungen.push({
-          debitornummer: 0,
-          belegdatum: e.rechnungsdatum,
-          belegfeld1: e.nummer,
-          buchungstext: `Eingangsrechnung ${e.nummer} ${e.lieferantName}`.slice(0, 60),
-          betragCent: Math.round(Number(e.brutto) * 100),
-          ustSatz: 0,
-          direkt: {
-            konto: e.konto ?? standardAufwand,
-            gegenkonto: e.gegenkonto ?? kreditor,
-            bu,
-          },
-        });
-      }
-      if (eingaenge.length > 0) {
-        hinweise.push(`${eingaenge.length} Eingangsrechnung(en) mit exportiert.`);
-      }
-
-      buchungen.sort((a, b) => a.belegdatum.localeCompare(b.belegdatum));
-
-      const csv = erzeugeBuchungsstapel(
-        {
-          beraternummer: s.datevBeraternummer ?? "",
-          mandantennummer: s.datevMandantennummer ?? "",
-          kontenrahmen: s.datevKontenrahmen,
-          erloeskonto19: s.erloeskonto19,
-          erloeskonto7: s.erloeskonto7,
-          erloeskonto0: s.erloeskonto0,
-        },
-        input.von,
-        input.bis,
-        buchungen,
-      );
-
-      return {
-        dateiname: `EXTF_Buchungsstapel_${input.von}_${input.bis}.csv`,
-        csv,
-        anzahlBuchungen: buchungen.length,
-        hinweise,
-      };
-    }),
+    .query(({ input }) => baueDatevStapel(input.von, input.bis)),
 });

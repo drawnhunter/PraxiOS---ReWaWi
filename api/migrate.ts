@@ -63,6 +63,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "bank_transaktionen", spalte: "quell_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN quell_id VARCHAR(40) NULL AFTER hash, ADD INDEX bank_tx_quell_idx (quell_id)" },
   { tabelle: "company_settings", spalte: "agent_autonomie", ddl: "ALTER TABLE company_settings ADD COLUMN agent_autonomie VARCHAR(20) NOT NULL DEFAULT 'vorschlag' AFTER support_schluessel" },
   { tabelle: "company_settings", spalte: "modul_konfig", ddl: "ALTER TABLE company_settings ADD COLUMN modul_konfig TEXT NULL AFTER agent_autonomie" },
+  { tabelle: "bank_transaktionen", spalte: "kategorie_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER quell_id, ADD INDEX bank_tx_kategorie_idx (kategorie_id)" },
+  { tabelle: "kategorien", spalte: "typ", ddl: "ALTER TABLE kategorien ADD COLUMN typ VARCHAR(10) NOT NULL DEFAULT 'ausgabe' AFTER konto" },
+  { tabelle: "company_settings", spalte: "bank_konto", ddl: "ALTER TABLE company_settings ADD COLUMN bank_konto VARCHAR(10) NOT NULL DEFAULT '1200' AFTER monats_budget" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -217,6 +220,20 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       ust_satz INT NOT NULL DEFAULT 19,
       sortierung INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    tabelle: "bank_regeln",
+    ddl: `CREATE TABLE IF NOT EXISTS bank_regeln (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      kategorie_id BIGINT UNSIGNED NOT NULL,
+      pattern VARCHAR(500) NOT NULL,
+      feld ENUM('name','zweck') NOT NULL DEFAULT 'name',
+      prio INT NOT NULL DEFAULT 10,
+      aktiv TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX bank_regeln_kategorie (kategorie_id),
+      CONSTRAINT bank_regeln_kategorie_fk FOREIGN KEY (kategorie_id) REFERENCES kategorien(id) ON DELETE CASCADE
     )`,
   },
   {

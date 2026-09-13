@@ -29,6 +29,7 @@ export const companySettings = mysqlTable("company_settings", {
   ustIdNr: varchar("ust_id_nr", { length: 50 }),
   waehrung: varchar("waehrung", { length: 10 }).notNull().default("€"),
   monatsBudget: decimal("monats_budget", { precision: 12, scale: 2 }),
+  bankKonto: varchar("bank_konto", { length: 10 }).notNull().default("1200"),
   email: varchar("email", { length: 320 }),
   telefon: varchar("telefon", { length: 50 }),
   webseite: varchar("webseite", { length: 255 }),
@@ -645,6 +646,19 @@ export const agentLog = mysqlTable("agent_log", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ── Bank-Regeln: Auto-Kategorisierung (Muster auf name/zweck) ──────────────
+export const bankRegeln = mysqlTable("bank_regeln", {
+  id: serial("id").primaryKey(),
+  kategorieId: bigint("kategorie_id", { mode: "number", unsigned: true })
+    .notNull()
+    .references(() => kategorien.id, { onDelete: "cascade" }),
+  pattern: varchar("pattern", { length: 500 }).notNull(),
+  feld: mysqlEnum("feld", ["name", "zweck"]).notNull().default("name"),
+  prio: int("prio").notNull().default(10),
+  aktiv: boolean("aktiv").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ── Posteingang (Post Manager): eingescannte Belege & Dokumente ─────────────
 // Der Beleg (base64 in MEDIUMTEXT) liegt unveraenderbar in der DB — die
 // naechtliche mysqldump-Sicherung deckt ihn damit automatisch mit ab (GoBD).
@@ -721,6 +735,7 @@ export const kategorien = mysqlTable("kategorien", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   konto: varchar("konto", { length: 10 }),
+  typ: varchar("typ", { length: 10 }).notNull().default("ausgabe"),
   ustSatz: int("ust_satz").notNull().default(19),
   sortierung: int("sortierung").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -760,6 +775,7 @@ export const bankTransaktionen = mysqlTable(
     saldoNach: decimal("saldo_nach", { precision: 14, scale: 2 }),
     hash: varchar("hash", { length: 64 }).notNull(), // Duplikat-Erkennung je Konto
     quellId: varchar("quell_id", { length: 40 }), // Anbieter-ID (z. B. SumUp) — formatübergreifende Duplikat-Erkennung
+    kategorieId: bigint("kategorie_id", { mode: "number", unsigned: true }), // Kontierung (DATEV)
     status: mysqlEnum("status", ["offen", "zugeordnet", "ignoriert"]).notNull().default("offen"),
     invoiceId: bigint("invoice_id", { mode: "number", unsigned: true }).references(
       () => invoices.id,
@@ -777,6 +793,7 @@ export const bankTransaktionen = mysqlTable(
   (t) => [
     uniqueIndex("bank_tx_hash_uniq").on(t.bankAccountId, t.hash),
     index("bank_tx_quell_idx").on(t.quellId),
+    index("bank_tx_kategorie_idx").on(t.kategorieId),
     index("bank_tx_konto_datum").on(t.bankAccountId, t.datum),
     index("bank_tx_status").on(t.status),
   ],

@@ -2,6 +2,24 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.12.2] — 2026-09-14
+
+### Neu (Agent-API: Kontierung + DATEV, Bus #31)
+
+- **Bankbuchungen kategorisieren:** `POST /bankbuchung/:id/kategorie` und
+  Massen-Endpunkt `POST /bankbuchungen/kategorisieren`. Neue Spalte
+  `bank_transaktionen.kategorie_id`.
+- **Kategorien per API verwalten:** GET/POST/PATCH/DELETE `/kategorie(n)`
+  (mit Konto, USt-Satz, Typ einnahme/ausgabe — neue Spalte kategorien.typ).
+- **Regel-Engine:** `bank_regeln` (Muster auf name/zweck, Regex oder
+  A|B|C-Text, Prioritaet) + `POST /bankbuchungen/auto-kategorisieren`
+  (unkategorisierte Buchungen, erste Regel gewinnt).
+- **DATEV-Export per API:** `POST /datev-export {von,bis}` — derselbe
+  Buchungsstapel wie die UI, jetzt als geteilter Helfer; Response als
+  Base64-CSV. **Neu darin:** kategorisierte Bank-Buchungen ohne Belegbezug
+  werden als Buchungszeilen exportiert (Soll Kategorie-Konto an Bank-Konto,
+  einstellbar via Einstellungen bank_konto, Default 1200).
+
 ## [1.12.1] — 2026-09-14
 
 ### Fehlerbehebungen (Agent-API, Bus #30)

@@ -643,4 +643,180 @@ app.post("/rechnung/:id/versenden", async (c) => {
   return c.json({ ok: true, empfaenger });
 });
 
+// ── Kategorien (Kontierung/DATEV) ──────────────────────────────────────────
+app.get("/kategorien", async (c) => {
+  const { kategorien } = await import("@db/schema");
+  const rows = await getDb().select().from(kategorien);
+  return c.json({
+    anzahl: rows.length,
+    kategorien: rows.map((k) => ({ id: k.id, name: k.name, konto: k.konto, ustSatz: k.ustSatz, typ: k.typ })),
+  });
+});
+
+app.post("/kategorie", async (c) => {
+  const body = await bodyLesen(c);
+  const name = String(body.name ?? "").trim();
+  if (!name) return c.json({ ok: false, fehler: "name fehlt." }, 400);
+  const { kategorien } = await import("@db/schema");
+  const db = getDb();
+  const maxSort = (await db.query.kategorien.findFirst({ orderBy: (k, { desc: d }) => d(k.sortierung) }))?.sortierung ?? 0;
+  const [{ id }] = await db
+    .insert(kategorien)
+    .values({
+      name,
+      konto: body.konto ? String(body.konto) : null,
+      ustSatz: [19, 7, 0].includes(Number(body.ustSatz)) ? Number(body.ustSatz) : 19,
+      typ: body.typ === "einnahme" ? "einnahme" : "ausgabe",
+      sortierung: maxSort + 1,
+    })
+    .$returningId();
+  await audit("kategorie_angelegt", { id, name });
+  return c.json({ ok: true, id, name });
+});
+
+app.patch("/kategorie/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { kategorien } = await import("@db/schema");
+  const db = getDb();
+  const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, id) });
+  if (!kat) return c.json({ ok: false, fehler: "Kategorie nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  if (body.name !== undefined) patch.name = String(body.name).trim();
+  if (body.konto !== undefined) patch.konto = body.konto === null || body.konto === "" ? null : String(body.konto);
+  if (body.ustSatz !== undefined) patch.ustSatz = Number(body.ustSatz);
+  if (body.typ !== undefined) patch.typ = body.typ === "einnahme" ? "einnahme" : "ausgabe";
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "Nichts zu ändern (name/konto/ustSatz/typ)." }, 400);
+  await db.update(kategorien).set(patch).where(eq(kategorien.id, id));
+  await audit("kategorie_geaendert", { id, ...patch });
+  return c.json({ ok: true, id });
+});
+
+app.delete("/kategorie/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { kategorien, bankTransaktionen } = await import("@db/schema");
+  const db = getDb();
+  const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, id) });
+  if (!kat) return c.json({ ok: false, fehler: "Kategorie nicht gefunden." }, 404);
+  const genutzt = await db.query.bankTransaktionen.findFirst({
+    where: eq(bankTransaktionen.kategorieId, id),
+    columns: { id: true },
+  });
+  if (genutzt) return c.json({ ok: false, fehler: "Kategorie ist Bankbuchungen zugeordnet — erst umkategorisieren." }, 409);
+  await db.delete(kategorien).where(eq(kategorien.id, id));
+  await audit("kategorie_geloescht", { id, name: kat.name });
+  return c.json({ ok: true, geloescht: id });
+});
+
+// ── Buchung kategorisieren (einzeln + Massen) ──────────────────────────────
+app.post("/bankbuchung/:id/kategorie", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const kategorieId = Number(body.kategorieId);
+  if (!kategorieId) return c.json({ ok: false, fehler: "kategorieId fehlt." }, 400);
+  const { bankTransaktionen, kategorien } = await import("@db/schema");
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, id) });
+  if (!t) return c.json({ ok: false, fehler: "Buchung nicht gefunden." }, 404);
+  const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, kategorieId) });
+  if (!kat) return c.json({ ok: false, fehler: "Kategorie nicht gefunden." }, 404);
+  await db
+    .update(bankTransaktionen)
+    .set({
+      kategorieId,
+      ...(body.notiz ? { bemerkung: String(body.notiz).slice(0, 500) } : {}),
+    })
+    .where(eq(bankTransaktionen.id, id));
+  await audit("buchung_kategorisiert", { id, kategorieId, kategorie: kat.name });
+  return c.json({ ok: true, id, kategorie: kat.name });
+});
+
+app.post("/bankbuchungen/kategorisieren", async (c) => {
+  const body = await bodyLesen(c);
+  const zuordnungen = Array.isArray(body.zuordnungen) ? body.zuordnungen : [];
+  if (zuordnungen.length === 0) return c.json({ ok: false, fehler: "zuordnungen fehlt: [{bankbuchungId, kategorieId, notiz?}]" }, 400);
+  const { zuordneKategorieIntern } = await import("./bankTransaktionenRouter");
+  let ok = 0;
+  const fehler: string[] = [];
+  for (const z of zuordnungen as Record<string, unknown>[]) {
+    try {
+      await zuordneKategorieIntern(Number(z.bankbuchungId), Number(z.kategorieId), z.notiz ? String(z.notiz) : null);
+      ok++;
+    } catch (e) {
+      fehler.push(`#${String(z.bankbuchungId)}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  await audit("buchungen_kategorisiert", { ok, fehler: fehler.length });
+  return c.json({ ok: true, kategorisiert: ok, fehler });
+});
+
+// ── Regel-Engine: Muster → Kategorie ───────────────────────────────────────
+app.get("/kategorie-regeln", async (c) => {
+  const { bankRegeln, kategorien } = await import("@db/schema");
+  const { asc } = await import("drizzle-orm");
+  const rows = await getDb()
+    .select({ r: bankRegeln, kategorieName: kategorien.name })
+    .from(bankRegeln)
+    .leftJoin(kategorien, eq(bankRegeln.kategorieId, kategorien.id))
+    .orderBy(asc(bankRegeln.prio));
+  return c.json({ regeln: rows.map((r) => ({ ...r.r, kategorieName: r.kategorieName })) });
+});
+
+app.post("/kategorie-regel", async (c) => {
+  const body = await bodyLesen(c);
+  const kategorieId = Number(body.kategorieId);
+  const pattern = String(body.pattern ?? "").trim();
+  if (!kategorieId || !pattern) return c.json({ ok: false, fehler: "kategorieId + pattern nötig (pattern: Text oder A|B|C)." }, 400);
+  const { bankRegeln, kategorien } = await import("@db/schema");
+  const db = getDb();
+  const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, kategorieId) });
+  if (!kat) return c.json({ ok: false, fehler: "Kategorie nicht gefunden." }, 404);
+  const [{ id }] = await db
+    .insert(bankRegeln)
+    .values({
+      kategorieId,
+      pattern,
+      feld: body.feld === "zweck" ? "zweck" : "name",
+      prio: Math.max(1, Math.min(999, Number(body.prio ?? 10))),
+    })
+    .$returningId();
+  await audit("kategorie_regel_angelegt", { id, kategorieId, pattern });
+  return c.json({ ok: true, id });
+});
+
+app.delete("/kategorie-regel/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { bankRegeln } = await import("@db/schema");
+  await getDb().delete(bankRegeln).where(eq(bankRegeln.id, id));
+  await audit("kategorie_regel_geloescht", { id });
+  return c.json({ ok: true, geloescht: id });
+});
+
+app.post("/bankbuchungen/auto-kategorisieren", async (c) => {
+  const { wendeBankRegelnAn } = await import("./bankTransaktionenRouter");
+  const ergebnis = await wendeBankRegelnAn();
+  await audit("auto_kategorisieren", ergebnis);
+  return c.json({ ok: true, ...ergebnis });
+});
+
+// ── DATEV-Export per API ───────────────────────────────────────────────────
+app.post("/datev-export", async (c) => {
+  const body = await bodyLesen(c);
+  const von = String(body.von ?? "");
+  const bis = String(body.bis ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(von) || !/^\d{4}-\d{2}-\d{2}$/.test(bis)) {
+    return c.json({ ok: false, fehler: "von/bis im Format JJJJ-MM-TT nötig." }, 400);
+  }
+  const { baueDatevStapel } = await import("./exportRouter");
+  const r = await baueDatevStapel(von, bis);
+  await audit("datev_export", { von, bis, anzahl: r.anzahlBuchungen });
+  return c.json({
+    ok: true,
+    dateiname: r.dateiname,
+    anzahlBuchungen: r.anzahlBuchungen,
+    hinweise: r.hinweise,
+    csvBase64: Buffer.from(r.csv, "utf8").toString("base64"),
+  });
+});
+
 export default app;

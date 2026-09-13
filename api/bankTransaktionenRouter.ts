@@ -13,6 +13,7 @@ import {
   bankTransaktionen,
   invoices,
   incomingInvoices,
+  kategorien,
 } from "@db/schema";
 import { and, asc, desc, eq, gte, lte, isNull, or, sql } from "drizzle-orm";
 import { erstelleKontoauszugPdf } from "./pdfKontoauszug";
@@ -835,6 +836,53 @@ export const bankTransaktionenRouter = createRouter({
       return { geloescht, uebersprungen };
     }),
 });
+
+/** Buchung kategorisieren (UI + Agent-API teilen sich das). */
+export async function zuordneKategorieIntern(transaktionId: number, kategorieId: number, notiz: string | null): Promise<void> {
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, transaktionId) });
+  if (!t) throw new Error("Transaktion nicht gefunden.");
+  const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, kategorieId) });
+  if (!kat) throw new Error("Kategorie nicht gefunden.");
+  await db
+    .update(bankTransaktionen)
+    .set({ kategorieId, ...(notiz ? { bemerkung: notiz } : {}) })
+    .where(eq(bankTransaktionen.id, transaktionId));
+}
+
+/** Regel-Engine anwenden: unkategorisierte Buchungen per Muster zuordnen. */
+export async function wendeBankRegelnAn(): Promise<{ geprueft: number; zugeordnet: number; treffer: { id: number; kategorieId: number }[] }> {
+  const db = getDb();
+  const { bankRegeln } = await import("@db/schema");
+  const regeln = await db
+    .select()
+    .from(bankRegeln)
+    .where(eq(bankRegeln.aktiv, true))
+    .orderBy(asc(bankRegeln.prio));
+  const offene = await db
+    .select()
+    .from(bankTransaktionen)
+    .where(isNull(bankTransaktionen.kategorieId));
+
+  const treffer: { id: number; kategorieId: number }[] = [];
+  for (const t of offene) {
+    for (const r of regeln) {
+      const text = (r.feld === "zweck" ? t.zweck : t.name) ?? "";
+      let passt = false;
+      try {
+        passt = new RegExp(r.pattern, "i").test(text);
+      } catch {
+        passt = text.toLowerCase().includes(r.pattern.toLowerCase());
+      }
+      if (passt) {
+        await db.update(bankTransaktionen).set({ kategorieId: r.kategorieId }).where(eq(bankTransaktionen.id, t.id));
+        treffer.push({ id: t.id, kategorieId: r.kategorieId });
+        break; // erste Regel (niedrigste prio) gewinnt
+      }
+    }
+  }
+  return { geprueft: offene.length, zugeordnet: treffer.length, treffer };
+}
 
 /** Kern-Zuordnung mit Vorzeichen- und Statuspruefung. */
 export async function zuordneIntern(transaktionId: number, typ: "ausgang" | "eingang", zielId: number): Promise<void> {
