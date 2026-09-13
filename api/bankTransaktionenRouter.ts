@@ -435,6 +435,33 @@ async function persistiereUndMatche(
   };
 }
 
+/** Loesung einer Zuordnung mit Reversal (Zahlung auf Beleg zuruecknehmen). */
+export async function zuordnungLoesenIntern(transaktionId: number): Promise<{ ok: boolean }> {
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, transaktionId) });
+  if (!t) throw new Error("Transaktion nicht gefunden.");
+  if (t.status !== "zugeordnet") throw new Error("Transaktion ist nicht zugeordnet.");
+  const gebucht = Number(t.zugeordneterBetrag ?? 0);
+  if (t.invoiceId && gebucht > 0) {
+    const r = await db.query.invoices.findFirst({ where: eq(invoices.id, t.invoiceId) });
+    if (r) {
+      const neu = Math.max(0, Number(r.bezahltBetrag) - gebucht);
+      await db
+        .update(invoices)
+        .set({ bezahltBetrag: neu.toFixed(2), bezahltAm: neu > 0.004 ? r.bezahltAm : null })
+        .where(eq(invoices.id, r.id));
+    }
+  }
+  if (t.incomingInvoiceId) {
+    await db.update(incomingInvoices).set({ bezahltAm: null }).where(eq(incomingInvoices.id, t.incomingInvoiceId));
+  }
+  await db
+    .update(bankTransaktionen)
+    .set({ status: "offen", invoiceId: null, incomingInvoiceId: null, zugeordneterBetrag: null, zugeordnetAm: null })
+    .where(eq(bankTransaktionen.id, t.id));
+  return { ok: true };
+}
+
 export const bankTransaktionenRouter = createRouter({
   /** Schritt 1 (Import): Spalten erkennen + Mapping vorschlagen. */
   spaltenErkennen: authedQuery
@@ -620,31 +647,7 @@ export const bankTransaktionenRouter = createRouter({
   /** Zuordnung wieder loesen — Zahlung wird zurueckgebucht. */
   zuordnungLoesen: authedQuery
     .input(z.object({ transaktionId: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, input.transaktionId) });
-      if (!t) throw new Error("Transaktion nicht gefunden.");
-      if (t.status !== "zugeordnet") throw new Error("Transaktion ist nicht zugeordnet.");
-      const gebucht = Number(t.zugeordneterBetrag ?? 0);
-      if (t.invoiceId && gebucht > 0) {
-        const r = await db.query.invoices.findFirst({ where: eq(invoices.id, t.invoiceId) });
-        if (r) {
-          const neu = Math.max(0, Number(r.bezahltBetrag) - gebucht);
-          await db
-            .update(invoices)
-            .set({ bezahltBetrag: neu.toFixed(2), bezahltAm: neu > 0.004 ? r.bezahltAm : null })
-            .where(eq(invoices.id, r.id));
-        }
-      }
-      if (t.incomingInvoiceId) {
-        await db.update(incomingInvoices).set({ bezahltAm: null }).where(eq(incomingInvoices.id, t.incomingInvoiceId));
-      }
-      await db
-        .update(bankTransaktionen)
-        .set({ status: "offen", invoiceId: null, incomingInvoiceId: null, zugeordneterBetrag: null, zugeordnetAm: null })
-        .where(eq(bankTransaktionen.id, t.id));
-      return { ok: true };
-    }),
+    .mutation(({ input }) => zuordnungLoesenIntern(input.transaktionId)),
 
   /** Ignorieren / wieder reaktivieren. */
   setStatus: authedQuery
@@ -834,7 +837,7 @@ export const bankTransaktionenRouter = createRouter({
 });
 
 /** Kern-Zuordnung mit Vorzeichen- und Statuspruefung. */
-async function zuordneIntern(transaktionId: number, typ: "ausgang" | "eingang", zielId: number): Promise<void> {
+export async function zuordneIntern(transaktionId: number, typ: "ausgang" | "eingang", zielId: number): Promise<void> {
   const db = getDb();
   const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, transaktionId) });
   if (!t) throw new Error("Transaktion nicht gefunden.");

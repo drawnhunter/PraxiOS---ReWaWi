@@ -2,6 +2,22 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.11.2] — 2026-09-13
+
+### Neu (Agent-API: Maximum)
+
+- **Zahlungsabgleich schreiben:** `POST /bankbuchung/:id/zuordnen` verknuepft
+  eine Buchung mit Ausgangsrechnung (`rechnungId`) oder Eingangsbeleg
+  (`eingangsrechnungId`) — inkl. Teilzahlungen, Zahlungsstatus-Update auf
+  dem Beleg, Bidirektionalitaet. Nutzt exakt die produktionserprobte Logik
+  der UI (`zuordneIntern`), keine Parallel-Implementierung.
+- **Aufloesen mit Reversal:** `POST /bankbuchung/:id/loesen` nimmt die
+  Zuordnung sauber zurueck (Zahlung auf dem Beleg wird storniert, Buchung
+  wieder offen). Der Agent kann eigene Fehler selbst korrigieren.
+- Beides auditiert (`agent_log`). Verfuegbar in beiden Autonomie-Stufen:
+  interne Buchhaltung mit Umkehrung; der Versand nach aussen bleibt
+  weiterhin hinter „vollautomatik" gesperrt.
+
 ## [1.11.1] — 2026-09-13
 
 ### Neu (Agent-API Erweiterung)

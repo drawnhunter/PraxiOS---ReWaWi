@@ -306,6 +306,42 @@ app.get("/rechnung/:id", async (c) => {
   });
 });
 
+// ── Zuordnung schreiben/loesen (produktionserprobte Logik mit Reversal) ────
+app.post("/bankbuchung/:id/zuordnen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json().catch(() => ({}));
+  const rechnungId = body.rechnungId ? Number(body.rechnungId) : null;
+  const eingangsrechnungId = body.eingangsrechnungId ? Number(body.eingangsrechnungId) : null;
+  if (!rechnungId && !eingangsrechnungId) {
+    return c.json({ fehler: "rechnungId (Ausgangsrechnung) oder eingangsrechnungId (Eingangsbeleg) angeben." }, 400);
+  }
+  const { zuordneIntern } = await import("./bankTransaktionenRouter");
+  try {
+    if (rechnungId) {
+      await zuordneIntern(id, "ausgang", rechnungId);
+      await audit("buchung_zugeordnet", { transaktionId: id, typ: "ausgang", rechnungId });
+      return c.json({ ok: true, typ: "ausgang", rechnungId });
+    }
+    await zuordneIntern(id, "eingang", eingangsrechnungId!);
+    await audit("buchung_zugeordnet", { transaktionId: id, typ: "eingang", eingangsrechnungId });
+    return c.json({ ok: true, typ: "eingang", eingangsrechnungId });
+  } catch (e) {
+    return c.json({ fehler: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
+app.post("/bankbuchung/:id/loesen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { zuordnungLoesenIntern } = await import("./bankTransaktionenRouter");
+  try {
+    await zuordnungLoesenIntern(id);
+    await audit("buchung_zuordnung_geloesen", { transaktionId: id });
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ fehler: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
 // ── Mahnung anlegen (Vorschlag — Versand bleibt beim Menschen) ─────────────
 app.post("/mahnung", async (c) => {
   const body = await c.req.json().catch(() => ({}));
