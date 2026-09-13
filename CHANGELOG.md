@@ -2,6 +2,20 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.12.1] — 2026-09-14
+
+### Fehlerbehebungen (Agent-API, Bus #30)
+
+- **rechnung-entwurf blockierte Agenten:** Bei nicht parsebarem Body (z. B.
+  Windows-curl mit einfachen Anfuehrungszeichen um das JSON) wurde der
+  Stream still verbraucht und der Handler fiel mit „Kunde nicht gefunden"
+  aus — obwohl das eigentliche Problem der Body war. Jetzt: toleranter
+  Body-Reader (JSON → Form → Rohtext mit Quote-Entkleidung), leerer Body
+  gibt 400 mit Hinweis, Nicht-Fund echot die empfangenen Felder zurueck.
+- **items als JSON-String:** Form-Data kann Arrays nicht verschachteln —
+  `items: "[{...}]"` wird jetzt als JSON-String akzeptiert.
+- Kunde auch per `id` (nicht nur `kundenId`) auffindbar.
+
 ## [1.12.0] — 2026-09-14
 
 ### Neu

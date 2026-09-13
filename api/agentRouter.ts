@@ -306,17 +306,38 @@ app.get("/rechnung/:id", async (c) => {
   });
 });
 
-/** Body tolerant lesen: JSON (application/json) ODER Formular (urlencoded). */
-async function bodyLesen(c: { req: { json: () => Promise<Record<string, unknown>>; parseBody: () => Promise<Record<string, unknown>> } }): Promise<Record<string, unknown>> {
+/** Body tolerant lesen: JSON, Formular ODER Rohtext mit Anführungszeichen-Mantel
+    (Windows-curl schickt '-d \'{"a":1}\'' mit den einfachen Anführungszeichen im
+    Body — das ist kein gültiges JSON und fraß bisher still den Stream). */
+async function bodyLesen(c: { req: { json: () => Promise<Record<string, unknown>>; parseBody: () => Promise<Record<string, unknown>>; text: () => Promise<string> } }): Promise<Record<string, unknown>> {
   try {
-    return await c.req.json();
-  } catch {
-    try {
-      return await c.req.parseBody();
-    } catch {
-      return {};
+    const j = await c.req.json();
+    if (j && typeof j === "object") return j as Record<string, unknown>;
+  } catch { /* Fallbacks weiter unten */ }
+  try {
+    const f = await c.req.parseBody();
+    if (f && Object.keys(f).length > 0) return f as Record<string, unknown>;
+  } catch { /* weiter */ }
+  try {
+    const roh = (await c.req.text()).trim().replace(/^'+|'+$/g, "").trim();
+    if (roh.startsWith("{") || roh.startsWith("[")) {
+      return JSON.parse(roh) as Record<string, unknown>;
     }
+  } catch { /* unlesbar */ }
+  return {};
+}
+
+/** items aus Body: echtes Array ODER JSON-String (Form-Data kann nicht verschachteln). */
+function itemsNormalisieren(body: Record<string, unknown>): unknown[] {
+  const roh = body.items;
+  if (Array.isArray(roh)) return roh;
+  if (typeof roh === "string") {
+    try {
+      const p = JSON.parse(roh);
+      return Array.isArray(p) ? p : [];
+    } catch { /* unten: Fehlermeldung */ }
   }
+  return [];
 }
 
 /** Ausgangsrechnung per interner ID ODER Nummer (Agent denkt in Nummern). */
@@ -490,20 +511,31 @@ app.post("/rechnung-entwurf", async (c) => {
   const body = await bodyLesen(c);
   const db = getDb();
 
-  // Kunde: per ID oder per Namen (Fuzzy)
+  if (Object.keys(body).length === 0) {
+    return c.json({
+      fehler: "Body fehlt oder ist kein gültiges JSON. Hinweis: In Windows-curl doppelte Anführungszeichen nutzen bzw. -d @datei.json — einfache Anführungszeichen werden mitgesendet.",
+    }, 400);
+  }
+
+  // Kunde: per ID, per ID im Feld kundenId, oder per Namen (Fuzzy)
   let kunde: typeof customers.$inferSelect | undefined;
-  if (body.kundenId) {
-    kunde = await db.query.customers.findFirst({ where: eq(customers.id, Number(body.kundenId)) });
+  const idKandidat = body.kundenId ?? body.id;
+  if (idKandidat) {
+    kunde = await db.query.customers.findFirst({ where: eq(customers.id, Number(idKandidat)) });
   } else if (body.kunde) {
     const alle = await db.select().from(customers);
     const t = besterTreffer(alle, String(body.kunde), (k) => k.name);
     kunde = t?.treffer;
   }
-  if (!kunde) return c.json({ fehler: "Kunde nicht gefunden (kundenId oder kunde als Name angeben)." }, 404);
+  if (!kunde) {
+    return c.json({
+      fehler: `Kunde nicht gefunden. Empfangen: kundenId=${String(body.kundenId ?? "—")}, kunde=${String(body.kunde ?? "—")}. IDs per GET /kunden prüfen; Name muss annähernd stimmen (Fuzzy).`,
+    }, 404);
+  }
 
-  const items = Array.isArray(body.items) ? body.items : [];
-  if (items.length === 0) return c.json({ fehler: "items fehlt: [{bezeichnung, menge?, einzelpreis, ustSatz?}]" }, 400);
-  const positionen = items.map((it: Record<string, unknown>, i: number) => ({
+  const items = itemsNormalisieren(body);
+  if (items.length === 0) return c.json({ fehler: "items fehlt: [{bezeichnung, menge?, einzelpreis, ustSatz?}] — als Array im JSON oder als JSON-String im Form-Feld." }, 400);
+  const positionen = (items as Record<string, unknown>[]).map((it, i: number) => ({
     position: i + 1,
     bezeichnung: String(it.bezeichnung ?? "").slice(0, 500),
     beschreibung: it.beschreibung ? String(it.beschreibung) : null,
