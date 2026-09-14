@@ -2,6 +2,22 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.14.0] — 2026-09-14
+
+### Neu
+
+- **Mail-Postfach (vollstaendig):** Empfangene Mails werden jetzt in der DB
+  abgelegt (`mail_mails`, idempotent je Konto/Ordner/UID). Neue Seite
+  **Mail** in der Sidebar: Postfaecher mit Ordnern + Ungelesen-Zaehlern,
+  Sync-Button je Konto, Liste (40/Seite, Ungelesen-Filter, Pagination),
+  **Volltext-Suche** (Betreff/Absender/Inhalt), Detailansicht
+  (HTML sandboxed im iframe, Text-Alternative), Anhaenge mit Download
+  aus dem Post Manager (PDF/JPG/PNG, wie bisher dort verarbeitet).
+- IMAP-Dienst legt Mails vor der Anhang-Verarbeitung ab und verknuepft
+  Anhang-Metadaten mit dem Post-Manager-Eintrag.
+- Gelesen/Markiert-Status lokal (Server-Flags bleiben unberuehrt, wie
+  bisher; nur Beleg-Importe markieren auf dem Server gelesen).
+
 ## [1.13.3] — 2026-09-14
 
 ### Neu (Agent-API: Rest der Wunschliste)

@@ -5,7 +5,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { eq } from "drizzle-orm";
 import { getDb } from "./queries/connection";
-import { emailKonten } from "@db/schema";
+import { emailKonten, mailMails } from "@db/schema";
 import { entschluesseln } from "./lib/secrets";
 import { erzeugePostEingang, mimeAusName } from "./lib/posteingang";
 
@@ -13,6 +13,54 @@ const MAX_MAILS_PRO_LAUF = 20;
 const ANHANG_TYPEN = ["application/pdf", "image/jpeg", "image/png", "image/jpg"];
 
 let gestartet = false;
+
+/** Mail in mail_mails ablegen (idempotent ueber konto/ordner/uid). */
+async function speichereMail(
+  konto: typeof emailKonten.$inferSelect,
+  uid: number,
+  geparst: Awaited<ReturnType<typeof simpleParser>>,
+): Promise<number> {
+  const db = getDb();
+  const exakt = await db.query.mailMails.findFirst({
+    where: (m, { and: a, eq: e }) =>
+      a(e(m.kontoId, konto.id), e(m.ordner, konto.ordner), e(m.uid, uid)),
+    columns: { id: true },
+  });
+  if (exakt) return exakt.id;
+  const anhaenge = (geparst.attachments ?? []).map((a) => ({
+    name: a.filename || "anhang",
+    mime: mimeAusName(a.filename || "anhang", a.contentType),
+    groesse: a.size ?? a.content?.length ?? 0,
+    postEingangId: null as number | null,
+  }));
+  const [{ id }] = await db
+    .insert(mailMails)
+    .values({
+      kontoId: konto.id,
+      ordner: konto.ordner,
+      uid,
+      messageId: geparst.messageId ?? null,
+      betreff: geparst.subject ?? null,
+      absenderName: geparst.from?.value?.[0]?.name ?? null,
+      absenderAdresse: geparst.from?.value?.[0]?.address ?? null,
+      empfaenger: (() => {
+        const t = geparst.to;
+        if (!t) return null;
+        const arr = Array.isArray(t) ? t : [t];
+        return arr
+          .flatMap((x) => x.value ?? [])
+          .map((v) => (v.name ? `${v.name} <${v.address}>` : v.address ?? ""))
+          .filter(Boolean)
+          .join(", ") || null;
+      })(),
+      datum: geparst.date ?? null,
+      textPlain: geparst.text ? geparst.text.slice(0, 4_000_000) : null,
+      textHtml: typeof geparst.html === "string" ? geparst.html.slice(0, 4_000_000) : null,
+      anhaenge: JSON.stringify(anhaenge),
+    })
+    .$returningId();
+  return id;
+}
 
 async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void> {
   const db = getDb();
@@ -43,12 +91,15 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
         if (!nachricht || !nachricht.source) continue;
         const geparst = await simpleParser(nachricht.source);
         const absender = geparst.from?.value?.[0]?.name || geparst.from?.value?.[0]?.address || null;
+        // Mail zuerst ablegen (idempotent) — dann Anhaenge in den Post Manager
+        const mailId = await speichereMail(konto, uid, geparst);
         let hatteBeleg = false;
+        const postIds: number[] = [];
         for (const anhang of geparst.attachments ?? []) {
           const name = anhang.filename || "anhang";
           const mime = mimeAusName(name, anhang.contentType);
           if (!ANHANG_TYPEN.includes(mime)) continue;
-          await erzeugePostEingang({
+          const postId = await erzeugePostEingang({
             originalname: name,
             mime,
             puffer: anhang.content,
@@ -56,8 +107,26 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
             quelle: `E-Mail · ${konto.name}`,
             absenderFreitext: absender,
           });
+          postIds.push(postId);
           importiert++;
           hatteBeleg = true;
+        }
+        // Anhang-Metadaten mit Post-Manager-Verknuepfung nachziehen
+        if (postIds.length > 0) {
+          const db = getDb();
+          const mail = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+          if (mail?.anhaenge) {
+            try {
+              const meta = JSON.parse(mail.anhaenge) as { name: string; mime: string; postEingangId: number | null }[];
+              let i = 0;
+              for (const m of meta) {
+                if (ANHANG_TYPEN.includes(m.mime) && i < postIds.length) {
+                  m.postEingangId = postIds[i++];
+                }
+              }
+              await db.update(mailMails).set({ anhaenge: JSON.stringify(meta) }).where(eq(mailMails.id, mailId));
+            } catch { /* Metadaten sind Best-Effort */ }
+          }
         }
         // Nur als gelesen markieren, wenn Anhaenge sicher gespeichert sind —
         // so geht bei Fehlern nichts verloren.
@@ -116,6 +185,19 @@ export async function testeKonto(id: number): Promise<{ ok: boolean; fehler?: st
     } catch {
       /* ok */
     }
+    return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
+  }
+}
+
+/** Manueller Sync eines Kontos (UI-Button „Jetzt abrufen"). */
+export async function synchronisiereKonto(id: number): Promise<{ ok: boolean; fehler?: string }> {
+  const konto = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, id) });
+  if (!konto) throw new Error("Konto nicht gefunden.");
+  try {
+    await rufeKontoAb(konto);
+    const frisch = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, id) });
+    return frisch?.letzterFehler ? { ok: false, fehler: frisch.letzterFehler } : { ok: true };
+  } catch (e) {
     return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
   }
 }

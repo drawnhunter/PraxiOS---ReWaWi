@@ -22,6 +22,7 @@ import {
   X,
   ChevronDown,
   MailOpen,
+  Mail,
   CalendarClock,
   Clock,
   Import,
@@ -53,6 +54,7 @@ const GRUPPEN: NavGruppe[] = [
     titel: "Posteingang",
     eintraege: [
       { to: "/import", label: "Import", icon: Import },
+      { to: "/mail", label: "Mail", icon: Mail },
       { to: "/posteingang", label: "Post Manager", icon: MailOpen },
       { to: "/zahlungsziele", label: "Zahlungsziele", icon: CalendarClock },
     ],

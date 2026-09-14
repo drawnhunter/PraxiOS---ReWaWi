@@ -21,6 +21,7 @@ import { bankTransaktionenRouter } from "./bankTransaktionenRouter";
 import { invoiceImportRouter } from "./invoiceImportRouter";
 import { nachweisRouter } from "./nachweisRouter";
 import { mailRouter } from "./mailRouter";
+import { mailPostfachRouter } from "./mailPostfachRouter";
 import { einrechnungRouter } from "./einrechnungRouter";
 import { lagerRouter } from "./lagerRouter";
 import { labelRouter } from "./labelRouter";
@@ -56,6 +57,7 @@ export const appRouter = createRouter({
   invoiceImport: invoiceImportRouter,
   nachweis: nachweisRouter,
   mail: mailRouter,
+  postfach: mailPostfachRouter,
   einrechnung: einrechnungRouter,
   lager: lagerRouter,
   label: labelRouter,

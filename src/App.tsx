@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Statistics from "@/pages/Statistics";
+import MailPostfach from "@/pages/Mail";
 import Banking from "@/pages/Banking";
 import InvoiceImport from "@/pages/InvoiceImport";
 import NachweisImport from "@/pages/NachweisImport";
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/statistik" element={<Statistics />} />
         <Route path="/import" element={<Import />} />
         <Route path="/posteingang" element={<Posteingang />} />
+        <Route path="/mail" element={<MailPostfach />} />
         <Route path="/zahlungsziele" element={<Zahlungsziele />} />
         <Route path="/bank" element={<Banking />} />
         <Route path="/rechnungen/importieren" element={<InvoiceImport />} />

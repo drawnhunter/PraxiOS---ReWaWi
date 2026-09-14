@@ -229,6 +229,30 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
     )`,
   },
   {
+    tabelle: "mail_mails",
+    ddl: `CREATE TABLE IF NOT EXISTS mail_mails (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      konto_id BIGINT UNSIGNED NOT NULL,
+      ordner VARCHAR(100) NOT NULL DEFAULT 'INBOX',
+      uid BIGINT UNSIGNED NOT NULL,
+      message_id VARCHAR(255) NULL,
+      betreff VARCHAR(500) NULL,
+      absender_name VARCHAR(255) NULL,
+      absender_adresse VARCHAR(320) NULL,
+      empfaenger TEXT NULL,
+      datum DATETIME NULL,
+      text_plain MEDIUMTEXT NULL,
+      text_html MEDIUMTEXT NULL,
+      anhaenge TEXT NULL,
+      gelesen TINYINT(1) NOT NULL DEFAULT 0,
+      markiert TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY mail_eindeutig (konto_id, ordner, uid),
+      INDEX mail_datum_idx (datum),
+      CONSTRAINT mail_mails_konto_fk FOREIGN KEY (konto_id) REFERENCES email_konten(id) ON DELETE CASCADE
+    )`,
+  },
+  {
     tabelle: "bank_regeln",
     ddl: `CREATE TABLE IF NOT EXISTS bank_regeln (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

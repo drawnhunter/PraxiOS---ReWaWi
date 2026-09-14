@@ -722,6 +722,33 @@ export const emailKonten = mysqlTable("email_konten", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ── Mail-Postfach: empfangene Mails (IMAP-Abruf legt sie hier ab) ──────────
+export const mailMails = mysqlTable("mail_mails", {
+  id: serial("id").primaryKey(),
+  kontoId: bigint("konto_id", { mode: "number", unsigned: true })
+    .notNull()
+    .references(() => emailKonten.id, { onDelete: "cascade" }),
+  ordner: varchar("ordner", { length: 100 }).notNull().default("INBOX"),
+  uid: bigint("uid", { mode: "number", unsigned: true }).notNull(),
+  messageId: varchar("message_id", { length: 255 }),
+  betreff: varchar("betreff", { length: 500 }),
+  absenderName: varchar("absender_name", { length: 255 }),
+  absenderAdresse: varchar("absender_adresse", { length: 320 }),
+  empfaenger: text("empfaenger"),
+  datum: timestamp("datum"),
+  textPlain: text("text_plain"),
+  textHtml: text("text_html"),
+  anhaenge: text("anhaenge"), // JSON: [{name, mime, groesse, postEingangId?}]
+  gelesen: boolean("gelesen").notNull().default(false),
+  markiert: boolean("markiert").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+},
+  (t) => [
+    uniqueIndex("mail_eindeutig").on(t.kontoId, t.ordner, t.uid),
+    index("mail_datum_idx").on(t.datum),
+  ],
+);
+
 // ── Kontenrahmen SKR03/SKR04 (Seed aus skr-data.ts, Basisdaten MIT-lizenziert)
 export const kontenrahmen = mysqlTable(
   "kontenrahmen",
