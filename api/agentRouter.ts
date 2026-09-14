@@ -1223,10 +1223,40 @@ app.get("/statistik/ausgaben", async (c) => {
     const kat = r.kategorieName ?? "(ohne Kategorie)";
     proKategorie.set(kat, (proKategorie.get(kat) ?? 0) + Number(r.e.brutto));
   }
+
+  // Kategorisierte Bank-Ausgaben ohne Belegbezug (Dedup-Regel wie DATEV):
+  // werden zusätzlich gezählt — genau dafür ist die Kontierung da.
+  const { bankTransaktionen, kategorien: katTabelle } = await import("@db/schema");
+  const { and, isNull, lt, sql } = await import("drizzle-orm");
+  const bankZeilen = await db
+    .select({ betrag: bankTransaktionen.betrag, datum: bankTransaktionen.datum, kategorieName: katTabelle.name })
+    .from(bankTransaktionen)
+    .leftJoin(katTabelle, eq(bankTransaktionen.kategorieId, katTabelle.id))
+    .where(
+      and(
+        lt(bankTransaktionen.betrag, "0"),
+        isNull(bankTransaktionen.invoiceId),
+        isNull(bankTransaktionen.incomingInvoiceId),
+        sql`${bankTransaktionen.kategorieId} IS NOT NULL`,
+      ),
+    );
+  let bankAnzahl = 0;
+  let bankSumme = 0;
+  for (const t of bankZeilen) {
+    if (!t.datum.startsWith(jahr)) continue;
+    bankAnzahl++;
+    const wert = Math.abs(Number(t.betrag));
+    bankSumme += wert;
+    const m = t.datum.slice(0, 7);
+    proMonat.set(m, (proMonat.get(m) ?? 0) + wert);
+    const kat = t.kategorieName ?? "(ohne Kategorie)";
+    proKategorie.set(kat, (proKategorie.get(kat) ?? 0) + wert);
+  }
   return c.json({
     jahr,
-    gesamtBrutto: imJahr.reduce((a, r) => a + Number(r.e.brutto), 0),
-    anzahl: imJahr.length,
+    gesamtBrutto: imJahr.reduce((a, r) => a + Number(r.e.brutto), 0) + bankSumme,
+    anzahl: imJahr.length + bankAnzahl,
+    davonBankOhneBeleg: { anzahl: bankAnzahl, brutto: bankSumme },
     proMonat: [...proMonat.entries()].map(([monat, brutto]) => ({ monat, brutto })),
     proKategorie: [...proKategorie.entries()].map(([kategorie, brutto]) => ({ kategorie, brutto })),
   });

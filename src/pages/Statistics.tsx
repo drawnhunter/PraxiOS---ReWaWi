@@ -337,8 +337,14 @@ function Liquiditaet() {
           <div className="text-base font-semibold text-teal-800">{d ? geld(d.einnahmenJahr) : "…"}</div>
         </div>
         <div className="rounded-md bg-neutral-50 p-3">
-          <div className="text-xs text-neutral-500">Ausgaben {jahr}</div>
+          <div className="text-xs text-neutral-500">
+            Ausgaben {jahr}
+            <Erklaer text="Eingangsrechnungen (Belege) PLUS kategorisierte Bank-Ausgaben ohne Beleg (z. B. POS-Kartenzahlungen) — Dedup: Verknüpfte Bankbuchungen zählen nur über ihren Beleg." />
+          </div>
           <div className="text-base font-semibold text-red-700">{d ? geld(d.ausgabenJahr) : "…"}</div>
+          {d && d.ausgabenBankJahr > 0 && (
+            <div className="mt-0.5 text-xs text-neutral-400">davon Bank ohne Beleg: {geld(d.ausgabenBankJahr)}</div>
+          )}
         </div>
         <div className="rounded-md bg-neutral-50 p-3">
           <div className="text-xs text-neutral-500">Differenz</div>

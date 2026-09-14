@@ -103,6 +103,30 @@ export const statsRouter = createRouter({
         if (!r.bezahltAm) e.eingangsOffen += 1;
       }
 
+      // Kategorisierte Bank-Ausgaben OHNE Belegbezug (POS ohne Rechnung):
+      // zählen zusätzlich — Dedup-Regel wie beim DATEV-Export.
+      const { bankTransaktionen } = await import("@db/schema");
+      const { and, isNull, lt, sql } = await import("drizzle-orm");
+      const bankAusgaben = await db
+        .select()
+        .from(bankTransaktionen)
+        .where(
+          and(
+            lt(bankTransaktionen.betrag, "0"),
+            isNull(bankTransaktionen.invoiceId),
+            isNull(bankTransaktionen.incomingInvoiceId),
+            sql`${bankTransaktionen.kategorieId} IS NOT NULL`,
+          ),
+        );
+      for (const t of bankAusgaben) {
+        if (!t.datum.startsWith(jahr)) continue;
+        const e = monate.get(t.datum.slice(0, 7));
+        if (e) e.ausgaben += Math.abs(Number(t.betrag));
+      }
+      const ausgabenBankJahr = bankAusgaben
+        .filter((t) => t.datum.startsWith(jahr))
+        .reduce((a, t) => a + Math.abs(Number(t.betrag)), 0);
+
       const liste = [...monate.values()];
       // Vergangene Monate des Jahres (für Budget-Erreichung fair rechnen)
       const vergangene = liste.filter((m) => m.monat <= (input.jahr === Number(heute.slice(0, 4)) ? laufenderMonat : "9999"));
@@ -150,6 +174,7 @@ export const statsRouter = createRouter({
         monate: liste,
         einnahmenJahr,
         ausgabenJahr,
+        ausgabenBankJahr,
         umsatzJahrNetto,
         umsatzJahrBrutto,
         differenzJahr: einnahmenJahr - ausgabenJahr,
