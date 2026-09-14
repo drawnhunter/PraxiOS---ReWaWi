@@ -1296,7 +1296,9 @@ app.delete("/mahnung/:id", async (c) => {
 // ── Aliase (Agent denkt in seinen Pfaden — beide führen zum selben Ziel) ────
 function weiterleiten(c: { req: { raw: Request } }, von: string, nach: string) {
   const url = new URL(c.req.raw.url);
-  url.pathname = url.pathname.replace(von, nach);
+  // Mount-Präfix (/api/agent) gehört dem Parent — das Sub-App kennt ihn nicht;
+  // ohne diesen Strip landet die Weiterleitung im Nichts (404, Bus-Verify).
+  url.pathname = url.pathname.replace(/^\/api\/agent/, "").replace(von, nach);
   return app.fetch(new Request(url.toString(), c.req.raw));
 }
 

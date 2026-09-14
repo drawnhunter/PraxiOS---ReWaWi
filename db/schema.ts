@@ -731,7 +731,6 @@ export const mailMails = mysqlTable("mail_mails", {
     .notNull()
     .references(() => emailKonten.id, { onDelete: "cascade" }),
   ordner: varchar("ordner", { length: 100 }).notNull().default("INBOX"),
-  ordnerListe: text("ordner_liste"), // JSON: entdeckte Fächer (auto beim ersten Sync)
   uid: bigint("uid", { mode: "number", unsigned: true }).notNull(),
   messageId: varchar("message_id", { length: 255 }),
   betreff: varchar("betreff", { length: 500 }),
