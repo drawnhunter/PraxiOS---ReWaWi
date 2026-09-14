@@ -30,6 +30,7 @@ export const companySettings = mysqlTable("company_settings", {
   waehrung: varchar("waehrung", { length: 10 }).notNull().default("€"),
   monatsBudget: decimal("monats_budget", { precision: 12, scale: 2 }),
   bankKonto: varchar("bank_konto", { length: 10 }).notNull().default("1200"),
+  agentPseudonym: boolean("agent_pseudonym").notNull().default(true),
   email: varchar("email", { length: 320 }),
   telefon: varchar("telefon", { length: 50 }),
   webseite: varchar("webseite", { length: 255 }),
@@ -89,6 +90,7 @@ export const customers = mysqlTable(
   {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 255 }).notNull(),
+    synonym: varchar("synonym", { length: 12 }),
     zusatz: varchar("zusatz", { length: 255 }),
     strasse: varchar("strasse", { length: 255 }).notNull(),
     plz: varchar("plz", { length: 20 }).notNull(),
@@ -294,6 +296,7 @@ export const suppliers = mysqlTable(
   {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 255 }).notNull(),
+    synonym: varchar("synonym", { length: 12 }),
     zusatz: varchar("zusatz", { length: 255 }),
     strasse: varchar("strasse", { length: 255 }).notNull(),
     plz: varchar("plz", { length: 20 }).notNull(),

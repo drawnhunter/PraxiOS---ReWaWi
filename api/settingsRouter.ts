@@ -84,6 +84,7 @@ export const settingsRouter = createRouter({
     ]);
     return {
       autonomie: einstellungen?.agentAutonomie ?? "vorschlag",
+      pseudonym: einstellungen?.agentPseudonym !== false,
       tokens: tokens.map((t) => ({ id: t.id, name: t.name, aktiv: t.aktiv, letzteNutzung: t.letzteNutzung, createdAt: t.createdAt })),
       letzteAktionen: log,
     };
@@ -109,6 +110,18 @@ export const settingsRouter = createRouter({
       const { agentTokens } = await import("@db/schema");
       const { eq } = await import("drizzle-orm");
       await getDb().update(agentTokens).set({ aktiv: input.aktiv }).where(eq(agentTokens.id, input.id));
+      return { ok: true };
+    }),
+
+  agentPseudonymSetzen: adminQuery
+    .input(z.object({ aktiv: z.boolean() }))
+    .mutation(async ({ input }) => {
+      await getDb()
+        .insert(companySettings)
+        .values({ id: 1, agentPseudonym: input.aktiv } as never)
+        .onDuplicateKeyUpdate({ set: { agentPseudonym: input.aktiv } as never });
+      const { pseudonymCacheLeeren } = await import("./lib/pseudonym");
+      pseudonymCacheLeeren();
       return { ok: true };
     }),
 

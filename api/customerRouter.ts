@@ -48,6 +48,8 @@ export const customerRouter = createRouter({
 
   create: authedQuery.input(customerInput).mutation(async ({ input }) => {
     const [{ id }] = await getDb().insert(customers).values(input).$returningId();
+    const { vergibSynonym } = await import("./lib/pseudonym");
+    await vergibSynonym("customers", id);
     return { id };
   }),
 

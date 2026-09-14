@@ -2,6 +2,22 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.13.1] — 2026-09-14
+
+### Neu (DSGVO-Pseudonymisierung der Agent-API)
+
+- **Synonyme fuer Kunden & Lieferanten:** `K-0001`-Format, automatisch bei
+  Anlage vergeben, Backfill per Migration fuer Bestand. Die Agent-API
+  liefert standardmaessig Synonyme statt Klarnamen — in Rechnungen,
+  Entwuerfen, Mahnungen, Belegen und Kundenlisten.
+- **Bank-Gegenstellen:** werden gegen Stammdaten aufgeloest (bekannt →
+  Synonym) oder maskiert (unbekannt → „Name …"), inkl.
+  Zahlungsabgleich-Vorschlaegen.
+- **Kundenliste im Pseudonym-Modus:** nur ID + Synonym + Ort (Stadt-Ebene)
+  + Land; E-Mail maskiert auf Domain.
+- **Toggle in Einstellungen → Agent-API:** „Pseudonymisierung (DSGVO)"
+  (Standard: an). Klarnamen bleiben vollstaendig im System (GoBD).
+
 ## [1.13.0] — 2026-09-14
 
 ### Neu (Belegkette fuer den Agenten)

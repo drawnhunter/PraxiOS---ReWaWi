@@ -66,6 +66,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "bank_transaktionen", spalte: "kategorie_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER quell_id, ADD INDEX bank_tx_kategorie_idx (kategorie_id)" },
   { tabelle: "kategorien", spalte: "typ", ddl: "ALTER TABLE kategorien ADD COLUMN typ VARCHAR(10) NOT NULL DEFAULT 'ausgabe' AFTER konto" },
   { tabelle: "company_settings", spalte: "bank_konto", ddl: "ALTER TABLE company_settings ADD COLUMN bank_konto VARCHAR(10) NOT NULL DEFAULT '1200' AFTER monats_budget" },
+  { tabelle: "customers", spalte: "synonym", ddl: "ALTER TABLE customers ADD COLUMN synonym VARCHAR(12) NULL AFTER name" },
+  { tabelle: "suppliers", spalte: "synonym", ddl: "ALTER TABLE suppliers ADD COLUMN synonym VARCHAR(12) NULL AFTER name" },
+  { tabelle: "company_settings", spalte: "agent_pseudonym", ddl: "ALTER TABLE company_settings ADD COLUMN agent_pseudonym TINYINT(1) NOT NULL DEFAULT 1 AFTER bank_konto" },
   { tabelle: "incoming_invoices", spalte: "kategorie_id", ddl: "ALTER TABLE incoming_invoices ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER gegenkonto, ADD INDEX incoming_kategorie_idx (kategorie_id)" },
   { tabelle: "incoming_invoices", spalte: "beleg_base64", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_base64 MEDIUMTEXT NULL AFTER kategorie_id" },
   { tabelle: "incoming_invoices", spalte: "beleg_mime", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_mime VARCHAR(60) NULL AFTER beleg_base64" },
@@ -416,6 +419,19 @@ const SCHEMA_UPDATES: { name: string; check: (db: string) => string; ddl: string
     check: (db) =>
       `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='offers' AND COLUMN_NAME='status' AND COLUMN_TYPE NOT LIKE '%finalisiert%'`,
     ddl: "UPDATE offers SET status='offen' WHERE status='finalisiert'",
+  },
+  {
+    // v1.13: Synonyme fuer bestehende Kunden/Lieferanten nachziehen (DSGVO-Pseudonymisierung)
+    name: "synonyme backfill customers",
+    check: (db) =>
+      `SELECT COUNT(*) AS v FROM customers WHERE synonym IS NULL`,
+    ddl: "UPDATE customers SET synonym = CONCAT('K-', LPAD(id, 4, '0')) WHERE synonym IS NULL",
+  },
+  {
+    name: "synonyme backfill suppliers",
+    check: (db) =>
+      `SELECT COUNT(*) AS v FROM suppliers WHERE synonym IS NULL`,
+    ddl: "UPDATE suppliers SET synonym = CONCAT('L-', LPAD(id, 4, '0')) WHERE synonym IS NULL",
   },
   {
     // v1.8 Schritt 3: Enum auf Endzustand (ohne 'finalisiert')

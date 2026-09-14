@@ -50,6 +50,8 @@ export const supplierRouter = createRouter({
       .insert(suppliers)
       .values({ ...input, kategorieId: input.kategorieId ?? null })
       .$returningId();
+    const { vergibSynonym } = await import("./lib/pseudonym");
+    await vergibSynonym("suppliers", id);
     return { id };
   }),
 

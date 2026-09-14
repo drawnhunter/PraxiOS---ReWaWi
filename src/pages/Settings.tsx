@@ -824,6 +824,9 @@ function AgentApiSection() {
   const autonomie = trpc.settings.agentAutonomieSetzen.useMutation({
     onSuccess: () => utils.settings.agentStatus.invalidate(),
   });
+  const pseudoUmschalten = trpc.settings.agentPseudonymSetzen.useMutation({
+    onSuccess: () => utils.settings.agentStatus.invalidate(),
+  });
   const [neuerName, setNeuerName] = useState("");
   const [frisch, setFrisch] = useState<string | null>(null);
   const host = typeof window !== "undefined" ? window.location.origin : "";
@@ -852,6 +855,23 @@ function AgentApiSection() {
         <span className="text-xs text-neutral-500">
           „Vorschlag“: Lesen + Entwürfe/Aufgaben. „Vollautomatik“: zusätzlich E-Mail-Versand.
           Umstellen, wenn die Vorschläge eine Weile korrekt waren.
+        </span>
+      </div>
+
+      {/* Pseudonymisierung (DSGVO) */}
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-teal-200 bg-teal-50 px-3 py-2">
+        <span className="text-sm">Pseudonymisierung (DSGVO):</span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => pseudoUmschalten.mutate({ aktiv: !(status.data?.pseudonym !== false) })}
+          disabled={pseudoUmschalten.isPending}
+        >
+          {status.data?.pseudonym !== false ? "Aktiv — KI sieht Synonyme (K-0001)" : "Deaktiviert — KI sieht Klarnamen"}
+        </Button>
+        <span className="text-xs text-neutral-500">
+          An: Kunden/Lieferanten erscheinen als K-/L-Nummern, Bank-Gegenstellen maskiert.
+          Ergänzt keinen AVV mit dem KI-Anbieter und den VVT-Eintrag — siehe Bus-Notiz.
         </span>
       </div>
 

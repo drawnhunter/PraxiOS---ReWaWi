@@ -71,6 +71,8 @@ app.get("/status", async (c) => {
 
 app.get("/offene-rechnungen", async (c) => {
   const db = getDb();
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const rows = await db.select().from(invoices).where(eq(invoices.status, "finalisiert"));
   const h = heute();
   const offene = rows
@@ -78,7 +80,7 @@ app.get("/offene-rechnungen", async (c) => {
     .map((r) => ({
       id: r.id,
       nummer: r.nummer,
-      kunde: r.kundeName,
+      kunde: agentName(karte, r.customerId, r.kundeName),
       kundenId: r.customerId,
       brutto: Number(r.brutto),
       offen: Number(r.brutto) - Number(r.bezahltBetrag),
@@ -91,6 +93,8 @@ app.get("/offene-rechnungen", async (c) => {
 });
 
 app.get("/entwuerfe", async (c) => {
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const rows = await getDb().query.invoices.findMany({
     where: eq(invoices.status, "entwurf"),
     orderBy: [desc(invoices.createdAt)],
@@ -98,7 +102,7 @@ app.get("/entwuerfe", async (c) => {
   return c.json({
     anzahl: rows.length,
     entwuerfe: rows.map((r) => ({
-      id: r.id, kunde: r.kundeName, kundenId: r.customerId,
+      id: r.id, kunde: agentName(karte, r.customerId, r.kundeName), kundenId: r.customerId,
       netto: Number(r.netto), brutto: Number(r.brutto), datum: r.rechnungsdatum,
     })),
   });
@@ -108,6 +112,8 @@ app.get("/kunden-ohne-rechnung", async (c) => {
   const tage = Math.max(7, Math.min(365, Number(c.req.query("tage") ?? "30")));
   const schwelle = new Date(Date.now() - tage * 86400000).toISOString().slice(0, 10);
   const db = getDb();
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const [alle, finale] = await Promise.all([
     db.select().from(customers),
     db.select().from(invoices).where(eq(invoices.status, "finalisiert")),
@@ -119,13 +125,20 @@ app.get("/kunden-ohne-rechnung", async (c) => {
   }
   const faellig = alle
     .filter((k) => (letzteJeKunde.get(k.id) ?? "0000-00-00") < schwelle)
-    .map((k) => ({ id: k.id, name: k.name, email: k.email, letzteRechnung: letzteJeKunde.get(k.id) ?? null }))
+    .map((k) => ({
+      id: k.id,
+      name: agentName(karte, k.id, k.name),
+      email: karte.aktiv && k.email ? `…@${k.email.split("@")[1] ?? ""}` : k.email,
+      letzteRechnung: letzteJeKunde.get(k.id) ?? null,
+    }))
     .sort((a, b) => ((a.letzteRechnung ?? "") < (b.letzteRechnung ?? "") ? -1 : 1));
   return c.json({ tage, anzahl: faellig.length, kunden: faellig });
 });
 
 app.get("/mahnungen", async (c) => {
   const db = getDb();
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const h = heute();
   const alle = await db.select().from(invoices).where(eq(invoices.status, "finalisiert"));
   const alleMahnungen = await db.select().from(reminders);
@@ -136,7 +149,7 @@ app.get("/mahnungen", async (c) => {
       const stufen = alleMahnungen.filter((m) => m.invoiceId === r.id);
       const hoechste = stufen.reduce((a, m) => Math.max(a, m.stufe), 0);
       return {
-        rechnungId: r.id, nummer: r.nummer, kunde: r.kundeName,
+        rechnungId: r.id, nummer: r.nummer, kunde: agentName(karte, r.customerId, r.kundeName),
         faelligkeitsdatum: r.faelligkeitsdatum,
         offen: Number(r.brutto) - Number(r.bezahltBetrag),
         stufenBisher: stufen.length, naechsteStufe: Math.min(3, hoechste + 1),
@@ -152,6 +165,8 @@ app.get("/bankbuchungen", async (c) => {
   const { bankTransaktionen, bankAccounts } = await import("@db/schema");
   const { gte, asc } = await import("drizzle-orm");
   const { kategorien } = await import("@db/schema");
+  const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const rows = await getDb()
     .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung, kategorieName: kategorien.name })
     .from(bankTransaktionen)
@@ -166,7 +181,7 @@ app.get("/bankbuchungen", async (c) => {
       id: r.t.id,
       datum: r.t.datum,
       betrag: Number(r.t.betrag),
-      name: r.t.name,
+      name: maskiereGegenstelle(karte, r.t.name),
       zweck: r.t.zweck,
       konto: r.konto,
       status: r.t.status,
@@ -186,7 +201,9 @@ app.get("/bankbuchung/:id", async (c) => {
     where: eq(bankTransaktionen.id, id),
   });
   if (!t) return c.json({ fehler: "Buchung nicht gefunden." }, 404);
-  return c.json(t);
+  const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  return c.json({ ...t, name: maskiereGegenstelle(karte, t.name) });
 });
 
 app.get("/kontostand", async (c) => {
@@ -223,6 +240,8 @@ app.get("/zahlungsabgleich", async (c) => {
   const { autoMatch } = await import("./bankTransaktionenRouter");
   const { bankTransaktionen, bankAccounts } = await import("@db/schema");
   const { asc } = await import("drizzle-orm");
+  const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const db = getDb();
   const offene = await db
     .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung })
@@ -245,13 +264,13 @@ app.get("/zahlungsabgleich", async (c) => {
       transaktionId: r.t.id,
       datum: r.t.datum,
       betrag: Number(r.t.betrag),
-      name: r.t.name,
+      name: maskiereGegenstelle(karte, r.t.name),
       konto: r.konto,
       vorschlag: vorschlag
         ? {
             typ: vorschlag.typ,
             rechnungOderBeleg: vorschlag.nummer,
-            kunde: vorschlag.bezeichner,
+            kunde: maskiereGegenstelle(karte, vorschlag.bezeichner),
             offenBetrag: vorschlag.offenBetrag,
             sicherheit: vorschlag.sicherheit,
           }
@@ -268,11 +287,17 @@ app.get("/zahlungsabgleich", async (c) => {
 // ── Kunden & Katalog & Einzelbeleg ─────────────────────────────────────────
 app.get("/kunden", async (c) => {
   const rows = await getDb().select().from(customers);
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   return c.json({
     anzahl: rows.length,
     kunden: rows.map((k) => ({
-      id: k.id, name: k.name, zusatz: k.zusatz, strasse: k.strasse,
-      plz: k.plz, ort: k.ort, land: k.land, email: k.email,
+      id: k.id,
+      name: agentName(karte, k.id, k.name),
+      ...(karte.aktiv
+        ? { ort: k.ort } // Pseudonym-Modus: nur Stadt-Ebene, keine Straße/PLZ/E-Mail
+        : { zusatz: k.zusatz, strasse: k.strasse, plz: k.plz, ort: k.ort, land: k.land, email: k.email }),
+      land: k.land,
       zahlungszielTage: k.zahlungszielTage,
     })),
   });
@@ -298,9 +323,11 @@ app.get("/rechnung/:id", async (c) => {
   });
   if (!r) return c.json({ fehler: "Rechnung nicht gefunden." }, 404);
   r.items.sort((a, b) => a.position - b.position);
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   return c.json({
     id: r.id, nummer: r.nummer, status: r.status,
-    kunde: r.kundeName, kundenId: r.customerId,
+    kunde: agentName(karte, r.customerId, r.kundeName), kundenId: r.customerId,
     rechnungsdatum: r.rechnungsdatum, faelligkeitsdatum: r.faelligkeitsdatum,
     netto: Number(r.netto), ust: Number(r.ust), brutto: Number(r.brutto),
     bezahltBetrag: Number(r.bezahltBetrag),
@@ -508,8 +535,10 @@ app.post("/kunde", async (c) => {
       email: body.email ? String(body.email) : null,
     })
     .$returningId();
-  await audit("kunde_angelegt", { id, name });
-  return c.json({ ok: true, id, name });
+  const { vergibSynonym } = await import("./lib/pseudonym");
+  const synonym = await vergibSynonym("customers", id);
+  await audit("kunde_angelegt", { id, name, synonym });
+  return c.json({ ok: true, id, name, synonym });
 });
 
 app.post("/rechnung-entwurf", async (c) => {
@@ -591,8 +620,11 @@ app.post("/rechnung-entwurf", async (c) => {
       ustSatz: p.ustSatz,
     })),
   );
-  await audit("rechnung_entwurf", { id, kunde: kunde.name, positionen: positionen.length, brutto: centToDecimal(totals.bruttoCent) });
-  return c.json({ ok: true, id, kunde: kunde.name, brutto: centToDecimal(totals.bruttoCent), hinweis: "Entwurf angelegt — Freigabe erfolgt durch einen Menschen (oder Vollautomatik in Einstellungen)." });
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  const kundeAnzeige = agentName(karte, kunde.id, kunde.name);
+  await audit("rechnung_entwurf", { id, kunde: kundeAnzeige, positionen: positionen.length, brutto: centToDecimal(totals.bruttoCent) });
+  return c.json({ ok: true, id, kunde: kundeAnzeige, kundenId: kunde.id, brutto: centToDecimal(totals.bruttoCent), hinweis: "Entwurf angelegt — Freigabe erfolgt durch einen Menschen (oder Vollautomatik in Einstellungen)." });
 });
 
 app.post("/rechnung/:id/versenden", async (c) => {
@@ -808,6 +840,8 @@ app.post("/bankbuchungen/auto-kategorisieren", async (c) => {
 app.get("/belege", async (c) => {
   const { incomingInvoices, kategorien } = await import("@db/schema");
   const { desc } = await import("drizzle-orm");
+  const { ladeSynonymKarte, agentLieferant } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
   const rows = await getDb()
     .select({ e: incomingInvoices, kategorieName: kategorien.name })
     .from(incomingInvoices)
@@ -817,7 +851,7 @@ app.get("/belege", async (c) => {
   return c.json({
     anzahl: rows.length,
     belege: rows.map((r) => ({
-      id: r.e.id, lieferant: r.e.lieferantName, nummer: r.e.nummer,
+      id: r.e.id, lieferant: agentLieferant(karte, r.e.lieferantName), nummer: r.e.nummer,
       rechnungsdatum: r.e.rechnungsdatum, netto: Number(r.e.netto),
       ust: Number(r.e.ust), brutto: Number(r.e.brutto),
       konto: r.e.konto, kategorieId: r.e.kategorieId, kategorieName: r.kategorieName,
