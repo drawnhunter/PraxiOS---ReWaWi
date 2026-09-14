@@ -65,6 +65,9 @@ export const mailPostfachRouter = createRouter({
         q: z.string().optional(),
         nurUngelesene: z.boolean().optional(),
         richtung: z.enum(["alle", "empfangen", "gesendet", "markiert"]).optional(),
+        filter: z.enum(["alle", "ungelesen", "gelesen", "markiert", "gesendet", "empfangen"]).optional(),
+        sortBy: z.enum(["datum", "absender", "groesse"]).optional(),
+        sortDir: z.enum(["asc", "desc"]).optional(),
         von: z.string().optional(),
         bis: z.string().optional(),
         seite: z.number().int().min(1).default(1),
@@ -76,12 +79,15 @@ export const mailPostfachRouter = createRouter({
       if (input.kontoId) bedingungen.push(eq(mailMails.kontoId, input.kontoId));
       if (input.ordner) bedingungen.push(eq(mailMails.ordner, input.ordner));
       if (input.nurUngelesene) bedingungen.push(eq(mailMails.gelesen, false));
-      if (input.richtung === "gesendet") {
+      // Einheitlicher Filter (hat Vorrang vor richtung)
+      const f = input.filter ?? input.richtung;
+      if (f === "ungelesen") bedingungen.push(eq(mailMails.gelesen, false));
+      else if (f === "gelesen") bedingungen.push(eq(mailMails.gelesen, true));
+      else if (f === "markiert") bedingungen.push(eq(mailMails.markiert, true));
+      else if (f === "gesendet") {
         bedingungen.push(or(like(mailMails.ordner, "%sent%"), like(mailMails.ordner, "%gesendet%")));
-      } else if (input.richtung === "empfangen") {
+      } else if (f === "empfangen") {
         bedingungen.push(sql`${mailMails.ordner} NOT LIKE '%sent%' AND ${mailMails.ordner} NOT LIKE '%gesendet%'`);
-      } else if (input.richtung === "markiert") {
-        bedingungen.push(eq(mailMails.markiert, true));
       }
       if (input.von) bedingungen.push(sql`${mailMails.datum} >= ${input.von}`);
       if (input.bis) bedingungen.push(sql`${mailMails.datum} <= ${input.bis} 23:59:59`);
@@ -102,7 +108,15 @@ export const mailPostfachRouter = createRouter({
         .select()
         .from(mailMails)
         .where(bedingungen.length ? and(...bedingungen) : undefined)
-        .orderBy(desc(mailMails.datum), desc(mailMails.id))
+        .orderBy(
+          ...(input.sortBy === "absender"
+            ? [input.sortDir === "desc" ? desc(mailMails.absenderAdresse) : asc(mailMails.absenderAdresse)]
+            : input.sortBy === "groesse"
+              ? [input.sortDir === "desc" ? desc(sql`LENGTH(${mailMails.textPlain}) + LENGTH(${mailMails.textHtml})`) : asc(sql`LENGTH(${mailMails.textPlain}) + LENGTH(${mailMails.textHtml})`)]
+              : input.sortDir === "asc"
+                ? [asc(mailMails.datum), asc(mailMails.id)]
+                : [desc(mailMails.datum), desc(mailMails.id)]),
+        )
         .limit(PRO_SEITE)
         .offset((seite - 1) * PRO_SEITE);
       const [{ gesamt }] = await db

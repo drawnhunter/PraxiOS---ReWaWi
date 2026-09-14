@@ -26,8 +26,50 @@ function datumFmt(d: string | Date | null): string {
 
 interface MailTab { id: number; betreff: string }
 
+function ladeBreite(key: string, fallback: number): number {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function nutzeBreite(key: string, fallback: number, min: number, max: number) {
+  const [breite, setBreite] = useState(() => Math.min(max, Math.max(min, ladeBreite(key, fallback))));
+  const set = (v: number) => {
+    const n = Math.min(max, Math.max(min, v));
+    setBreite(n);
+    localStorage.setItem(key, String(n));
+  };
+  return [breite, set] as const;
+}
+
+function Resizer({ onDrag }: { onDrag: (dx: number) => void }) {
+  const start = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const bewegen = (ev: MouseEvent) => onDrag(ev.clientX - startX);
+    const ende = () => {
+      window.removeEventListener("mousemove", bewegen);
+      window.removeEventListener("mouseup", ende);
+    };
+    window.addEventListener("mousemove", bewegen);
+    window.addEventListener("mouseup", ende);
+  };
+  return (
+    <div
+      onMouseDown={start}
+      className="w-1.5 shrink-0 cursor-col-resize rounded bg-neutral-200 hover:bg-teal-400 transition-colors"
+      title="Breite ziehen"
+    />
+  );
+}
+
 export default function MailPostfach() {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
+  const [linksBreite, setLinksBreite] = nutzeBreite("mail-spalte-links", 240, 160, 380);
+  const [listeBreite, setListeBreite] = nutzeBreite("mail-spalte-liste", 400, 280, 640);
   const [tabs, setTabs] = useState<MailTab[]>([]);
   const [aktiv, setAktiv] = useState<number | null>(null);
   const [vorschau, setVorschau] = useState<number | null>(null);
@@ -47,10 +89,13 @@ export default function MailPostfach() {
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-3">
       {/* ── Spalte 1: Konten + Ordner + Regeln (Office-Stil) ── */}
-      <Seitenleiste
-        kontoId={kontoId} setKontoId={(v) => { setKontoId(v); setOrdner(null); }}
-        ordner={ordner} setOrdner={setOrdner}
-      />
+      <div style={{ width: linksBreite }} className="shrink-0">
+        <Seitenleiste
+          kontoId={kontoId} setKontoId={(v) => { setKontoId(v); setOrdner(null); }}
+          ordner={ordner} setOrdner={setOrdner}
+        />
+      </div>
+      <Resizer onDrag={(dx) => setLinksBreite(linksBreite + dx)} />
 
       {/* ── Mitte + Rechts: Tabs ODER Liste+Vorschau ── */}
       <div className="flex min-w-0 flex-1 flex-col">
@@ -82,13 +127,16 @@ export default function MailPostfach() {
         ) : (
           <div className="flex min-h-0 flex-1 gap-3">
             {/* Spalte 2: Liste (mittig, Outlook) */}
-            <MailListe
-              key={`${kontoId ?? "alle"}|${ordner ?? "alle"}`}
-              kontoId={kontoId} ordner={ordner}
-              vorschau={vorschau} onVorschau={setVorschau}
-              postfaecher={postfaecher.data ?? []}
-              onKontoWahl={setKontoId}
-            />
+            <div style={{ width: listeBreite }} className="shrink-0">
+              <MailListe
+                key={`${kontoId ?? "alle"}|${ordner ?? "alle"}`}
+                kontoId={kontoId} ordner={ordner}
+                vorschau={vorschau} onVorschau={setVorschau}
+                postfaecher={postfaecher.data ?? []}
+                onKontoWahl={setKontoId}
+              />
+            </div>
+            <Resizer onDrag={(dx) => setListeBreite(listeBreite + dx)} />
             {/* Spalte 3: Vorschau (rechts, Outlook-Lesefenster) */}
             {vorschau !== null && (
               <MailDetail
@@ -124,7 +172,7 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner }: {
   const sync = trpc.postfach.syncJetzt.useMutation({ onSuccess: () => postfaecher.refetch() });
 
   return (
-    <div className="w-60 shrink-0 space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3">
+    <div className="h-full space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Postfächer</span>
         <Link to="/einstellungen" title="Konten verwalten">
@@ -283,26 +331,28 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, postfaecher, onKonto
   onKontoWahl: (v: number | null) => void;
 }) {
   const [q, setQ] = useState("");
-  const [nurUngelesene, setNurUngelesene] = useState(false);
-  const [richtung, setRichtung] = useState<"alle" | "empfangen" | "gesendet" | "markiert">("alle");
+  const [filter, setFilter] = useState<"alle" | "ungelesen" | "gelesen" | "markiert" | "gesendet" | "empfangen">("alle");
+  const [sortWahl, setSortWahl] = useState<"datum_desc" | "datum_asc" | "absender_asc" | "absender_desc" | "groesse_desc" | "groesse_asc">("datum_desc");
   const [seite, setSeite] = useState(1);
 
+  const [sortBy, sortDir] = sortWahl.split("_") as ["datum" | "absender" | "groesse", "asc" | "desc"];
   const liste = trpc.postfach.liste.useQuery({
     kontoId: kontoId ?? undefined,
     ordner: ordner ?? undefined,
     q: q || undefined,
-    nurUngelesene: nurUngelesene || undefined,
-    richtung: richtung === "alle" ? undefined : richtung,
+    filter: filter === "alle" ? undefined : filter,
+    sortBy,
+    sortDir,
     seite,
   });
   const gesamtSeiten = liste.data ? Math.max(1, Math.ceil(liste.data.gesamt / liste.data.proSeite)) : 1;
   const markieren = trpc.postfach.markieren.useMutation();
 
   return (
-    <div className="flex w-[380px] shrink-0 flex-col rounded-lg border border-neutral-200 bg-white">
-      <div className="flex items-center gap-2 border-b border-neutral-200 p-2.5">
+    <div className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white">
+      <div className="flex items-center gap-1.5 border-b border-neutral-200 p-2">
         <Select value={kontoId === null ? "alle" : String(kontoId)} onValueChange={(v) => onKontoWahl(v === "alle" ? null : Number(v))}>
-          <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-8 w-28 shrink-0 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="alle">Alle Postfächer</SelectItem>
             {postfaecher.map((k) => (
@@ -310,27 +360,37 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, postfaecher, onKonto
             ))}
           </SelectContent>
         </Select>
-        <Select value={richtung} onValueChange={(v) => setRichtung(v as typeof richtung)}>
-          <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+        <Select value={filter} onValueChange={(v) => { setFilter(v as typeof filter); setSeite(1); }}>
+          <SelectTrigger className="h-8 w-32 shrink-0 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="alle">Alles</SelectItem>
+            <SelectItem value="alle">Alle Mails</SelectItem>
+            <SelectItem value="ungelesen">Ungelesen</SelectItem>
+            <SelectItem value="gelesen">Gelesen</SelectItem>
+            <SelectItem value="markiert">Markierte</SelectItem>
             <SelectItem value="empfangen">Empfangene</SelectItem>
             <SelectItem value="gesendet">Gesendete</SelectItem>
-            <SelectItem value="markiert">Markierte</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortWahl} onValueChange={(v) => setSortWahl(v as typeof sortWahl)}>
+          <SelectTrigger className="h-8 w-36 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="datum_desc">Datum ↓</SelectItem>
+            <SelectItem value="datum_asc">Datum ↑</SelectItem>
+            <SelectItem value="absender_asc">Absender A–Z</SelectItem>
+            <SelectItem value="absender_desc">Absender Z–A</SelectItem>
+            <SelectItem value="groesse_desc">Größe ↓</SelectItem>
+            <SelectItem value="groesse_asc">Größe ↑</SelectItem>
           </SelectContent>
         </Select>
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-400" />
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-neutral-400" />
           <Input
             value={q}
             onChange={(e) => { setQ(e.target.value); setSeite(1); }}
-            placeholder="Suchen …"
+            placeholder="Betreff, Absender, Inhalt suchen …"
             className="pl-8 h-8 text-sm"
           />
         </div>
-        <Button variant={nurUngelesene ? "default" : "outline"} size="sm" className="h-8" onClick={() => { setNurUngelesene(!nurUngelesene); setSeite(1); }}>
-          <span className="text-xs">Ungelesen</span>
-        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {liste.error && <p className="p-4 text-sm text-red-600">Fehler beim Laden: {liste.error.message}</p>}
