@@ -577,6 +577,8 @@ function VerfassenDialog({ start, onSchliessen }: {
   const [vorschlaege, setVorschlaege] = useState<{ name: string; email: string; quelle: string }[]>([]);
 
   const einstellungen = trpc.settings.get.useQuery();
+  const postfaecher = trpc.postfach.postfaecher.useQuery();
+  const [kontoId, setKontoId] = useState<number | null>(null);
   const entwuerfe = trpc.postfach.entwuerfe.useQuery();
   const versenden = trpc.postfach.versenden.useMutation({ onSuccess: onSchliessen });
   const entwurfSpeichern = trpc.postfach.entwurfSpeichern.useMutation();
@@ -629,6 +631,21 @@ function VerfassenDialog({ start, onSchliessen }: {
               ))}
             </div>
           )}
+          <div>
+            <label className="mb-1 block text-xs text-neutral-500">Von (Konto)</label>
+            <Select
+              value={kontoId === null ? "firma" : String(kontoId)}
+              onValueChange={(v) => setKontoId(v === "firma" ? null : Number(v))}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="firma">Firmen-SMTP (Standard)</SelectItem>
+                {(postfaecher.data ?? []).map((k) => (
+                  <SelectItem key={k.id} value={String(k.id)}>{k.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="relative">
             <label className="mb-1 block text-xs text-neutral-500">An *</label>
             <Input
@@ -691,6 +708,7 @@ function VerfassenDialog({ start, onSchliessen }: {
             disabled={!empfaenger.trim() || !betreff.trim() || !text.trim() || versenden.isPending}
             onClick={() =>
               versenden.mutate({
+                kontoId: kontoId ?? undefined,
                 empfaenger: empfaenger.split(",").map((x) => x.trim()).filter(Boolean),
                 cc: cc.split(",").map((x) => x.trim()).filter(Boolean),
                 betreff,

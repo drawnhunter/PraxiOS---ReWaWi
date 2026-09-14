@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, KeyRound, Trash2 } from "lucide-react";
+import { Plus, KeyRound, Mail, Trash2 } from "lucide-react";
 
 export function Benutzerverwaltung() {
   const utils = trpc.useUtils();
@@ -38,6 +38,11 @@ export function Benutzerverwaltung() {
 
   const invalid = () => utils.auth.benutzer.invalidate();
 
+  const mailKonten = trpc.emailKonten.liste.useQuery();
+  const mailkontenSetzen = trpc.auth.benutzerMailkontenSetzen.useMutation({
+    onSuccess: () => utils.auth.benutzer.invalidate(),
+  });
+  const [kontoDialog, setKontoDialog] = useState<{ id: number; name: string; mailKontoIds: number[] | null } | null>(null);
   const anlegen = trpc.auth.benutzerAnlegen.useMutation({
     onSuccess: () => {
       invalid();
@@ -115,6 +120,20 @@ export function Benutzerverwaltung() {
               </td>
               <td className="px-2 py-2.5 text-right">
                 <div className="flex items-center justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title="Sichtbare Postfächer"
+                    onClick={() =>
+                      setKontoDialog({
+                        id: b.id,
+                        name: b.name ?? b.username ?? `#${b.id}`,
+                        mailKontoIds: b.mailKontoIds ? JSON.parse(b.mailKontoIds) : null,
+                      })
+                    }
+                  >
+                    <Mail className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -256,6 +275,56 @@ export function Benutzerverwaltung() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    
+      {kontoDialog && (
+        <Dialog open onOpenChange={(o) => !o && setKontoDialog(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Sichtbare Postfächer — {kontoDialog.name}</DialogTitle>
+            </DialogHeader>
+            <p className="mb-2 text-xs text-neutral-500">
+              Kein Häkchen = alle Postfächer sichtbar. Sobald eines gesetzt ist, sieht der Benutzer nur die gewählten.
+            </p>
+            <div className="space-y-1.5">
+              {(mailKonten.data ?? []).map((k) => {
+                const aktiv = kontoDialog.mailKontoIds === null || kontoDialog.mailKontoIds.includes(k.id);
+                return (
+                  <label key={k.id} className="flex items-center gap-2 rounded-md border border-neutral-200 px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={aktiv}
+                      onChange={(e) => {
+                        const aktuelle = kontoDialog.mailKontoIds ?? (mailKonten.data ?? []).map((x) => x.id);
+                        const neu = e.target.checked
+                          ? [...new Set([...aktuelle, k.id])]
+                          : aktuelle.filter((x) => x !== k.id);
+                        setKontoDialog({ ...kontoDialog, mailKontoIds: neu });
+                      }}
+                    />
+                    <span>{k.name}</span>
+                    <span className="text-xs text-neutral-400">{k.benutzer}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <DialogFooter className="mt-3">
+              <Button variant="outline" onClick={() => setKontoDialog(null)}>Abbrechen</Button>
+              <Button
+                disabled={mailkontenSetzen.isPending}
+                onClick={() =>
+                  mailkontenSetzen.mutate(
+                    { userId: kontoDialog.id, mailKontoIds: kontoDialog.mailKontoIds },
+                    { onSuccess: () => setKontoDialog(null) },
+                  )
+                }
+              >
+                Speichern
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+</section>
   );
 }

@@ -1556,6 +1556,7 @@ app.post("/mail/versenden", async (c) => {
   if (!betreff || !text) return c.json({ ok: false, fehler: "betreff + text nötig." }, 400);
   const { versendeMail } = await import("./lib/mailVersand");
   const r = await versendeMail({
+    kontoId: body.kontoId ? Number(body.kontoId) : undefined,
     empfaenger,
     cc: Array.isArray(body.cc) ? body.cc.map(String) : undefined,
     betreff,

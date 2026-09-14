@@ -7,6 +7,27 @@ import { getDb } from "./queries/connection";
 import { mailMails, emailKonten, postEingang } from "@db/schema";
 import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 
+/** Sichtbare Konto-IDs des Benutzers (users.mailKontoIds JSON; null = alle). */
+async function sichtbareKontoIds(user: { id?: number } | undefined): Promise<number[] | null> {
+  if (!user?.id) return null; // aeltere Sessions/Kontexte: alles sichtbar
+  const { users } = await import("@db/schema");
+  const u = await getDb().query.users.findFirst({ where: eq(users.id, user.id) });
+  if (!u?.mailKontoIds) return null; // alle sichtbar
+  try {
+    return JSON.parse(u.mailKontoIds) as number[];
+  } catch {
+    return null;
+  }
+}
+
+/** Wirft FORBIDDEN wenn das Konto fuer den Benutzer nicht sichtbar ist. */
+async function pruefeSichtbarkeit(user: { id?: number } | undefined, kontoId: number): Promise<void> {
+  const ids = await sichtbareKontoIds(user);
+  if (ids && !ids.includes(kontoId)) {
+    throw new Error("Dieses Postfach ist für deinen Benutzer nicht freigegeben.");
+  }
+}
+
 function metaLesen(anhaenge: string | null): { name: string; mime: string; groesse: number; postEingangId: number | null }[] {
   if (!anhaenge) return [];
   try {
@@ -18,9 +39,11 @@ function metaLesen(anhaenge: string | null): { name: string; mime: string; groes
 
 export const mailPostfachRouter = createRouter({
   /** Konten + Ordner + Zaehler (ungelesen je Ordner). */
-  postfaecher: authedQuery.query(async () => {
+  postfaecher: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const konten = await db.select().from(emailKonten).orderBy(asc(emailKonten.name));
+    const sichtbar = await sichtbareKontoIds(ctx.user);
+    let konten = await db.select().from(emailKonten).orderBy(asc(emailKonten.name));
+    if (sichtbar) konten = konten.filter((k) => sichtbar.includes(k.id));
     const aus = [];
     for (const k of konten) {
       const ordner = await db
@@ -73,10 +96,13 @@ export const mailPostfachRouter = createRouter({
         seite: z.number().int().min(1).default(1),
       }),
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
+      if (input.kontoId) await pruefeSichtbarkeit(ctx.user, input.kontoId);
+      const sichtbar = await sichtbareKontoIds(ctx.user);
       const bedingungen = [];
       if (input.kontoId) bedingungen.push(eq(mailMails.kontoId, input.kontoId));
+      else if (sichtbar) bedingungen.push(sql`${mailMails.kontoId} IN (${sql.join(sichtbar.map((i) => sql`${i}`), sql`, `)})`);
       if (input.ordner) bedingungen.push(eq(mailMails.ordner, input.ordner));
       if (input.nurUngelesene) bedingungen.push(eq(mailMails.gelesen, false));
       // Einheitlicher Filter (hat Vorrang vor richtung)
@@ -145,10 +171,11 @@ export const mailPostfachRouter = createRouter({
   /** Einzelne Mail (Volltext + Anhang-Metadaten). */
   einzel: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, input.id) });
       if (!m) throw new Error("Mail nicht gefunden.");
+      await pruefeSichtbarkeit(ctx.user, m.kontoId);
       // Beim Oeffnen als gelesen markieren (lokal; Server-Flag bleibt unberuehrt)
       if (!m.gelesen) {
         await db.update(mailMails).set({ gelesen: true }).where(eq(mailMails.id, m.id));
@@ -196,7 +223,8 @@ export const mailPostfachRouter = createRouter({
   /** Manueller Sync eines Kontos. */
   syncJetzt: authedQuery
     .input(z.object({ kontoId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await pruefeSichtbarkeit(ctx.user, input.kontoId);
       const { synchronisiereKonto } = await import("./imapDienst");
       return synchronisiereKonto(input.kontoId);
     }),
@@ -213,9 +241,11 @@ export const mailPostfachRouter = createRouter({
         inReplyTo: z.string().nullish(),
         references: z.string().nullish(),
         mitSignatur: z.boolean().default(true),
+        kontoId: z.number().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      if (input.kontoId) await pruefeSichtbarkeit(ctx.user, input.kontoId);
       const { versendeMail } = await import("./lib/mailVersand");
       const r = await versendeMail(input);
       if (!r.ok) throw new Error(`Versand fehlgeschlagen: ${r.fehler}`);

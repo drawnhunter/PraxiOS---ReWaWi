@@ -1,5 +1,4 @@
 // ── Geteilter Mail-Versand (Postfach + Agent-API) ──────────────────────────
-import { ladeSmtp } from "./smtp";
 import { getDb } from "../queries/connection";
 import { mailLog } from "@db/schema";
 import { ladeFirmaLive } from "../pdfBelege";
@@ -15,9 +14,10 @@ export interface VersandEingabe {
   mitSignatur?: boolean;
 }
 
-/** Sendet eine Mail ueber das Firmen-SMTP-Konto (Signatur optional). */
-export async function versendeMail(e: VersandEingabe): Promise<{ ok: boolean; fehler?: string }> {
-  const { transporter, absender } = await ladeSmtp();
+/** Sendet eine Mail — kontobezogen (kontoId) oder Firmen-SMTP (Signatur optional). */
+export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Promise<{ ok: boolean; fehler?: string }> {
+  const { ladeSmtpKonto } = await import("./smtp");
+  const { transporter, absender, kontoName } = await ladeSmtpKonto(e.kontoId);
   const firma = await ladeFirmaLive();
   const settings = await getDb().query.companySettings.findFirst();
   const signatur = e.mitSignatur !== false && settings?.signatur ? `\n\n${settings.signatur}` : "";
@@ -51,7 +51,7 @@ export async function versendeMail(e: VersandEingabe): Promise<{ ok: boolean; fe
   await getDb().insert(mailLog).values({
     belegArt: "mail",
     belegId: 0,
-    empfaenger: empfaengerListe.join(", "),
+    empfaenger: `${kontoName} → ${empfaengerListe.join(", ")}`,
     betreff: e.betreff,
     erfolg: ok,
     fehler: fehler ?? null,

@@ -18,21 +18,35 @@ const kontoInput = z.object({
   route: z.enum(["rechnung", "sonstiges"]).default("rechnung"),
   intervallMinuten: z.number().int().min(1).max(1440).default(10),
   aktiv: z.boolean().default(true),
+  // Kontobezogener Versand (optional — ohne diese Daten geht Versand ueber Firmen-SMTP)
+  smtpHost: z.string().max(255).nullable().optional(),
+  smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+  smtpBenutzer: z.string().max(255).nullable().optional(),
+  smtpPasswort: z.string().max(200).optional(), // leer = bestehendes behalten
+  smtpAbsender: z.string().max(255).nullable().optional(),
 });
 
 export const emailKontenRouter = createRouter({
   liste: authedQuery.query(async () => {
     const db = getDb();
     const zeilen = await db.select().from(emailKonten).orderBy(asc(emailKonten.name));
-    return zeilen.map(({ passwortEnc, ...rest }) => ({ ...rest, passwortGesetzt: !!passwortEnc }));
+    return zeilen.map(({ passwortEnc, smtpPasswortEnc, ...rest }) => ({
+      ...rest,
+      passwortGesetzt: !!passwortEnc,
+      smtpPasswortGesetzt: !!smtpPasswortEnc,
+    }));
   }),
 
   anlegen: adminQuery.input(kontoInput).mutation(async ({ input }) => {
-    const { passwort, ...rest } = input;
+    const { passwort, smtpPasswort, ...rest } = input;
     if (!passwort) throw new Error("Passwort fehlt.");
     const [r] = await getDb()
       .insert(emailKonten)
-      .values({ ...rest, passwortEnc: verschluesseln(passwort) })
+      .values({
+        ...rest,
+        passwortEnc: verschluesseln(passwort),
+        ...(smtpPasswort ? { smtpPasswortEnc: verschluesseln(smtpPasswort) } : {}),
+      })
       .$returningId();
     return { id: r.id };
   }),
@@ -40,9 +54,10 @@ export const emailKontenRouter = createRouter({
   aktualisieren: adminQuery
     .input(kontoInput.extend({ id: z.number().int() }))
     .mutation(async ({ input }) => {
-      const { id, passwort, ...rest } = input;
+      const { id, passwort, smtpPasswort, ...rest } = input;
       const werte: Record<string, unknown> = { ...rest };
       if (passwort) werte.passwortEnc = verschluesseln(passwort);
+      if (smtpPasswort) werte.smtpPasswortEnc = verschluesseln(smtpPasswort);
       await getDb().update(emailKonten).set(werte).where(eq(emailKonten.id, id));
       return { ok: true };
     }),

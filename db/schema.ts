@@ -457,6 +457,7 @@ export const users = mysqlTable("users", {
     .notNull()
     .$onUpdate(() => new Date()),
   lastSignInAt: timestamp("lastSignInAt").defaultNow().notNull(),
+  mailKontoIds: text("mail_konto_ids"), // JSON: [1,2,…] — null = alle Konten sichtbar
 });
 
 export type User = typeof users.$inferSelect;
@@ -716,6 +717,11 @@ export const emailKonten = mysqlTable("email_konten", {
   passwortEnc: varchar("passwort_enc", { length: 500 }).notNull(),
   ordner: varchar("ordner", { length: 100 }).notNull().default("INBOX"),
   ordnerListe: text("ordner_liste"), // JSON: entdeckte Fächer (auto beim ersten Sync)
+  smtpHost: varchar("smtp_host", { length: 255 }),
+  smtpPort: int("smtp_port"),
+  smtpBenutzer: varchar("smtp_benutzer", { length: 255 }),
+  smtpPasswortEnc: varchar("smtp_passwort_enc", { length: 500 }),
+  smtpAbsender: varchar("smtp_absender", { length: 255 }),
   route: mysqlEnum("route", ["rechnung", "sonstiges"]).notNull().default("rechnung"),
   intervallMinuten: int("intervall_minuten").notNull().default(10),
   aktiv: boolean("aktiv").notNull().default(true),

@@ -31,6 +31,11 @@ interface KontoForm {
   route: "rechnung" | "sonstiges";
   intervallMinuten: number;
   aktiv: boolean;
+  smtpHost: string;
+  smtpPort: number | null;
+  smtpBenutzer: string;
+  smtpPasswort: string;
+  smtpAbsender: string;
 }
 
 const LEER: KontoForm = {
@@ -44,6 +49,11 @@ const LEER: KontoForm = {
   route: "rechnung",
   intervallMinuten: 10,
   aktiv: true,
+  smtpHost: "",
+  smtpPort: null,
+  smtpBenutzer: "",
+  smtpPasswort: "",
+  smtpAbsender: "",
 };
 
 export function EmailEingang() {
@@ -60,11 +70,20 @@ export function EmailEingang() {
   const testen = trpc.emailKonten.testen.useMutation();
 
   const speichern = () => {
-    const { id, passwort, ...rest } = form;
+    const { id, passwort, smtpPasswort, ...rest } = form;
+    const payload = {
+      ...rest,
+      smtpPort: rest.smtpPort || null,
+      smtpHost: rest.smtpHost || null,
+      smtpBenutzer: rest.smtpBenutzer || null,
+      smtpAbsender: rest.smtpAbsender || null,
+      ...(passwort ? { passwort } : {}),
+      ...(smtpPasswort ? { smtpPasswort } : {}),
+    };
     if (id) {
-      aktualisieren.mutate({ id, ...rest, ...(passwort ? { passwort } : {}) });
+      aktualisieren.mutate({ id, ...payload });
     } else {
-      anlegen.mutate({ ...rest, ...(passwort ? { passwort } : {}) });
+      anlegen.mutate(payload);
     }
   };
 
@@ -136,6 +155,11 @@ export function EmailEingang() {
                   route: k.route,
                   intervallMinuten: k.intervallMinuten,
                   aktiv: k.aktiv,
+                  smtpHost: k.smtpHost ?? "",
+                  smtpPort: k.smtpPort ?? null,
+                  smtpBenutzer: k.smtpBenutzer ?? "",
+                  smtpPasswort: "",
+                  smtpAbsender: k.smtpAbsender ?? "",
                 });
                 setDialog(true);
               }}
@@ -222,6 +246,31 @@ export function EmailEingang() {
                 className="h-4 w-4"
               />
               <Label htmlFor="aktiv">Abruf aktiv</Label>
+            </div>
+          </div>
+          <div className="mt-3 border-t border-neutral-200 pt-3">
+            <p className="mb-2 text-xs font-medium text-neutral-500">Versand aus diesem Konto (optional — sonst Firmen-SMTP)</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>SMTP-Host</Label>
+                <Input value={form.smtpHost} onChange={(e) => setForm({ ...form, smtpHost: e.target.value })} placeholder="smtp.provider.de" />
+              </div>
+              <div>
+                <Label>Port</Label>
+                <Input value={form.smtpPort ?? ""} onChange={(e) => setForm({ ...form, smtpPort: e.target.value ? Number(e.target.value) : null })} placeholder="587" />
+              </div>
+              <div>
+                <Label>Benutzer</Label>
+                <Input value={form.smtpBenutzer} onChange={(e) => setForm({ ...form, smtpBenutzer: e.target.value })} placeholder="rechnung@imtz.de" />
+              </div>
+              <div>
+                <Label>Passwort</Label>
+                <Input type="password" value={form.smtpPasswort} onChange={(e) => setForm({ ...form, smtpPasswort: e.target.value })} placeholder={form.id ? "(bleibt gespeichert)" : ""} />
+              </div>
+              <div className="col-span-2">
+                <Label>Absender-Name</Label>
+                <Input value={form.smtpAbsender} onChange={(e) => setForm({ ...form, smtpAbsender: e.target.value })} placeholder="IMTZ GmbH <rechnung@imtz.de>" />
+              </div>
             </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">

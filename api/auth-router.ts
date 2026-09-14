@@ -141,6 +141,16 @@ export const authRouter = createRouter({
   }),
 
   // ── Benutzerverwaltung (nur Admin) ──────────────────────────────────────
+  benutzerMailkontenSetzen: adminQuery
+    .input(z.object({ userId: z.number(), mailKontoIds: z.array(z.number()).nullable() }))
+    .mutation(async ({ input }) => {
+      await getDb()
+        .update(users)
+        .set({ mailKontoIds: input.mailKontoIds ? JSON.stringify(input.mailKontoIds) : null })
+        .where(eq(users.id, input.userId));
+      return { ok: true };
+    }),
+
   benutzer: adminQuery.query(async () => {
     const rows = await getDb()
       .select({
@@ -150,6 +160,7 @@ export const authRouter = createRouter({
         role: users.role,
         lastSignInAt: users.lastSignInAt,
         hatPasswort: users.passwordHash,
+        mailKontoIds: users.mailKontoIds,
       })
       .from(users);
     return rows.map((r) => ({ ...r, hatPasswort: !!r.hatPasswort }));
