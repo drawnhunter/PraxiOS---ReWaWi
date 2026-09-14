@@ -64,6 +64,7 @@ export const mailPostfachRouter = createRouter({
         ordner: z.string().optional(),
         q: z.string().optional(),
         nurUngelesene: z.boolean().optional(),
+        richtung: z.enum(["alle", "empfangen", "gesendet", "markiert"]).optional(),
         von: z.string().optional(),
         bis: z.string().optional(),
         seite: z.number().int().min(1).default(1),
@@ -75,6 +76,13 @@ export const mailPostfachRouter = createRouter({
       if (input.kontoId) bedingungen.push(eq(mailMails.kontoId, input.kontoId));
       if (input.ordner) bedingungen.push(eq(mailMails.ordner, input.ordner));
       if (input.nurUngelesene) bedingungen.push(eq(mailMails.gelesen, false));
+      if (input.richtung === "gesendet") {
+        bedingungen.push(or(like(mailMails.ordner, "%sent%"), like(mailMails.ordner, "%gesendet%")));
+      } else if (input.richtung === "empfangen") {
+        bedingungen.push(sql`${mailMails.ordner} NOT LIKE '%sent%' AND ${mailMails.ordner} NOT LIKE '%gesendet%'`);
+      } else if (input.richtung === "markiert") {
+        bedingungen.push(eq(mailMails.markiert, true));
+      }
       if (input.von) bedingungen.push(sql`${mailMails.datum} >= ${input.von}`);
       if (input.bis) bedingungen.push(sql`${mailMails.datum} <= ${input.bis} 23:59:59`);
       if (input.q?.trim()) {

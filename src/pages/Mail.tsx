@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  RefreshCw, Search, Paperclip, Star, Settings2, X, Pencil, FileCheck2,
+  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2,
   Send, Save, Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -27,6 +27,7 @@ function datumFmt(d: string | Date | null): string {
 interface MailTab { id: number; betreff: string }
 
 export default function MailPostfach() {
+  const postfaecher = trpc.postfach.postfaecher.useQuery();
   const [tabs, setTabs] = useState<MailTab[]>([]);
   const [aktiv, setAktiv] = useState<number | null>(null);
   const [vorschau, setVorschau] = useState<number | null>(null);
@@ -82,8 +83,11 @@ export default function MailPostfach() {
           <div className="flex min-h-0 flex-1 gap-3">
             {/* Spalte 2: Liste (mittig, Outlook) */}
             <MailListe
+              key={`${kontoId ?? "alle"}|${ordner ?? "alle"}`}
               kontoId={kontoId} ordner={ordner}
               vorschau={vorschau} onVorschau={setVorschau}
+              postfaecher={postfaecher.data ?? []}
+              onKontoWahl={setKontoId}
             />
             {/* Spalte 3: Vorschau (rechts, Outlook-Lesefenster) */}
             {vorschau !== null && (
@@ -272,12 +276,15 @@ function RegelnSektion() {
 }
 
 /* ═══ Spalte 2: Mail-Liste ═══ */
-function MailListe({ kontoId, ordner, vorschau, onVorschau }: {
+function MailListe({ kontoId, ordner, vorschau, onVorschau, postfaecher, onKontoWahl }: {
   kontoId: number | null; ordner: string | null;
   vorschau: number | null; onVorschau: (v: number | null) => void;
+  postfaecher: { id: number; name: string }[];
+  onKontoWahl: (v: number | null) => void;
 }) {
   const [q, setQ] = useState("");
   const [nurUngelesene, setNurUngelesene] = useState(false);
+  const [richtung, setRichtung] = useState<"alle" | "empfangen" | "gesendet" | "markiert">("alle");
   const [seite, setSeite] = useState(1);
 
   const liste = trpc.postfach.liste.useQuery({
@@ -285,27 +292,48 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau }: {
     ordner: ordner ?? undefined,
     q: q || undefined,
     nurUngelesene: nurUngelesene || undefined,
+    richtung: richtung === "alle" ? undefined : richtung,
     seite,
   });
   const gesamtSeiten = liste.data ? Math.max(1, Math.ceil(liste.data.gesamt / liste.data.proSeite)) : 1;
+  const markieren = trpc.postfach.markieren.useMutation();
 
   return (
     <div className="flex w-[380px] shrink-0 flex-col rounded-lg border border-neutral-200 bg-white">
       <div className="flex items-center gap-2 border-b border-neutral-200 p-2.5">
+        <Select value={kontoId === null ? "alle" : String(kontoId)} onValueChange={(v) => onKontoWahl(v === "alle" ? null : Number(v))}>
+          <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="alle">Alle Postfächer</SelectItem>
+            {postfaecher.map((k) => (
+              <SelectItem key={k.id} value={String(k.id)}>{k.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={richtung} onValueChange={(v) => setRichtung(v as typeof richtung)}>
+          <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="alle">Alles</SelectItem>
+            <SelectItem value="empfangen">Empfangene</SelectItem>
+            <SelectItem value="gesendet">Gesendete</SelectItem>
+            <SelectItem value="markiert">Markierte</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-400" />
           <Input
             value={q}
             onChange={(e) => { setQ(e.target.value); setSeite(1); }}
             placeholder="Suchen …"
-            className="pl-8"
+            className="pl-8 h-8 text-sm"
           />
         </div>
-        <Button variant={nurUngelesene ? "default" : "outline"} size="sm" onClick={() => { setNurUngelesene(!nurUngelesene); setSeite(1); }}>
+        <Button variant={nurUngelesene ? "default" : "outline"} size="sm" className="h-8" onClick={() => { setNurUngelesene(!nurUngelesene); setSeite(1); }}>
           <span className="text-xs">Ungelesen</span>
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {liste.error && <p className="p-4 text-sm text-red-600">Fehler beim Laden: {liste.error.message}</p>}
         {liste.isLoading && <p className="p-4 text-sm text-neutral-400">Lade …</p>}
         {liste.data?.mails.length === 0 && (
           <p className="p-4 text-sm text-neutral-400">Keine Mails — Sync-Button am Konto drücken oder Intervall abwarten.</p>
@@ -327,6 +355,13 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau }: {
               <span className={`min-w-0 flex-1 truncate text-xs ${!m.gelesen ? "text-neutral-700" : "text-neutral-500"}`}>
                 {m.betreff || "(kein Betreff)"}
               </span>
+              <Brain
+                className={`h-3.5 w-3.5 shrink-0 ${m.markiert ? "text-teal-600 fill-teal-600/20" : "text-neutral-300 hover:text-neutral-500"}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  markieren.mutate({ id: m.id, markiert: !m.markiert }, { onSuccess: () => liste.refetch() });
+                }}
+              />
               {m.anzahlAnhaenge > 0 && <Paperclip className="h-3 w-3 shrink-0 text-neutral-400" />}
             </div>
           </button>
@@ -354,6 +389,7 @@ function MailDetail({ id, kompakt, onAntworten, onAusklappen, onSchliessen }: {
   const mail = trpc.postfach.einzel.useQuery({ id });
   const utils = trpc.useUtils();
   const alsBeleg = trpc.postfach.alsBeleg.useMutation();
+  const markieren = trpc.postfach.markieren.useMutation();
   const [belegOk, setBelegOk] = useState<string | null>(null);
 
   const anhangLaden = async (index: number) => {
@@ -379,7 +415,12 @@ function MailDetail({ id, kompakt, onAntworten, onAusklappen, onSchliessen }: {
             </button>
           )}
           <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{m.betreff || "(kein Betreff)"}</h2>
-          {m.markiert && <Star className="h-4 w-4 shrink-0 text-amber-500" />}
+          <span title={m.markiert ? "Markierung entfernen" : "Markieren"}>
+            <Brain
+              className={`h-4 w-4 shrink-0 cursor-pointer ${m.markiert ? "text-teal-600 fill-teal-600/20" : "text-neutral-300 hover:text-neutral-500"}`}
+              onClick={() => markieren.mutate({ id, markiert: !m.markiert }, { onSuccess: () => mail.refetch() })}
+            />
+          </span>
           {kompakt && onAusklappen && (
             <button onClick={onAusklappen} className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700" title="In Tab ausklappen">
               <ExternalLink className="h-4 w-4" />
