@@ -19,7 +19,7 @@ import { and, asc, desc, eq, gte, lte, isNull, or, sql } from "drizzle-orm";
 import { erstelleKontoauszugPdf } from "./pdfKontoauszug";
 
 // ── CSV-Parsing (aus dem bisherigen bankImportRouter, erweitert) ───────────
-function parseCsv(csvText: string): Record<string, string>[] {
+export function parseCsv(csvText: string): Record<string, string>[] {
   const text = csvText.replace(/^﻿/, "");
   const res = Papa.parse<Record<string, string>>(text, {
     header: true,
@@ -51,7 +51,7 @@ const KANDIDATEN = {
   saldo: ["saldo", "kontostand", "endsaldo", "kontostand in eur", "balance"],
 };
 
-function errate(spalten: string[]): Mapping & { vorlage: string } {
+export function errate(spalten: string[]): Mapping & { vorlage: string } {
   const lower = spalten.map((s) => s.toLowerCase());
   const finde = (liste: string[]) => {
     for (const k of liste) {
@@ -151,7 +151,7 @@ interface Zeile {
   txId?: string;
 }
 
-function parseZeilen(rows: Record<string, string>[], m: Mapping): Zeile[] {
+export function parseZeilen(rows: Record<string, string>[], m: Mapping): Zeile[] {
   return rows
     .map((row) => {
       const betrag = betragLesen(row[m.betrag] ?? "");
@@ -190,7 +190,7 @@ function sumUpName(referenz: string): string {
   return t.replace(/\s{2,}/g, " ").trim();
 }
 
-function parseSumUpVollZeilen(rows: Record<string, string>[]): { zeilen: Zeile[]; uebersprungen: number } {
+export function parseSumUpVollZeilen(rows: Record<string, string>[]): { zeilen: Zeile[]; uebersprungen: number } {
   const zeilen: Zeile[] = [];
   let uebersprungen = 0;
   for (const row of rows) {
@@ -365,7 +365,7 @@ async function bucheAufEingangsrechnung(incomingId: number, datum: string): Prom
 }
 
 /** Gemeinsame Persistenz + Auto-Match-Vorschau für CSV- und PDF-Import. */
-async function persistiereUndMatche(
+export async function persistiereUndMatche(
   bankAccountId: number,
   dateiname: string,
   vorlage: string,

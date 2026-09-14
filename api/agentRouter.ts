@@ -937,6 +937,140 @@ app.get("/beleg/:id/datei", async (c) => {
   return c.json({ ok: true, mime: e.belegMime ?? "application/octet-stream", base64: e.belegBase64 });
 });
 
+// ── Banking-Cleanup: Löschen, Import, Historie, Status ─────────────────────
+app.delete("/bankbuchung/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { bankTransaktionen } = await import("@db/schema");
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, id) });
+  if (!t) return c.json({ ok: false, fehler: "Buchung nicht gefunden." }, 404);
+  if (t.status === "zugeordnet" || t.invoiceId || t.incomingInvoiceId) {
+    return c.json({ ok: false, fehler: "Zugeordnete/verbuchte Buchungen bleiben unangetastet (GoBD) — erst Zuordnung lösen." }, 409);
+  }
+  await db.delete(bankTransaktionen).where(eq(bankTransaktionen.id, id));
+  await audit("buchung_geloescht", { id, name: t.name, betrag: t.betrag });
+  return c.json({ ok: true, geloescht: id });
+});
+
+app.post("/bankbuchungen/loeschen", async (c) => {
+  const body = await bodyLesen(c);
+  const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Number.isFinite) : [];
+  if (ids.length === 0) return c.json({ ok: false, fehler: "ids fehlt: [1,2,3]" }, 400);
+  const { bankTransaktionen } = await import("@db/schema");
+  const db = getDb();
+  let geloescht = 0;
+  const uebersprungen: number[] = [];
+  for (const id of ids) {
+    const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, id) });
+    if (!t || t.status === "zugeordnet" || t.invoiceId || t.incomingInvoiceId) {
+      uebersprungen.push(id);
+      continue;
+    }
+    await db.delete(bankTransaktionen).where(eq(bankTransaktionen.id, id));
+    geloescht++;
+  }
+  await audit("buchungen_geloescht", { geloescht, uebersprungen });
+  return c.json({ ok: true, geloescht, uebersprungen });
+});
+
+app.post("/bankbuchung/:id/status", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const status = String(body.status ?? "");
+  if (!["offen", "ignoriert"].includes(status)) return c.json({ ok: false, fehler: "status: offen|ignoriert" }, 400);
+  const { bankTransaktionen } = await import("@db/schema");
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, id) });
+  if (!t) return c.json({ ok: false, fehler: "Buchung nicht gefunden." }, 404);
+  if (t.status === "zugeordnet") return c.json({ ok: false, fehler: "Zugeordnete Buchung — erst Zuordnung lösen." }, 409);
+  await db
+    .update(bankTransaktionen)
+    .set({ status: status as "offen" | "ignoriert" })
+    .where(eq(bankTransaktionen.id, id));
+  await audit("buchung_status", { id, status });
+  return c.json({ ok: true, id, status });
+});
+
+app.get("/bankimporte", async (c) => {
+  const { bankImporte } = await import("@db/schema");
+  const { desc } = await import("drizzle-orm");
+  const kontoId = c.req.query("bankAccountId") ? Number(c.req.query("bankAccountId")) : null;
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(bankImporte)
+    .where(kontoId ? eq(bankImporte.bankAccountId, kontoId) : undefined)
+    .orderBy(desc(bankImporte.createdAt))
+    .limit(50);
+  return c.json({
+    importe: rows.map((r) => ({
+      id: r.id, bankAccountId: r.bankAccountId, dateiname: r.dateiname,
+      vorlage: r.vorlage, zeilen: r.zeilen, duplikate: r.duplikate,
+      summeEin: r.summeEin ? Number(r.summeEin) : null, summeAus: r.summeAus ? Number(r.summeAus) : null,
+      erstelltAm: r.createdAt,
+    })),
+  });
+});
+
+app.delete("/bankimport/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { bankImporte, bankTransaktionen } = await import("@db/schema");
+  const { and } = await import("drizzle-orm");
+  const db = getDb();
+  const zugeordnet = await db
+    .select({ id: bankTransaktionen.id })
+    .from(bankTransaktionen)
+    .where(and(eq(bankTransaktionen.importId, id), eq(bankTransaktionen.status, "zugeordnet")))
+    .limit(1);
+  if (zugeordnet.length > 0) {
+    return c.json({ ok: false, fehler: "Aus diesem Import sind bereits Zahlungen verbucht — Import bleibt (GoBD)." }, 409);
+  }
+  await db.delete(bankTransaktionen).where(eq(bankTransaktionen.importId, id));
+  await db.delete(bankImporte).where(eq(bankImporte.id, id));
+  await audit("import_geloescht", { importId: id });
+  return c.json({ ok: true, geloescht: id });
+});
+
+app.post("/bankimport", async (c) => {
+  const body = await bodyLesen(c);
+  const bankAccountId = Number(body.bankAccountId);
+  if (!bankAccountId) return c.json({ ok: false, fehler: "bankAccountId fehlt." }, 400);
+  const dateiname = String(body.dateiname ?? "import");
+  const db = getDb();
+  const { bankAccounts } = await import("@db/schema");
+  const konto = await db.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, bankAccountId) });
+  if (!konto) return c.json({ ok: false, fehler: "Bankkonto nicht gefunden." }, 404);
+
+  // PDF (base64) oder CSV (Text) — beide Wege produktionserprobt
+  if (body.pdfBase64) {
+    const { liesSumUpKontoauszug } = await import("./lib/sumupKontoauszug");
+    const { persistiereUndMatche } = await import("./bankTransaktionenRouter");
+    const { zeilen, uebersprungen, meta } = await liesSumUpKontoauszug(
+      new Uint8Array(Buffer.from(String(body.pdfBase64), "base64")),
+    );
+    const ergebnis = await persistiereUndMatche(bankAccountId, dateiname, "SumUp Kontoauszug (PDF)", zeilen, uebersprungen);
+    await audit("bankimport_pdf", { bankAccountId, importiert: ergebnis.importiert, duplikate: ergebnis.duplikate });
+    return c.json({ ok: true, ...ergebnis, auszugMeta: meta });
+  }
+
+  const csvText = String(body.csvText ?? "");
+  if (!csvText.trim()) return c.json({ ok: false, fehler: "pdfBase64 oder csvText nötig." }, 400);
+  const { parseCsv, errate, parseZeilen, parseSumUpVollZeilen, parseSumUpBerichtZeilen, persistiereUndMatche } = await import("./bankTransaktionenRouter");
+  const rows = parseCsv(csvText);
+  if (rows.length === 0) return c.json({ ok: false, fehler: "Keine Datenzeilen in der CSV gefunden." }, 400);
+  const { vorlage, ...mapping } = errate(Object.keys(rows[0]));
+  const istVoll = mapping.betrag === "__sumup_voll__";
+  const istBericht = mapping.betrag === "__sumup_bericht__";
+  const { zeilen, uebersprungen } = istVoll
+    ? parseSumUpVollZeilen(rows)
+    : istBericht
+      ? parseSumUpBerichtZeilen(rows)
+      : { zeilen: parseZeilen(rows, mapping), uebersprungen: 0 };
+  const ergebnis = await persistiereUndMatche(bankAccountId, dateiname, vorlage, zeilen, uebersprungen);
+  await audit("bankimport_csv", { bankAccountId, vorlage, importiert: ergebnis.importiert, duplikate: ergebnis.duplikate });
+  return c.json({ ok: true, vorlage, ...ergebnis });
+});
+
 // ── DATEV-Export per API ───────────────────────────────────────────────────
 app.post("/datev-export", async (c) => {
   const body = await bodyLesen(c);

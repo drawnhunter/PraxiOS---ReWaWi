@@ -2,6 +2,22 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.13.2] — 2026-09-14
+
+### Neu (Agent-API: Banking-Cleanup)
+
+- **Loeschen:** `DELETE /bankbuchung/:id` und Massen-Endpunkt
+  `POST /bankbuchungen/loeschen` — jeweils nur nicht zugeordnete Buchungen
+  (GoBD, Zugeordnete bleiben mit Hinweis).
+- **Status:** `POST /bankbuchung/:id/status` (offen/ignoriert).
+- **Import per API:** `POST /bankimport` — CSV (alle drei erkannten
+  Formate: generisch, SumUp-Vollexport, Transaktionsbericht) ODER PDF
+  (SumUp-Kontoauszug, Textebene) mit Duplikat-Schutz + Auto-Match-Vorschau,
+  exakt die produktionserprobte Logik der UI.
+- **Import-Historie:** `GET /bankimporte` (inkl. Vorlage/Zeilen/Duplikate)
+  und `DELETE /bankimport/:id` (Batch mit Rueckfrage: verweigert sobald
+  Zahlungen verbucht sind).
+
 ## [1.13.1] — 2026-09-14
 
 ### Neu (DSGVO-Pseudonymisierung der Agent-API)
