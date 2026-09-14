@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { akzentAnwenden } from "@/lib/design";
 import {
@@ -104,6 +104,7 @@ function ladeZugeklappt(): Record<string, boolean> {
 }
 
 export default function Layout() {
+  const location = useLocation();
   const { user, isLoading, logout } = useAuth({ redirectOnUnauthenticated: true });
   const module = trpc.settings.moduleUebersicht.useQuery(undefined, { staleTime: 60_000 });
   const modulAktiv = (pfad: string) => {
@@ -266,7 +267,7 @@ export default function Layout() {
       </aside>
 
       <main className="min-h-screen pt-14 md:ml-56 md:pt-0">
-        <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+        <div className={`mx-auto ${location.pathname.startsWith("/mail") ? "max-w-none px-3 py-4" : "max-w-5xl px-4 py-6 md:px-8 md:py-8"}`}>
           <Outlet />
         </div>
       </main>

@@ -24,6 +24,9 @@ function datumFmt(d: string | Date | null): string {
   return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
+type FilterWahl = "alle" | "ungelesen" | "gelesen" | "markiert" | "gesendet" | "empfangen";
+type SortWahl = "datum_desc" | "datum_asc" | "absender_asc" | "absender_desc" | "groesse_desc" | "groesse_asc";
+
 interface MailTab { id: number; betreff: string }
 
 function ladeBreite(key: string, fallback: number): number {
@@ -76,6 +79,11 @@ export default function MailPostfach() {
   const [kontoId, setKontoId] = useState<number | null>(null);
   const [ordner, setOrdner] = useState<string | null>(null);
   const [verfassenOffen, setVerfassenOffen] = useState<null | { empfaenger?: string; betreff?: string; text?: string; inReplyTo?: string | null; references?: string | null }>(null);
+  // Toolbar-State (fester Block oben, unabhaengig von Spaltenbreite)
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<FilterWahl>("alle");
+  const [sortWahl, setSortWahl] = useState<SortWahl>("datum_desc");
+  const [seite, setSeite] = useState(1);
 
   const oeffneTab = (id: number, betreff: string) => {
     setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, betreff }]));
@@ -122,6 +130,51 @@ export default function MailPostfach() {
           </div>
         </div>
 
+        {aktiv === null && (
+          <div className="mb-2 flex items-center gap-1.5 overflow-x-auto rounded-lg border border-neutral-200 bg-white p-2">
+            <Select value={kontoId === null ? "alle" : String(kontoId)} onValueChange={(v) => { setKontoId(v === "alle" ? null : Number(v)); setSeite(1); }}>
+              <SelectTrigger className="h-8 w-28 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="alle">Alle Postfächer</SelectItem>
+                {(postfaecher.data ?? []).map((k) => (
+                  <SelectItem key={k.id} value={String(k.id)}>{k.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filter} onValueChange={(v) => { setFilter(v as FilterWahl); setSeite(1); }}>
+              <SelectTrigger className="h-8 w-32 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="alle">Alle Mails</SelectItem>
+                <SelectItem value="ungelesen">Ungelesen</SelectItem>
+                <SelectItem value="gelesen">Gelesen</SelectItem>
+                <SelectItem value="markiert">Markierte</SelectItem>
+                <SelectItem value="empfangen">Empfangene</SelectItem>
+                <SelectItem value="gesendet">Gesendete</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortWahl} onValueChange={(v) => setSortWahl(v as SortWahl)}>
+              <SelectTrigger className="h-8 w-36 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="datum_desc">Datum ↓</SelectItem>
+                <SelectItem value="datum_asc">Datum ↑</SelectItem>
+                <SelectItem value="absender_asc">Absender A–Z</SelectItem>
+                <SelectItem value="absender_desc">Absender Z–A</SelectItem>
+                <SelectItem value="groesse_desc">Größe ↓</SelectItem>
+                <SelectItem value="groesse_asc">Größe ↑</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="relative min-w-[140px] flex-1">
+              <Search className="absolute left-2.5 top-2 h-4 w-4 text-neutral-400" />
+              <Input
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setSeite(1); }}
+                placeholder="Betreff, Absender, Inhalt suchen …"
+                className="h-8 pl-8 text-sm"
+              />
+            </div>
+          </div>
+        )}
+
         {aktiv !== null ? (
           <MailDetail key={aktiv} id={aktiv} kompakt={false} onAntworten={(m) => setVerfassenOffen(m)} />
         ) : (
@@ -132,8 +185,8 @@ export default function MailPostfach() {
                 key={`${kontoId ?? "alle"}|${ordner ?? "alle"}`}
                 kontoId={kontoId} ordner={ordner}
                 vorschau={vorschau} onVorschau={setVorschau}
-                postfaecher={postfaecher.data ?? []}
-                onKontoWahl={setKontoId}
+                q={q} filter={filter} sortWahl={sortWahl}
+                seite={seite} setSeite={setSeite}
               />
             </div>
             <Resizer onDrag={(dx) => setListeBreite(listeBreite + dx)} />
@@ -324,16 +377,15 @@ function RegelnSektion() {
 }
 
 /* ═══ Spalte 2: Mail-Liste ═══ */
-function MailListe({ kontoId, ordner, vorschau, onVorschau, postfaecher, onKontoWahl }: {
+function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl, seite, setSeite }: {
   kontoId: number | null; ordner: string | null;
   vorschau: number | null; onVorschau: (v: number | null) => void;
-  postfaecher: { id: number; name: string }[];
-  onKontoWahl: (v: number | null) => void;
+  q: string;
+  filter: FilterWahl;
+  sortWahl: SortWahl;
+  seite: number;
+  setSeite: (v: number) => void;
 }) {
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"alle" | "ungelesen" | "gelesen" | "markiert" | "gesendet" | "empfangen">("alle");
-  const [sortWahl, setSortWahl] = useState<"datum_desc" | "datum_asc" | "absender_asc" | "absender_desc" | "groesse_desc" | "groesse_asc">("datum_desc");
-  const [seite, setSeite] = useState(1);
 
   const [sortBy, sortDir] = sortWahl.split("_") as ["datum" | "absender" | "groesse", "asc" | "desc"];
   const liste = trpc.postfach.liste.useQuery({
@@ -350,48 +402,7 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, postfaecher, onKonto
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white">
-      <div className="flex items-center gap-1.5 border-b border-neutral-200 p-2">
-        <Select value={kontoId === null ? "alle" : String(kontoId)} onValueChange={(v) => onKontoWahl(v === "alle" ? null : Number(v))}>
-          <SelectTrigger className="h-8 w-28 shrink-0 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="alle">Alle Postfächer</SelectItem>
-            {postfaecher.map((k) => (
-              <SelectItem key={k.id} value={String(k.id)}>{k.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filter} onValueChange={(v) => { setFilter(v as typeof filter); setSeite(1); }}>
-          <SelectTrigger className="h-8 w-32 shrink-0 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="alle">Alle Mails</SelectItem>
-            <SelectItem value="ungelesen">Ungelesen</SelectItem>
-            <SelectItem value="gelesen">Gelesen</SelectItem>
-            <SelectItem value="markiert">Markierte</SelectItem>
-            <SelectItem value="empfangen">Empfangene</SelectItem>
-            <SelectItem value="gesendet">Gesendete</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortWahl} onValueChange={(v) => setSortWahl(v as typeof sortWahl)}>
-          <SelectTrigger className="h-8 w-36 shrink-0 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="datum_desc">Datum ↓</SelectItem>
-            <SelectItem value="datum_asc">Datum ↑</SelectItem>
-            <SelectItem value="absender_asc">Absender A–Z</SelectItem>
-            <SelectItem value="absender_desc">Absender Z–A</SelectItem>
-            <SelectItem value="groesse_desc">Größe ↓</SelectItem>
-            <SelectItem value="groesse_asc">Größe ↑</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2 h-4 w-4 text-neutral-400" />
-          <Input
-            value={q}
-            onChange={(e) => { setQ(e.target.value); setSeite(1); }}
-            placeholder="Betreff, Absender, Inhalt suchen …"
-            className="pl-8 h-8 text-sm"
-          />
-        </div>
-      </div>
+      <div className="border-b border-neutral-200" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {liste.error && <p className="p-4 text-sm text-red-600">Fehler beim Laden: {liste.error.message}</p>}
         {liste.isLoading && <p className="p-4 text-sm text-neutral-400">Lade …</p>}
