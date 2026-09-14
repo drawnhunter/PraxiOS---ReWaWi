@@ -9,7 +9,6 @@ import { emailKonten, mailMails, postEingang } from "@db/schema";
 import { entschluesseln } from "./lib/secrets";
 import { erzeugePostEingang, mimeAusName } from "./lib/posteingang";
 
-const MAX_MAILS_PRO_LAUF = 20;
 const ANHANG_TYPEN = ["application/pdf", "image/jpeg", "image/png", "image/jpg"];
 
 let gestartet = false;
@@ -20,14 +19,14 @@ async function speichereMail(
   ordner: string,
   uid: number,
   geparst: Awaited<ReturnType<typeof simpleParser>>,
-): Promise<number> {
+): Promise<{ id: number; istNeu: boolean }> {
   const db = getDb();
   const exakt = await db.query.mailMails.findFirst({
     where: (m, { and: a, eq: e }) =>
       a(e(m.kontoId, konto.id), e(m.ordner, ordner), e(m.uid, uid)),
     columns: { id: true },
   });
-  if (exakt) return exakt.id;
+  if (exakt) return { id: exakt.id, istNeu: false };
   const anhaenge = (geparst.attachments ?? []).map((a) => ({
     name: a.filename || "anhang",
     mime: mimeAusName(a.filename || "anhang", a.contentType),
@@ -60,7 +59,7 @@ async function speichereMail(
       anhaenge: JSON.stringify(anhaenge),
     })
     .$returningId();
-  return id;
+  return { id, istNeu: true };
 }
 
 async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void> {
@@ -135,8 +134,10 @@ async function rufeOrdnerAb(
   let importiert = 0;
   const lock = await client.getMailboxLock(ordner);
   try {
-    const uids = await client.search({ seen: false }, { uid: true });
-      const liste = (uids || []).slice(0, MAX_MAILS_PRO_LAUF);
+    // Backfill + Intervall: ALLE Mails, neueste zuerst (Dedup macht Wiederholungen
+    // kostenlos — alte Mails wandern Lauf fuer Lauf nach hinten, bis Ordner komplett)
+    const uids = await client.search({}, { uid: true });
+      const liste = (uids || []).sort((a, b) => b - a).slice(0, 50);
       for (const uid of liste) {
         const nachricht = (await client.fetchOne(uid, { source: true }, { uid: true })) as
           | { source?: Buffer }
@@ -145,7 +146,8 @@ async function rufeOrdnerAb(
         const geparst = await simpleParser(nachricht.source);
         const absender = geparst.from?.value?.[0]?.name || geparst.from?.value?.[0]?.address || null;
         // Mail zuerst ablegen (idempotent) — dann Anhaenge in den Post Manager
-        const mailId = await speichereMail(konto, ordner, uid, geparst);
+        const { id: mailId, istNeu } = await speichereMail(konto, ordner, uid, geparst);
+        if (!istNeu) continue; // bekannt: Mail + Anhaenge schon verarbeitet
         // Auto-Routing-Regeln anwenden (Absender/Betreff-Muster → Typ + Kategorie)
         const db0 = getDb();
         const { mailRegeln } = await import("@db/schema");
