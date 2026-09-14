@@ -1394,6 +1394,44 @@ app.post("/bankimport", async (c) => {
 });
 
 // ── Mail: Lesen, Suchen, Versenden, als Beleg ───────────────────────────────
+app.get("/rechnung/:id/zahlungen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { bankTransaktionen, bankAccounts } = await import("@db/schema");
+  const { asc } = await import("drizzle-orm");
+  const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  const rows = await db
+    .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung })
+    .from(bankTransaktionen)
+    .leftJoin(bankAccounts, eq(bankTransaktionen.bankAccountId, bankAccounts.id))
+    .where(eq(bankTransaktionen.invoiceId, id))
+    .orderBy(asc(bankTransaktionen.datum));
+  const summeBuchungen = rows.reduce((a, x) => a + Number(x.t.zugeordneterBetrag ?? x.t.betrag), 0);
+  return c.json({
+    rechnungId: id,
+    nummer: r.nummer,
+    brutto: Number(r.brutto),
+    bezahltBetrag: Number(r.bezahltBetrag),
+    bezahltAm: r.bezahltAm,
+    summeZuordnungen: Math.round(summeBuchungen * 100) / 100,
+    differenzManuell: Math.round((Number(r.bezahltBetrag) - summeBuchungen) * 100) / 100,
+    hinweis: "differenzManuell ≠ 0 = Betrag wurde manuell (ohne Bankzuordnung) gebucht",
+    zahlungen: rows.map((x) => ({
+      transaktionId: x.t.id,
+      datum: x.t.datum,
+      betrag: Number(x.t.betrag),
+      zugeordneterBetrag: x.t.zugeordneterBetrag ? Number(x.t.zugeordneterBetrag) : null,
+      zugeordnetAm: x.t.zugeordnetAm,
+      name: maskiereGegenstelle(karte, x.t.name),
+      konto: x.konto,
+      status: x.t.status,
+    })),
+  });
+});
+
 app.get("/mails", async (c) => {
   const { mailMails } = await import("@db/schema");
   const { and, desc, eq, like: driLike, or } = await import("drizzle-orm");

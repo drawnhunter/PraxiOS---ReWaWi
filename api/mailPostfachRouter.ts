@@ -32,6 +32,13 @@ export const mailPostfachRouter = createRouter({
         .from(mailMails)
         .where(eq(mailMails.kontoId, k.id))
         .groupBy(mailMails.ordner);
+      // Entdeckte Fächer (ordnerListe) mit einblenden — auch ohne Mails darin
+      const stats = new Map(ordner.map((o) => [o.ordner, { anzahl: Number(o.anzahl), ungelesen: Number(o.ungelesen) }]));
+      let entdeckt: string[] = [];
+      try {
+        entdeckt = k.ordnerListe ? (JSON.parse(k.ordnerListe) as string[]) : [];
+      } catch { /* keine Liste */ }
+      const ordnerNamen = [...new Set([...entdeckt, ...stats.keys()])];
       aus.push({
         id: k.id,
         name: k.name,
@@ -39,7 +46,11 @@ export const mailPostfachRouter = createRouter({
         aktiv: k.aktiv,
         letzterAbruf: k.letzterAbruf,
         letzterFehler: k.letzterFehler,
-        ordner: ordner.map((o) => ({ name: o.ordner, anzahl: Number(o.anzahl), ungelesen: Number(o.ungelesen) })),
+        ordner: ordnerNamen.map((name) => ({
+          name,
+          anzahl: stats.get(name)?.anzahl ?? 0,
+          ungelesen: stats.get(name)?.ungelesen ?? 0,
+        })),
       });
     }
     return aus;

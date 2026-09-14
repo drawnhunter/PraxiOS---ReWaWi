@@ -70,6 +70,7 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "suppliers", spalte: "synonym", ddl: "ALTER TABLE suppliers ADD COLUMN synonym VARCHAR(12) NULL AFTER name" },
   { tabelle: "company_settings", spalte: "agent_pseudonym", ddl: "ALTER TABLE company_settings ADD COLUMN agent_pseudonym TINYINT(1) NOT NULL DEFAULT 1 AFTER bank_konto" },
   { tabelle: "company_settings", spalte: "signatur", ddl: "ALTER TABLE company_settings ADD COLUMN signatur TEXT NULL AFTER smtp_absender" },
+  { tabelle: "email_konten", spalte: "ordner_liste", ddl: "ALTER TABLE email_konten ADD COLUMN ordner_liste TEXT NULL AFTER ordner" },
   { tabelle: "incoming_invoices", spalte: "kategorie_id", ddl: "ALTER TABLE incoming_invoices ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER gegenkonto, ADD INDEX incoming_kategorie_idx (kategorie_id)" },
   { tabelle: "incoming_invoices", spalte: "beleg_base64", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_base64 MEDIUMTEXT NULL AFTER kategorie_id" },
   { tabelle: "incoming_invoices", spalte: "beleg_mime", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_mime VARCHAR(60) NULL AFTER beleg_base64" },

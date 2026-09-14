@@ -17,13 +17,14 @@ let gestartet = false;
 /** Mail in mail_mails ablegen (idempotent ueber konto/ordner/uid). */
 async function speichereMail(
   konto: typeof emailKonten.$inferSelect,
+  ordner: string,
   uid: number,
   geparst: Awaited<ReturnType<typeof simpleParser>>,
 ): Promise<number> {
   const db = getDb();
   const exakt = await db.query.mailMails.findFirst({
     where: (m, { and: a, eq: e }) =>
-      a(e(m.kontoId, konto.id), e(m.ordner, konto.ordner), e(m.uid, uid)),
+      a(e(m.kontoId, konto.id), e(m.ordner, ordner), e(m.uid, uid)),
     columns: { id: true },
   });
   if (exakt) return exakt.id;
@@ -37,7 +38,7 @@ async function speichereMail(
     .insert(mailMails)
     .values({
       kontoId: konto.id,
-      ordner: konto.ordner,
+      ordner,
       uid,
       messageId: geparst.messageId ?? null,
       betreff: geparst.subject ?? null,
@@ -80,9 +81,61 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
   let importiert = 0;
   try {
     await client.connect();
-    const lock = await client.getMailboxLock(konto.ordner);
+
+    // Fächer entdecken (beim ersten Sync) und speichern — danach alle synchronisieren
+    let ordnerListe: string[] = [];
     try {
-      const uids = await client.search({ seen: false }, { uid: true });
+      const vorhandene = konto.ordnerListe ? (JSON.parse(konto.ordnerListe) as string[]) : [];
+      ordnerListe = vorhandene;
+    } catch { /* neu entdecken */ }
+    if (ordnerListe.length === 0) {
+      const boxen = await client.list();
+      ordnerListe = boxen.map((b) => b.path).filter(Boolean);
+      if (ordnerListe.length === 0) ordnerListe = [konto.ordner];
+      await db
+        .update(emailKonten)
+        .set({ ordnerListe: JSON.stringify(ordnerListe) })
+        .where(eq(emailKonten.id, konto.id));
+      console.log(`[imap] ${konto.name}: ${ordnerListe.length} Fächer entdeckt (${ordnerListe.join(", ")})`);
+    }
+
+    for (const ordner of ordnerListe) {
+      await rufeOrdnerAb(client, konto, ordner, (n) => { importiert += n; });
+    }
+    await client.logout();
+    await db
+      .update(emailKonten)
+      .set({ letzterAbruf: new Date(), letzterFehler: null })
+      .where(eq(emailKonten.id, konto.id));
+    if (importiert > 0) {
+      console.log(`[imap] ${konto.name}: ${importiert} Beleg(e) importiert`);
+    }
+  } catch (e) {
+    try {
+      await client.logout();
+    } catch {
+      /* bereits getrennt */
+    }
+    const fehler = e instanceof Error ? e.message : String(e);
+    await db
+      .update(emailKonten)
+      .set({ letzterAbruf: new Date(), letzterFehler: fehler.slice(0, 500) })
+      .where(eq(emailKonten.id, konto.id));
+    console.error(`[imap] ${konto.name}: ${fehler}`);
+  }
+}
+
+/** Einzelnen Ordner eines Kontos abrufen (unseen-Mails verarbeiten). */
+async function rufeOrdnerAb(
+  client: ImapFlow,
+  konto: typeof emailKonten.$inferSelect,
+  ordner: string,
+  zaehle: (n: number) => void,
+): Promise<void> {
+  let importiert = 0;
+  const lock = await client.getMailboxLock(ordner);
+  try {
+    const uids = await client.search({ seen: false }, { uid: true });
       const liste = (uids || []).slice(0, MAX_MAILS_PRO_LAUF);
       for (const uid of liste) {
         const nachricht = (await client.fetchOne(uid, { source: true }, { uid: true })) as
@@ -92,7 +145,7 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
         const geparst = await simpleParser(nachricht.source);
         const absender = geparst.from?.value?.[0]?.name || geparst.from?.value?.[0]?.address || null;
         // Mail zuerst ablegen (idempotent) — dann Anhaenge in den Post Manager
-        const mailId = await speichereMail(konto, uid, geparst);
+        const mailId = await speichereMail(konto, ordner, uid, geparst);
         // Auto-Routing-Regeln anwenden (Absender/Betreff-Muster → Typ + Kategorie)
         const db0 = getDb();
         const { mailRegeln } = await import("@db/schema");
@@ -161,27 +214,7 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
     } finally {
       lock.release();
     }
-    await client.logout();
-    await db
-      .update(emailKonten)
-      .set({ letzterAbruf: new Date(), letzterFehler: null })
-      .where(eq(emailKonten.id, konto.id));
-    if (importiert > 0) {
-      console.log(`[imap] ${konto.name}: ${importiert} Beleg(e) importiert`);
-    }
-  } catch (e) {
-    try {
-      await client.logout();
-    } catch {
-      /* bereits getrennt */
-    }
-    const fehler = e instanceof Error ? e.message : String(e);
-    await db
-      .update(emailKonten)
-      .set({ letzterAbruf: new Date(), letzterFehler: fehler.slice(0, 500) })
-      .where(eq(emailKonten.id, konto.id));
-    console.error(`[imap] ${konto.name}: ${fehler}`);
-  }
+    zaehle(importiert);
 }
 
 /** Verbindungstest aus den Einstellungen heraus. */

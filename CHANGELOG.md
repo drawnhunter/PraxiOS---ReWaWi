@@ -2,6 +2,27 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.15.1] — 2026-09-14
+
+### Neu
+
+- **Office-Dreispaltenlayout (Outlook-Stil):** Postfaecher links, Liste
+  mittig (Outlook-Zeilen: Absender fett, Betreff darunter, Anhang-Icon),
+  **Lesefenster rechts** beim Anklicken — Vorschau ohne Tab-Wechsel, mit
+  „In Tab ausklappen" (ExternalLink) und Schliessen-X. Tab-System bleibt
+  fuer ausgeklappte Mails.
+- **Alle Faecher synchronisieren:** Beim ersten Sync entdeckt der
+  IMAP-Dienst alle Ordner des Kontos automatisch (`ordner_liste`) und ruft
+  sie fortan alle ab — Gesendet, Archive & Co. erscheinen als Ordner in
+  der Seitenleiste, auch leere.
+- **Regeln-Verwaltung in der Seitenleiste:** Auto-Routing-Regeln anlegen
+  (Muster, Absender/Betreff, Typ, Kategorie), umschalten und loeschen —
+  direkt im Mail-Postfach.
+- **Agent: `GET /rechnung/:id/zahlungen`** — zeigt jede zugeordnete
+  Bankbuchung je Rechnung, inkl. `differenzManuell` (Betrag wurde manuell
+  ohne Bankzuordnung gebucht) — macht Doppel-/Fehl-Zuordnungen sofort
+  sichtbar.
+
 ## [1.15.0] — 2026-09-14
 
 ### Neu (Mail-Komplett)
