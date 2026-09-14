@@ -572,6 +572,9 @@ export const incomingInvoices = mysqlTable(
     // Kontierung (v1.2): Aufwandskonto + Gegenkonto fuer den DATEV-Export
     konto: varchar("konto", { length: 10 }),
     gegenkonto: varchar("gegenkonto", { length: 10 }),
+    kategorieId: bigint("kategorie_id", { mode: "number", unsigned: true }),
+    belegBase64: text("beleg_base64"), // Beleg-Datei (PDF/JPG) als base64 — GoBD-Archiv in der DB
+    belegMime: varchar("beleg_mime", { length: 60 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("incoming_eindeutig").on(t.lieferantName, t.nummer)],

@@ -66,6 +66,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "bank_transaktionen", spalte: "kategorie_id", ddl: "ALTER TABLE bank_transaktionen ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER quell_id, ADD INDEX bank_tx_kategorie_idx (kategorie_id)" },
   { tabelle: "kategorien", spalte: "typ", ddl: "ALTER TABLE kategorien ADD COLUMN typ VARCHAR(10) NOT NULL DEFAULT 'ausgabe' AFTER konto" },
   { tabelle: "company_settings", spalte: "bank_konto", ddl: "ALTER TABLE company_settings ADD COLUMN bank_konto VARCHAR(10) NOT NULL DEFAULT '1200' AFTER monats_budget" },
+  { tabelle: "incoming_invoices", spalte: "kategorie_id", ddl: "ALTER TABLE incoming_invoices ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER gegenkonto, ADD INDEX incoming_kategorie_idx (kategorie_id)" },
+  { tabelle: "incoming_invoices", spalte: "beleg_base64", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_base64 MEDIUMTEXT NULL AFTER kategorie_id" },
+  { tabelle: "incoming_invoices", spalte: "beleg_mime", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_mime VARCHAR(60) NULL AFTER beleg_base64" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

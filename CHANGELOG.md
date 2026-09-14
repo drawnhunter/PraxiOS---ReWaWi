@@ -2,6 +2,22 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.13.0] — 2026-09-14
+
+### Neu (Belegkette fuer den Agenten)
+
+- **Beleg per API anlegen:** `POST /beleg` — Lieferant, Datum, brutto
+  (netto/USt werden berechnet), Kategorie (Konto wird vorgeschlagen),
+  optionale Beleg-Datei (PDF/JPG als base64, GoBD-Archiv in der DB),
+  optionale **Bank-Verknuepfung** (bankbuchungId → Beleg wird als bezahlt
+  markiert und verknuepft, produktionserprobte Logik).
+- `GET /belege` (letzte 200 mit Kategorie/Bezahlt-Status) und
+  `GET /beleg/:id/datei` (Dokument als base64 + MIME).
+- `GET /bankbuchungen` liefert jetzt `kategorieId`, `kategorieName` und
+  `eingangsbelegId` mit — der Agent sieht, was schon kontiert/belegt ist.
+- Damit zaehlen Agenten-Belege als Eingangsrechnungen auch in Statistik,
+  Liquiditaet (Ausgaben) und DATEV-Export (Konto aus Kategorie).
+
 ## [1.12.2] — 2026-09-14
 
 ### Neu (Agent-API: Kontierung + DATEV, Bus #31)

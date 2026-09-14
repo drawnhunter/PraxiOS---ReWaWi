@@ -151,10 +151,12 @@ app.get("/bankbuchungen", async (c) => {
   const seit = new Date(Date.now() - tage * 86400000).toISOString().slice(0, 10);
   const { bankTransaktionen, bankAccounts } = await import("@db/schema");
   const { gte, asc } = await import("drizzle-orm");
+  const { kategorien } = await import("@db/schema");
   const rows = await getDb()
-    .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung })
+    .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung, kategorieName: kategorien.name })
     .from(bankTransaktionen)
     .leftJoin(bankAccounts, eq(bankTransaktionen.bankAccountId, bankAccounts.id))
+    .leftJoin(kategorien, eq(bankTransaktionen.kategorieId, kategorien.id))
     .where(gte(bankTransaktionen.datum, seit))
     .orderBy(asc(bankTransaktionen.datum));
   return c.json({
@@ -169,6 +171,9 @@ app.get("/bankbuchungen", async (c) => {
       konto: r.konto,
       status: r.t.status,
       quellId: r.t.quellId,
+      kategorieId: r.t.kategorieId,
+      kategorieName: r.kategorieName,
+      eingangsbelegId: r.t.incomingInvoiceId,
       gebuehr: r.t.gebuehr ? Number(r.t.gebuehr) : null,
     })),
   });
@@ -797,6 +802,105 @@ app.post("/bankbuchungen/auto-kategorisieren", async (c) => {
   const ergebnis = await wendeBankRegelnAn();
   await audit("auto_kategorisieren", ergebnis);
   return c.json({ ok: true, ...ergebnis });
+});
+
+// ── Belegkette: Eingangsbelege anlegen/lesen, mit Bank-Verknüpfung ─────────
+app.get("/belege", async (c) => {
+  const { incomingInvoices, kategorien } = await import("@db/schema");
+  const { desc } = await import("drizzle-orm");
+  const rows = await getDb()
+    .select({ e: incomingInvoices, kategorieName: kategorien.name })
+    .from(incomingInvoices)
+    .leftJoin(kategorien, eq(incomingInvoices.kategorieId, kategorien.id))
+    .orderBy(desc(incomingInvoices.createdAt))
+    .limit(200);
+  return c.json({
+    anzahl: rows.length,
+    belege: rows.map((r) => ({
+      id: r.e.id, lieferant: r.e.lieferantName, nummer: r.e.nummer,
+      rechnungsdatum: r.e.rechnungsdatum, netto: Number(r.e.netto),
+      ust: Number(r.e.ust), brutto: Number(r.e.brutto),
+      konto: r.e.konto, kategorieId: r.e.kategorieId, kategorieName: r.kategorieName,
+      bezahltAm: r.e.bezahltAm, hatDatei: Boolean(r.e.belegBase64),
+    })),
+  });
+});
+
+app.post("/beleg", async (c) => {
+  const body = await bodyLesen(c);
+  const lieferant = String(body.lieferant ?? "").trim();
+  const datum = String(body.datum ?? "");
+  if (!lieferant) return c.json({ ok: false, fehler: "lieferant fehlt." }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return c.json({ ok: false, fehler: "datum im Format JJJJ-MM-TT nötig." }, 400);
+
+  const brutto = Number(body.brutto);
+  if (!Number.isFinite(brutto) || brutto === 0) return c.json({ ok: false, fehler: "brutto (Zahl, negativ wird intern als Ausgabe behandelt — hier positiv) fehlt." }, 400);
+  const ustSatz = Number(body.ustSatz ?? 19);
+  const netto = body.netto !== undefined ? Number(body.netto) : Math.round((brutto / (1 + ustSatz / 100)) * 100) / 100;
+  const ust = Math.round((brutto - netto) * 100) / 100;
+
+  const db = getDb();
+  const { incomingInvoices, kategorien, companySettings } = await import("@db/schema");
+
+  // Konto: explizit > Kategorie > Standard-Aufwandskonto
+  let konto = body.konto ? String(body.konto) : null;
+  let kategorieId: number | null = null;
+  if (body.kategorieId) {
+    const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, Number(body.kategorieId)) });
+    if (!kat) return c.json({ ok: false, fehler: "Kategorie nicht gefunden." }, 404);
+    kategorieId = kat.id;
+    if (!konto && kat.konto) konto = kat.konto;
+  }
+  if (!konto) {
+    const s = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+    konto = s?.aufwandskontoDefault ?? (s?.datevKontenrahmen === "SKR04" ? "6305" : "4900");
+  }
+
+  const nummer = String(body.nummer ?? `BELEG-${datum.replaceAll("-", "")}-${Math.random().toString(36).slice(2, 8)}`);
+  const [{ id }] = await db
+    .insert(incomingInvoices)
+    .values({
+      lieferantName: lieferant,
+      lieferantKennung: body.lieferantKennung ? String(body.lieferantKennung) : null,
+      nummer,
+      rechnungsdatum: datum,
+      faelligkeitsdatum: body.faelligkeitsdatum ? String(body.faelligkeitsdatum) : null,
+      netto: netto.toFixed(2),
+      ust: ust.toFixed(2),
+      brutto: brutto.toFixed(2),
+      konto,
+      gegenkonto: null,
+      kategorieId,
+      belegBase64: body.belegBase64 ? String(body.belegBase64) : null,
+      belegMime: body.belegMime ? String(body.belegMime) : null,
+      bemerkung: body.bemerkung ? String(body.bemerkung) : "Per Agent-API (Kimi Claw) angelegt",
+    })
+    .$returningId();
+
+  // Optional: direkt mit Bankbuchung verknüpfen (Beleg = bezahlt markiert)
+  let verknuepft: number | null = null;
+  if (body.bankbuchungId) {
+    const { zuordneIntern } = await import("./bankTransaktionenRouter");
+    try {
+      await zuordneIntern(Number(body.bankbuchungId), "eingang", id);
+      verknuepft = Number(body.bankbuchungId);
+    } catch (e) {
+      await audit("beleg_angelegt_verknuepfung_fehlgeschlagen", { id, bankbuchungId: body.bankbuchungId, fehler: e instanceof Error ? e.message : String(e) });
+      return c.json({ ok: true, id, nummer, verknuepft: null, hinweis: `Beleg angelegt, Bank-Verknüpfung fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+
+  await audit("beleg_angelegt", { id, lieferant, brutto, kategorieId, verknuepft });
+  return c.json({ ok: true, id, nummer, lieferant, brutto: brutto.toFixed(2), konto, kategorieId, verknuepft });
+});
+
+app.get("/beleg/:id/datei", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { incomingInvoices } = await import("@db/schema");
+  const e = await getDb().query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!e) return c.json({ ok: false, fehler: "Beleg nicht gefunden." }, 404);
+  if (!e.belegBase64) return c.json({ ok: false, fehler: "Kein Beleg-Dokument hinterlegt." }, 404);
+  return c.json({ ok: true, mime: e.belegMime ?? "application/octet-stream", base64: e.belegBase64 });
 });
 
 // ── DATEV-Export per API ───────────────────────────────────────────────────
