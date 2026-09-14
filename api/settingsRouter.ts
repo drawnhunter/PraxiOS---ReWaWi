@@ -44,6 +44,7 @@ const settingsInput = z.object({
   smtpPort: z.number().int().min(1).max(65535).default(587),
   smtpUser: z.string().nullable().optional(),
   smtpAbsender: z.string().nullable().optional(),
+  signatur: z.string().max(2000).nullable().optional(),
   // Klartext nur beim Setzen; leer lassen = bestehendes Passwort behalten
   smtpPasswort: z.string().max(200).optional(),
 });

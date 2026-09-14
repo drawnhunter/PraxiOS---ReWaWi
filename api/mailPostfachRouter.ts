@@ -167,4 +167,146 @@ export const mailPostfachRouter = createRouter({
       const { synchronisiereKonto } = await import("./imapDienst");
       return synchronisiereKonto(input.kontoId);
     }),
+
+  /** Mail verfassen/versenden (mit Signatur). */
+  versenden: authedQuery
+    .input(
+      z.object({
+        empfaenger: z.array(z.string().email()).min(1),
+        cc: z.array(z.string().email()).optional(),
+        betreff: z.string().min(1).max(500),
+        text: z.string().min(1),
+        anhaenge: z.array(z.object({ dateiname: z.string(), base64: z.string(), mime: z.string() })).optional(),
+        inReplyTo: z.string().nullish(),
+        references: z.string().nullish(),
+        mitSignatur: z.boolean().default(true),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { versendeMail } = await import("./lib/mailVersand");
+      const r = await versendeMail(input);
+      if (!r.ok) throw new Error(`Versand fehlgeschlagen: ${r.fehler}`);
+      return { ok: true };
+    }),
+
+  /** Empfänger-Vorschlaege (Kunden + bisherige Korrespondenten). */
+  kontakte: authedQuery
+    .input(z.object({ q: z.string().optional() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const q = input.q?.trim().toLowerCase() ?? "";
+      const kunden = await db.query.customers.findMany();
+      const ausKunden = kunden
+        .filter((k) => k.email && (!q || k.name.toLowerCase().includes(q) || k.email.toLowerCase().includes(q)))
+        .map((k) => ({ name: k.name, email: k.email!, quelle: "kunde" as const }));
+      const mails = await db
+        .select({ name: mailMails.absenderName, email: mailMails.absenderAdresse })
+        .from(mailMails);
+      const ausMails = mails
+        .filter((m) => m.email && (!q || (m.name ?? "").toLowerCase().includes(q) || m.email.toLowerCase().includes(q)))
+        .map((m) => ({ name: m.name ?? m.email!, email: m.email!, quelle: "mail" as const }));
+      const gesehen = new Set<string>();
+      return [...ausKunden, ...ausMails].filter((k) => {
+        const key = k.email.toLowerCase();
+        if (gesehen.has(key)) return false;
+        gesehen.add(key);
+        return true;
+      }).slice(0, 20);
+    }),
+
+  /** Mail/Anhang als Eingangsbeleg anlegen (Buchhaltungs-Kurzweg). */
+  alsBeleg: authedQuery
+    .input(z.object({ mailId: z.number(), anhangIndex: z.number().int().min(0).optional() }))
+    .mutation(({ input }) => import("./lib/mailBeleg").then((m) => m.alsBelegIntern(input.mailId, input.anhangIndex))),
+
+  /** Auto-Routing-Regeln: CRUD. */
+  regeln: authedQuery.query(async () => {
+    const { mailRegeln } = await import("@db/schema");
+    const { asc } = await import("drizzle-orm");
+    return getDb().select().from(mailRegeln).orderBy(asc(mailRegeln.prio));
+  }),
+
+  regelAnlegen: authedQuery
+    .input(
+      z.object({
+        pattern: z.string().min(1).max(500),
+        feld: z.enum(["absender", "betreff"]).default("absender"),
+        postTyp: z.enum(["rechnung", "sonstiges"]).default("rechnung"),
+        kategorieId: z.number().nullable().optional(),
+        prio: z.number().int().min(1).max(999).default(10),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { mailRegeln } = await import("@db/schema");
+      const [{ id }] = await getDb().insert(mailRegeln).values(input).$returningId();
+      return { ok: true, id };
+    }),
+
+  regelLoeschen: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { mailRegeln } = await import("@db/schema");
+      await getDb().delete(mailRegeln).where(eq(mailRegeln.id, input.id));
+      return { ok: true };
+    }),
+
+  regelUmschalten: authedQuery
+    .input(z.object({ id: z.number(), aktiv: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const { mailRegeln } = await import("@db/schema");
+      await getDb().update(mailRegeln).set({ aktiv: input.aktiv }).where(eq(mailRegeln.id, input.id));
+      return { ok: true };
+    }),
+
+  /** Entwürfe beim Verfassen. */
+  entwuerfe: authedQuery.query(async () => {
+    const { mailEntwuerfe } = await import("@db/schema");
+    const { desc } = await import("drizzle-orm");
+    return getDb().select().from(mailEntwuerfe).orderBy(desc(mailEntwuerfe.updatedAt)).limit(20);
+  }),
+
+  entwurfSpeichern: authedQuery
+    .input(
+      z.object({
+        id: z.number().optional(),
+        empfaenger: z.string().max(500).optional(),
+        cc: z.string().max(500).optional(),
+        betreff: z.string().max(500).optional(),
+        text: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { mailEntwuerfe } = await import("@db/schema");
+      const db = getDb();
+      if (input.id) {
+        await db
+          .update(mailEntwuerfe)
+          .set({
+            empfaenger: input.empfaenger ?? null,
+            cc: input.cc ?? null,
+            betreff: input.betreff ?? null,
+            text: input.text ?? null,
+          })
+          .where(eq(mailEntwuerfe.id, input.id));
+        return { ok: true, id: input.id };
+      }
+      const [{ id }] = await db
+        .insert(mailEntwuerfe)
+        .values({
+          empfaenger: input.empfaenger ?? null,
+          cc: input.cc ?? null,
+          betreff: input.betreff ?? null,
+          text: input.text ?? null,
+        })
+        .$returningId();
+      return { ok: true, id };
+    }),
+
+  entwurfLoeschen: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { mailEntwuerfe } = await import("@db/schema");
+      await getDb().delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, input.id));
+      return { ok: true };
+    }),
 });

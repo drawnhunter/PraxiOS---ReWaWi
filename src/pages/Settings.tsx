@@ -57,6 +57,7 @@ interface FirmenForm {
   smtpPort: number;
   smtpUser: string;
   smtpAbsender: string;
+  signatur: string;
   smtpPasswort: string;
 }
 
@@ -122,6 +123,7 @@ export default function SettingsPage() {
       smtpPort: s.smtpPort,
       smtpUser: s.smtpUser ?? "",
       smtpAbsender: s.smtpAbsender ?? "",
+      signatur: s.signatur ?? "",
       smtpPasswort: "",
     });
   }, [settings.data, firma]);
@@ -318,6 +320,7 @@ export default function SettingsPage() {
                 smtpPort: firma.smtpPort,
                 smtpUser: firma.smtpUser || null,
                 smtpAbsender: firma.smtpAbsender || null,
+                signatur: firma.signatur || null,
                 ...(firma.smtpPasswort ? { smtpPasswort: firma.smtpPasswort } : {}),
               })
             }
@@ -447,6 +450,15 @@ export default function SettingsPage() {
               placeholder="z. B. IMTZ GmbH — Buchhaltung"
             />
           </div>
+              <div className="sm:col-span-2">
+                <Label>Signatur (wird an Mails angehängt)</Label>
+                <Textarea
+                  value={firma.signatur}
+                  onChange={(e) => setFirma({ ...firma, signatur: e.target.value })}
+                  rows={5}
+                  placeholder={"Mit freundlichen Grüßen\n…"}
+                />
+              </div>
           <div className="flex items-end">
             <Button
               variant="outline"

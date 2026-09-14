@@ -69,6 +69,7 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "customers", spalte: "synonym", ddl: "ALTER TABLE customers ADD COLUMN synonym VARCHAR(12) NULL AFTER name" },
   { tabelle: "suppliers", spalte: "synonym", ddl: "ALTER TABLE suppliers ADD COLUMN synonym VARCHAR(12) NULL AFTER name" },
   { tabelle: "company_settings", spalte: "agent_pseudonym", ddl: "ALTER TABLE company_settings ADD COLUMN agent_pseudonym TINYINT(1) NOT NULL DEFAULT 1 AFTER bank_konto" },
+  { tabelle: "company_settings", spalte: "signatur", ddl: "ALTER TABLE company_settings ADD COLUMN signatur TEXT NULL AFTER smtp_absender" },
   { tabelle: "incoming_invoices", spalte: "kategorie_id", ddl: "ALTER TABLE incoming_invoices ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER gegenkonto, ADD INDEX incoming_kategorie_idx (kategorie_id)" },
   { tabelle: "incoming_invoices", spalte: "beleg_base64", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_base64 MEDIUMTEXT NULL AFTER kategorie_id" },
   { tabelle: "incoming_invoices", spalte: "beleg_mime", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_mime VARCHAR(60) NULL AFTER beleg_base64" },
@@ -225,6 +226,32 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       konto VARCHAR(10) NULL,
       ust_satz INT NOT NULL DEFAULT 19,
       sortierung INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    tabelle: "mail_regeln",
+    ddl: `CREATE TABLE IF NOT EXISTS mail_regeln (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      pattern VARCHAR(500) NOT NULL,
+      feld ENUM('absender','betreff') NOT NULL DEFAULT 'absender',
+      post_typ ENUM('rechnung','sonstiges') NOT NULL DEFAULT 'rechnung',
+      kategorie_id BIGINT UNSIGNED NULL,
+      prio INT NOT NULL DEFAULT 10,
+      aktiv TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX mail_regeln_prio (prio)
+    )`,
+  },
+  {
+    tabelle: "mail_entwuerfe",
+    ddl: `CREATE TABLE IF NOT EXISTS mail_entwuerfe (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      empfaenger VARCHAR(500) NULL,
+      cc VARCHAR(500) NULL,
+      betreff VARCHAR(500) NULL,
+      text MEDIUMTEXT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   },

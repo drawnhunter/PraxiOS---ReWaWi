@@ -1393,6 +1393,126 @@ app.post("/bankimport", async (c) => {
   return c.json({ ok: true, vorlage, ...ergebnis });
 });
 
+// ── Mail: Lesen, Suchen, Versenden, als Beleg ───────────────────────────────
+app.get("/mails", async (c) => {
+  const { mailMails } = await import("@db/schema");
+  const { and, desc, eq, like: driLike, or } = await import("drizzle-orm");
+  const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  const q = c.req.query("q")?.trim();
+  const ordner = c.req.query("ordner");
+  const limit = Math.min(100, Number(c.req.query("limit") ?? 40));
+  const bedingungen = [];
+  if (ordner) bedingungen.push(eq(mailMails.ordner, ordner));
+  if (c.req.query("nurUngelesene") === "1" || c.req.query("nurUngelesene") === "true") {
+    bedingungen.push(eq(mailMails.gelesen, false));
+  }
+  if (q) {
+    const muster = `%${q}%`;
+    bedingungen.push(
+      or(
+        driLike(mailMails.betreff, muster),
+        driLike(mailMails.absenderName, muster),
+        driLike(mailMails.absenderAdresse, muster),
+        driLike(mailMails.textPlain, muster),
+      ),
+    );
+  }
+  const rows = await getDb()
+    .select()
+    .from(mailMails)
+    .where(bedingungen.length ? and(...bedingungen) : undefined)
+    .orderBy(desc(mailMails.datum), desc(mailMails.id))
+    .limit(limit);
+  return c.json({
+    anzahl: rows.length,
+    mails: rows.map((m) => ({
+      id: m.id, ordner: m.ordner, betreff: m.betreff,
+      absender: maskiereGegenstelle(karte, m.absenderName ?? m.absenderAdresse ?? ""),
+      datum: m.datum, gelesen: m.gelesen,
+      anzahlAnhaenge: m.anhaenge ? (JSON.parse(m.anhaenge) as unknown[]).length : 0,
+    })),
+  });
+});
+
+app.get("/mail/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { mailMails } = await import("@db/schema");
+  const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, id) });
+  if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
+  let anhaenge: unknown[] = [];
+  try {
+    anhaenge = m.anhaenge ? (JSON.parse(m.anhaenge) as unknown[]) : [];
+  } catch { /* egal */ }
+  return c.json({
+    id: m.id, ordner: m.ordner, betreff: m.betreff,
+    absender: maskiereGegenstelle(karte, m.absenderName ?? ""),
+    absenderAdresse: m.absenderAdresse,
+    datum: m.datum, gelesen: m.gelesen,
+    textPlain: m.textPlain, textHtml: m.textHtml, anhaenge,
+  });
+});
+
+app.get("/mail/:id/anhang/:index", async (c) => {
+  const mailId = Number(c.req.param("id"));
+  const index = Number(c.req.param("index"));
+  const { mailMails, postEingang } = await import("@db/schema");
+  const { metaLesen } = await import("./lib/mailBeleg");
+  const db = getDb();
+  const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+  if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
+  const meta = metaLesen(m.anhaenge)[index];
+  if (!meta) return c.json({ ok: false, fehler: "Anhang nicht gefunden." }, 404);
+  if (!meta.postEingangId) return c.json({ ok: false, fehler: "Anhangtyp nur als Metadaten (kein Download)." }, 404);
+  const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
+  if (!beleg?.dateiInhalt) return c.json({ ok: false, fehler: "Anhang-Datei nicht vorhanden." }, 404);
+  return c.json({ ok: true, dateiname: beleg.originalname, mime: beleg.mime, base64: beleg.dateiInhalt });
+});
+
+app.post("/mail/versenden", async (c) => {
+  const stufe = await autonomie();
+  if (stufe !== "vollautomatik") {
+    return c.json({ ok: false, fehler: "Mail-Versand ist in der Stufe „vorschlag“ gesperrt (Einstellungen → Agent-API → vollautomatik)." }, 403);
+  }
+  const body = await bodyLesen(c);
+  const empfaenger = Array.isArray(body.empfaenger)
+    ? body.empfaenger.map(String)
+    : String(body.empfaenger ?? "").split(",").map((x) => x.trim());
+  if (empfaenger.filter(Boolean).length === 0) return c.json({ ok: false, fehler: "empfaenger fehlt (Array oder kommagetrennt)." }, 400);
+  const betreff = String(body.betreff ?? "").trim();
+  const text = String(body.text ?? "");
+  if (!betreff || !text) return c.json({ ok: false, fehler: "betreff + text nötig." }, 400);
+  const { versendeMail } = await import("./lib/mailVersand");
+  const r = await versendeMail({
+    empfaenger,
+    cc: Array.isArray(body.cc) ? body.cc.map(String) : undefined,
+    betreff,
+    text,
+    inReplyTo: body.inReplyTo ? String(body.inReplyTo) : null,
+    references: body.references ? String(body.references) : null,
+    mitSignatur: body.mitSignatur !== false,
+  });
+  await audit("mail_versendet", { empfaenger, betreff, erfolg: r.ok, fehler: r.fehler });
+  if (!r.ok) return c.json({ ok: false, fehler: `Versand fehlgeschlagen: ${r.fehler}` }, 502);
+  return c.json({ ok: true });
+});
+
+app.post("/mail/:id/als-beleg", async (c) => {
+  const mailId = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const anhangIndex = body.anhangIndex !== undefined ? Number(body.anhangIndex) : undefined;
+  const { alsBelegIntern } = await import("./lib/mailBeleg");
+  try {
+    const r = await alsBelegIntern(mailId, anhangIndex);
+    await audit("mail_als_beleg", { mailId, anhangIndex, belegId: r.belegId });
+    return c.json({ ok: true, ...r });
+  } catch (e) {
+    return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
 // ── DATEV-Export per API ───────────────────────────────────────────────────
 app.post("/datev-export", async (c) => {
   const body = await bodyLesen(c);

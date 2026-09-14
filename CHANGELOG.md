@@ -2,6 +2,27 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.15.0] — 2026-09-14
+
+### Neu (Mail-Komplett)
+
+- **Verfassen & Antworten:** E-Mail-Dialog im Postfach (mehrere Empfaenger,
+  CC, Anhaenge, Threading via In-Reply-To). Antworten-Button mit Zitat.
+  Versand ueber das Firmen-SMTP-Konto.
+- **Signaturen:** in Einstellungen → E-Mail hinterlegbar, wird automatisch
+  angehaengt (Vorschau im Dialog).
+- **Tab-System im Postfach:** Liste bleibt Tab 1, jede geoeffnete Mail ein
+  eigener Tab (schliessbar) — mehrere Mails parallel offen.
+- **Mail→Beleg-Button:** Mail oder einzelner Anhang per Klick als
+  Eingangsbeleg (Duplikat-geschuetzt, Betrag nachtragen-Hinweis).
+- **Kontakte-Autocomplete + Entwuerfe:** Empfaenger-Vorschlaege aus Kunden
+  und bisheriger Korrespondenz; Entwuerfe speichern/laden/loeschen.
+- **Auto-Routing-Regeln:** Absender-/Betreff-Muster → Beleg-Typ (rechnung/
+  sonstiges) + Kategorie beim IMAP-Import (CRUD im Postfach-Router).
+- **Agent-Mail-API:** GET /mails (Suche/Filter, pseudonymisiert),
+  GET /mail/:id, GET /mail/:id/anhang/:index, POST /mail/versenden
+  (Vollautomatik-Gate), POST /mail/:id/als-beleg.
+
 ## [1.14.0] — 2026-09-14
 
 ### Neu

@@ -68,6 +68,7 @@ export const companySettings = mysqlTable("company_settings", {
   smtpUser: varchar("smtp_user", { length: 255 }),
   smtpPasswortEnc: varchar("smtp_passwort_enc", { length: 500 }),
   smtpAbsender: varchar("smtp_absender", { length: 255 }),
+  signatur: text("signatur"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
 
@@ -748,6 +749,29 @@ export const mailMails = mysqlTable("mail_mails", {
     index("mail_datum_idx").on(t.datum),
   ],
 );
+
+// ── Mail-Regeln: Auto-Routing eingehender Mails (Absender/Betreff-Muster) ──
+export const mailRegeln = mysqlTable("mail_regeln", {
+  id: serial("id").primaryKey(),
+  pattern: varchar("pattern", { length: 500 }).notNull(),
+  feld: mysqlEnum("feld", ["absender", "betreff"]).notNull().default("absender"),
+  postTyp: mysqlEnum("post_typ", ["rechnung", "sonstiges"]).notNull().default("rechnung"),
+  kategorieId: bigint("kategorie_id", { mode: "number", unsigned: true }),
+  prio: int("prio").notNull().default(10),
+  aktiv: boolean("aktiv").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ── Mail-Entwürfe (beim Verfassen speichern) ───────────────────────────────
+export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
+  id: serial("id").primaryKey(),
+  empfaenger: varchar("empfaenger", { length: 500 }),
+  cc: varchar("cc", { length: 500 }),
+  betreff: varchar("betreff", { length: 500 }),
+  text: text("text"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
 // ── Kontenrahmen SKR03/SKR04 (Seed aus skr-data.ts, Basisdaten MIT-lizenziert)
 export const kontenrahmen = mysqlTable(

@@ -5,7 +5,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { eq } from "drizzle-orm";
 import { getDb } from "./queries/connection";
-import { emailKonten, mailMails } from "@db/schema";
+import { emailKonten, mailMails, postEingang } from "@db/schema";
 import { entschluesseln } from "./lib/secrets";
 import { erzeugePostEingang, mimeAusName } from "./lib/posteingang";
 
@@ -93,6 +93,27 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
         const absender = geparst.from?.value?.[0]?.name || geparst.from?.value?.[0]?.address || null;
         // Mail zuerst ablegen (idempotent) — dann Anhaenge in den Post Manager
         const mailId = await speichereMail(konto, uid, geparst);
+        // Auto-Routing-Regeln anwenden (Absender/Betreff-Muster → Typ + Kategorie)
+        const db0 = getDb();
+        const { mailRegeln } = await import("@db/schema");
+        const regeln = await db0.select().from(mailRegeln).where(eq(mailRegeln.aktiv, true));
+        let route = konto.route as "rechnung" | "sonstiges";
+        let regelKategorie: number | null = null;
+        const treffer = regeln
+          .sort((a, b) => a.prio - b.prio)
+          .find((r) => {
+            const text = (r.feld === "betreff" ? geparst.subject ?? "" : absender ?? "").toLowerCase();
+            try {
+              return new RegExp(r.pattern, "i").test(text);
+            } catch {
+              return text.includes(r.pattern.toLowerCase());
+            }
+          });
+        if (treffer) {
+          route = treffer.postTyp;
+          regelKategorie = treffer.kategorieId;
+        }
+
         let hatteBeleg = false;
         const postIds: number[] = [];
         for (const anhang of geparst.attachments ?? []) {
@@ -103,10 +124,15 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
             originalname: name,
             mime,
             puffer: anhang.content,
-            typ: konto.route,
+            typ: route,
             quelle: `E-Mail · ${konto.name}`,
             absenderFreitext: absender,
           });
+          if (regelKategorie) {
+            try {
+              await db0.update(postEingang).set({ kategorieId: regelKategorie }).where(eq(postEingang.id, postId));
+            } catch { /* Kategorie-Spalte optional */ }
+          }
           postIds.push(postId);
           importiert++;
           hatteBeleg = true;

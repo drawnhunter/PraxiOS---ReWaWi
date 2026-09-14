@@ -1,2 +1,2 @@
 // Zentrale Versionsangabe (wird u. a. in Support-Meldungen mitgesendet)
-export const APP_VERSION = "1.14.0";
+export const APP_VERSION = "1.15.0";
