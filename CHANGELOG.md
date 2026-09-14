@@ -2,6 +2,27 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.13.3] — 2026-09-14
+
+### Neu (Agent-API: Rest der Wunschliste)
+
+- **Buchung bearbeiten:** `PUT /bankbuchung/:id` (name/zweck/bemerkung).
+- **Buchung splitten:** `POST /bankbuchung/:id/split` — Teile muessen die
+  Summe exakt decken; Original bleibt ignoriert archiviert, Teile einzeln
+  zuordbar/kategorisierbar (das lange geplante Splitting).
+- **Beleg-Upload nachtraeglich:** `POST /beleg/:id/upload`.
+- **Zahlung registrieren:** `POST /rechnung/:id/zahlung` (Betrag optional,
+  Standard: Restbetrag; Datum optional).
+- **Stornieren (GoBD):** `POST /rechnung/:id/stornieren` — erzeugt die
+  Gutschrift und setzt die Rechnung auf storniert (nie Löschung).
+- **Kunden:** `GET /kunde/:id` (Pseudonym-Modus beachtet) + `PUT /kunde/:id`.
+- **Statistik/UStVA:** `GET /statistik/ausgaben` (Monat + Kategorie) und
+  `GET /ustva?monat=` (Hilfsblatt-Werte).
+- **Mahnung loeschen:** `DELETE /mahnung/:id`.
+- **Aliase:** `/bankbuchungen/import`, `/eingangsrechnung`,
+  `/eingangsrechnungen`, `GET /export/datev` — Agent kann in seinen
+  Pfaden denken.
+
 ## [1.13.2] — 2026-09-14
 
 ### Neu (Agent-API: Banking-Cleanup)

@@ -991,6 +991,328 @@ app.post("/bankbuchung/:id/status", async (c) => {
   return c.json({ ok: true, id, status });
 });
 
+// ── Buchung bearbeiten (Text-Felder; Beträge bleiben unverändert) ──────────
+app.put("/bankbuchung/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { bankTransaktionen } = await import("@db/schema");
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, id) });
+  if (!t) return c.json({ ok: false, fehler: "Buchung nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  if (body.name !== undefined) patch.name = String(body.name).slice(0, 255);
+  if (body.zweck !== undefined) patch.zweck = body.zweck === null ? null : String(body.zweck);
+  if (body.bemerkung !== undefined) patch.bemerkung = body.bemerkung === null ? null : String(body.bemerkung).slice(0, 500);
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "Nichts zu ändern (name/zweck/bemerkung)." }, 400);
+  await db.update(bankTransaktionen).set(patch).where(eq(bankTransaktionen.id, id));
+  await audit("buchung_bearbeitet", { id, ...patch });
+  return c.json({ ok: true, id });
+});
+
+// ── Buchung splitten (Teilbeträge einzeln zuordnen/kategorisieren) ─────────
+app.post("/bankbuchung/:id/split", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const teile = Array.isArray(body.teile) ? body.teile : [];
+  if (teile.length < 2) return c.json({ ok: false, fehler: "teile fehlt (mindestens 2): [{betrag, kategorieId?, name?, bemerkung?}]" }, 400);
+  const { bankTransaktionen, kategorien } = await import("@db/schema");
+  const { createHash } = await import("node:crypto");
+  const db = getDb();
+  const t = await db.query.bankTransaktionen.findFirst({ where: eq(bankTransaktionen.id, id) });
+  if (!t) return c.json({ ok: false, fehler: "Buchung nicht gefunden." }, 404);
+  if (t.status === "zugeordnet") return c.json({ ok: false, fehler: "Zugeordnete Buchung — erst Zuordnung lösen, dann splitten." }, 409);
+
+  const summeTeile = teile.reduce((a: number, x: Record<string, unknown>) => a + Number(x.betrag ?? 0), 0);
+  const original = Number(t.betrag);
+  if (Math.abs(summeTeile - original) > 0.005) {
+    return c.json({ ok: false, fehler: `Teilsumme ${summeTeile.toFixed(2)} ≠ Buchungsbetrag ${original.toFixed(2)} — Teile müssen die Summe exakt decken.` }, 400);
+  }
+  // Kategorien validieren
+  for (const x of teile as Record<string, unknown>[]) {
+    if (x.kategorieId) {
+      const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, Number(x.kategorieId)) });
+      if (!kat) return c.json({ ok: false, fehler: `Kategorie ${String(x.kategorieId)} nicht gefunden.` }, 404);
+    }
+  }
+
+  const neueIds: number[] = [];
+  for (const [i, x] of (teile as Record<string, unknown>[]).entries()) {
+    const betrag = Number(x.betrag);
+    const name = x.name ? String(x.name).slice(0, 255) : `${t.name} (Teil ${i + 1}/${teile.length})`;
+    const hash = createHash("sha256")
+      .update(`${t.bankAccountId}|split|${id}|${i}|${betrag.toFixed(2)}`)
+      .digest("hex")
+      .slice(0, 32);
+    const [{ id: neuId }] = await db
+      .insert(bankTransaktionen)
+      .values({
+        bankAccountId: t.bankAccountId,
+        importId: t.importId,
+        datum: t.datum,
+        name,
+        zweck: t.zweck,
+        betrag: betrag.toFixed(2),
+        gebuehr: null,
+        saldoNach: null,
+        hash,
+        kategorieId: x.kategorieId ? Number(x.kategorieId) : t.kategorieId,
+        bemerkung: x.bemerkung ? String(x.bemerkung).slice(0, 500) : `Split aus #${id}`,
+        status: "offen",
+      })
+      .$returningId();
+    neueIds.push(neuId);
+  }
+  // Original bleibt als ignoriertes Archiv erhalten (Nachvollziehbarkeit)
+  await db
+    .update(bankTransaktionen)
+    .set({ status: "ignoriert", bemerkung: `Gesplittet in ${teile.length} Teile (${neueIds.join(", ")})` })
+    .where(eq(bankTransaktionen.id, id));
+  await audit("buchung_gesplittet", { id, teile: neueIds });
+  return c.json({ ok: true, originalIgnoriert: id, teile: neueIds });
+});
+
+// ── Beleg: Datei nachträglich hochladen ─────────────────────────────────────
+app.post("/beleg/:id/upload", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { incomingInvoices } = await import("@db/schema");
+  const db = getDb();
+  const e = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!e) return c.json({ ok: false, fehler: "Beleg nicht gefunden." }, 404);
+  if (!body.belegBase64) return c.json({ ok: false, fehler: "belegBase64 fehlt." }, 400);
+  await db
+    .update(incomingInvoices)
+    .set({
+      belegBase64: String(body.belegBase64),
+      belegMime: body.belegMime ? String(body.belegMime) : "application/pdf",
+    })
+    .where(eq(incomingInvoices.id, id));
+  await audit("beleg_upload", { id });
+  return c.json({ ok: true, id, mime: body.belegMime ?? "application/pdf" });
+});
+
+// ── Rechnung: Zahlung registrieren + Stornieren ────────────────────────────
+app.post("/rechnung/:id/zahlung", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status === "entwurf") return c.json({ ok: false, fehler: "Entwurf — erst finalisieren." }, 409);
+  const betrag = body.betrag ? Number(body.betrag) : Number(r.brutto) - Number(r.bezahltBetrag);
+  const datum = body.datum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.datum)) ? String(body.datum) : heute();
+  await db
+    .update(invoices)
+    .set({
+      bezahltBetrag: (Number(r.bezahltBetrag) + betrag).toFixed(2),
+      bezahltAm: datum,
+    })
+    .where(eq(invoices.id, id));
+  await audit("rechnung_zahlung", { id, betrag, datum });
+  return c.json({ ok: true, id, zugebucht: betrag, datum });
+});
+
+app.post("/rechnung/:id/stornieren", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id), with: { items: true } });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status !== "finalisiert") return c.json({ ok: false, fehler: "Nur finalisierte Rechnungen können storniert werden (GoBD: Gutschrift statt Löschung)." }, 409);
+  // Storno = Gutschrift über die produktionserprobte Route
+  const { creditNotes, creditNoteItems } = await import("@db/schema");
+  const { nextNumber, formatCreditNoteNumber } = await import("./queries/invoicing");
+  const nummer = await db.transaction(async (tx) => {
+    // Exakt der UI-Fluss: Gutschrift mit positiven Werten, dann finalisieren
+    const [{ id: gId }] = await tx
+      .insert(creditNotes)
+      .values({
+        invoiceId: r.id,
+        datum: heute(),
+        grund: body.grund ? String(body.grund) : "Storno per Agent-API",
+        bankAccountId: r.bankAccountId,
+        kundeName: r.kundeName,
+        kundeZusatz: r.kundeZusatz,
+        kundeStrasse: r.kundeStrasse,
+        kundePlz: r.kundePlz,
+        kundeOrt: r.kundeOrt,
+        kundeLand: r.kundeLand,
+        netto: r.netto,
+        ust: r.ust,
+        brutto: r.brutto,
+      })
+      .$returningId();
+    await tx.insert(creditNoteItems).values(
+      r.items.map((it) => ({
+        creditNoteId: gId,
+        position: it.position,
+        bezeichnung: it.bezeichnung,
+        beschreibung: it.beschreibung,
+        menge: it.menge,
+        einheit: it.einheit,
+        einzelpreis: it.einzelpreis,
+        ustSatz: it.ustSatz,
+      })),
+    );
+    // Finalisieren (Nummernkreis + Snapshot der Originalrechnung) + Storno-Status
+    const n = await nextNumber(tx, "credit_note", 0);
+    const nr = formatCreditNoteNumber(n);
+    await tx
+      .update(creditNotes)
+      .set({ nummer: nr, status: "finalisiert", finalizedAt: new Date(), firmenSnapshot: r.firmenSnapshot })
+      .where(eq(creditNotes.id, gId));
+    await tx
+      .update(invoices)
+      .set({ status: "storniert" })
+      .where(eq(invoices.id, id));
+    return nr;
+  });
+  await audit("rechnung_storniert", { id, gutschrift: nummer });
+  return c.json({ ok: true, storniert: id, gutschrift: nummer });
+});
+
+// ── Kunde lesen/aktualisieren ───────────────────────────────────────────────
+app.get("/kunde/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const k = await getDb().query.customers.findFirst({ where: eq(customers.id, id) });
+  if (!k) return c.json({ ok: false, fehler: "Kunde nicht gefunden." }, 404);
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  return c.json({
+    id: k.id,
+    name: agentName(karte, k.id, k.name),
+    ...(karte.aktiv ? { ort: k.ort } : { zusatz: k.zusatz, strasse: k.strasse, plz: k.plz, ort: k.ort, email: k.email }),
+    land: k.land,
+    zahlungszielTage: k.zahlungszielTage,
+  });
+});
+
+app.put("/kunde/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const db = getDb();
+  const k = await db.query.customers.findFirst({ where: eq(customers.id, id) });
+  if (!k) return c.json({ ok: false, fehler: "Kunde nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  for (const feld of ["name", "zusatz", "strasse", "plz", "ort", "land", "email", "kundennummer", "zahlungszielTage", "notizen"] as const) {
+    if (body[feld] !== undefined) patch[feld] = body[feld] === null ? null : body[feld];
+  }
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "Nichts zu ändern." }, 400);
+  await db.update(customers).set(patch).where(eq(customers.id, id));
+  await audit("kunde_geaendert", { id, felder: Object.keys(patch) });
+  return c.json({ ok: true, id });
+});
+
+// ── Statistik & UStVA ───────────────────────────────────────────────────────
+app.get("/statistik/ausgaben", async (c) => {
+  const jahr = c.req.query("jahr") ?? new Date().toISOString().slice(0, 4);
+  const { incomingInvoices, kategorien } = await import("@db/schema");
+  const { asc } = await import("drizzle-orm");
+  const db = getDb();
+  const zeilen = await db
+    .select({ e: incomingInvoices, kategorieName: kategorien.name })
+    .from(incomingInvoices)
+    .leftJoin(kategorien, eq(incomingInvoices.kategorieId, kategorien.id))
+    .orderBy(asc(incomingInvoices.rechnungsdatum));
+  const imJahr = zeilen.filter((r) => r.e.rechnungsdatum.startsWith(jahr));
+  const proMonat = new Map<string, number>();
+  const proKategorie = new Map<string, number>();
+  for (const r of imJahr) {
+    const m = r.e.rechnungsdatum.slice(0, 7);
+    proMonat.set(m, (proMonat.get(m) ?? 0) + Number(r.e.brutto));
+    const kat = r.kategorieName ?? "(ohne Kategorie)";
+    proKategorie.set(kat, (proKategorie.get(kat) ?? 0) + Number(r.e.brutto));
+  }
+  return c.json({
+    jahr,
+    gesamtBrutto: imJahr.reduce((a, r) => a + Number(r.e.brutto), 0),
+    anzahl: imJahr.length,
+    proMonat: [...proMonat.entries()].map(([monat, brutto]) => ({ monat, brutto })),
+    proKategorie: [...proKategorie.entries()].map(([kategorie, brutto]) => ({ kategorie, brutto })),
+  });
+});
+
+app.get("/ustva", async (c) => {
+  const monat = c.req.query("monat") ?? new Date().toISOString().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(monat)) return c.json({ ok: false, fehler: "monat im Format JJJJ-MM nötig." }, 400);
+  const { getDb: db2 } = await import("./queries/connection");
+  const { invoices, invoiceItems, incomingInvoices } = await import("@db/schema");
+  const db = db2();
+  const [ausgaben, items, eingehende] = await Promise.all([
+    db.select().from(invoices).where(eq(invoices.status, "finalisiert")),
+    db.select().from(invoiceItems),
+    db.select().from(incomingInvoices),
+  ]);
+  const imMonat = ausgaben.filter((r) => r.rechnungsdatum.startsWith(monat));
+  const ausMap = new Map<number, { basis: number; ust: number }>();
+  for (const r of imMonat) {
+    const pos = items.filter((it) => it.invoiceId === r.id);
+    const saetze = new Set(pos.map((it) => it.ustSatz));
+    const satz = saetze.size === 1 ? [...saetze][0] : -1;
+    const netto = Number(r.netto);
+    const ust = Number(r.brutto) - netto;
+    const e = ausMap.get(satz) ?? { basis: 0, ust: 0 };
+    e.basis += netto;
+    e.ust += ust;
+    ausMap.set(satz, e);
+  }
+  const einMonat = eingehende.filter((r) => r.rechnungsdatum.startsWith(monat));
+  const vorMap = new Map<number, { basis: number; ust: number }>();
+  for (const r of einMonat) {
+    let saetze = new Set<number>();
+    try {
+      const pos = JSON.parse(r.positionenJson ?? "[]") as { ustSatz: number }[];
+      saetze = new Set(pos.map((p) => p.ustSatz));
+    } catch { /* egal */ }
+    const satz = saetze.size === 1 ? [...saetze][0] : -1;
+    const e = vorMap.get(satz) ?? { basis: 0, ust: 0 };
+    e.basis += Number(r.netto);
+    e.ust += Number(r.ust);
+    vorMap.set(satz, e);
+  }
+  const zuListe = (m: Map<number, { basis: number; ust: number }>) =>
+    [...m.entries()].map(([satz, v]) => ({ satz, ...v })).sort((a, b) => b.basis - a.basis);
+  const ustGesamt = [...ausMap.values()].reduce((a, v) => a + v.ust, 0);
+  const vorGesamt = [...vorMap.values()].reduce((a, v) => a + v.ust, 0);
+  return c.json({
+    monat,
+    ausgangsrechnungen: zuListe(ausMap),
+    eingangsrechnungen: zuListe(vorMap),
+    umsatzsteuer: ustGesamt,
+    vorsteuer: vorGesamt,
+    zahllast: ustGesamt - vorGesamt,
+  });
+});
+
+// ── Mahnung löschen ─────────────────────────────────────────────────────────
+app.delete("/mahnung/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { reminders } = await import("@db/schema");
+  await getDb().delete(reminders).where(eq(reminders.id, id));
+  await audit("mahnung_geloescht", { id });
+  return c.json({ ok: true, geloescht: id });
+});
+
+// ── Aliase (Agent denkt in seinen Pfaden — beide führen zum selben Ziel) ────
+function weiterleiten(c: { req: { raw: Request } }, von: string, nach: string) {
+  const url = new URL(c.req.raw.url);
+  url.pathname = url.pathname.replace(von, nach);
+  return app.fetch(new Request(url.toString(), c.req.raw));
+}
+
+app.post("/bankbuchungen/import", (c) => weiterleiten(c, "/bankbuchungen/import", "/bankimport"));
+app.post("/eingangsrechnung", (c) => weiterleiten(c, "/eingangsrechnung", "/beleg"));
+app.get("/eingangsrechnungen", (c) => weiterleiten(c, "/eingangsrechnungen", "/belege"));
+app.get("/export/datev", (c) => {
+  const url = new URL("http://intern/api/agent/datev-export");
+  const roh = new Request(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ von: c.req.query("von") ?? "", bis: c.req.query("bis") ?? "" }),
+  });
+  return app.fetch(roh);
+});
+
 app.get("/bankimporte", async (c) => {
   const { bankImporte } = await import("@db/schema");
   const { desc } = await import("drizzle-orm");
