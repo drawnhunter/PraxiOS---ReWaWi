@@ -4,6 +4,7 @@ import Dashboard from "@/pages/Dashboard";
 import Statistics from "@/pages/Statistics";
 import MailPostfach from "@/pages/Mail";
 import Kontakte from "@/pages/Kontakte";
+import Kalender from "@/pages/Kalender";
 import Banking from "@/pages/Banking";
 import InvoiceImport from "@/pages/InvoiceImport";
 import NachweisImport from "@/pages/NachweisImport";
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="/bestellungen/:id" element={<PurchaseOrderDetail />} />
         <Route path="/kunden" element={<Customers />} />
         <Route path="/kontakte" element={<Kontakte />} />
+        <Route path="/kalender" element={<Kalender />} />
         <Route path="/lieferanten" element={<Suppliers />} />
         <Route path="/produkte" element={<Products />} />
         <Route path="/lager" element={<Lager />} />

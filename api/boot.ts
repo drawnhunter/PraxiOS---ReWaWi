@@ -15,6 +15,20 @@ const app = new Hono<{ Bindings: HttpBindings }>();
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
 // Oeffentlicher ICS-Feed (geheimes Token in der URL) — Zahlungsziele-Kalender
+app.get("/ics/kalender.ics", async (c) => {
+  const token = c.req.query("token") ?? "";
+  if (token.length < 20) return c.text("Ungültiges Token.", 403);
+  const einst = await getDb().query.companySettings.findFirst({
+    where: eq(companySettings.id, 1),
+  });
+  if (!einst?.icsToken || einst.icsToken !== token) return c.text("Ungültiges Token.", 403);
+  const { termine } = await import("@db/schema");
+  const { asc } = await import("drizzle-orm");
+  const { baueKalenderIcs } = await import("./kalenderRouter");
+  const rows = await getDb().select().from(termine).orderBy(asc(termine.datum)).limit(2000);
+  return c.body(baueKalenderIcs(rows), 200, { "Content-Type": "text/calendar; charset=utf-8" });
+});
+
 app.get("/ics/zahlungsziele.ics", async (c) => {
   const token = c.req.query("token") ?? "";
   if (token.length < 20) return c.text("Ungültiges Token.", 403);

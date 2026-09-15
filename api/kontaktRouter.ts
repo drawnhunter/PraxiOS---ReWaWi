@@ -3,7 +3,7 @@ import { z } from "zod";
 import { adminQuery, authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { kontakte } from "@db/schema";
-import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { asc, eq, like, or } from "drizzle-orm";
 import { extrahiereKandidaten, uebernehmeKandidaten } from "./lib/kontaktExtraktion";
 
 const kontaktInput = z.object({

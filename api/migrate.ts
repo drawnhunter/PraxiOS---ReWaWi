@@ -239,6 +239,24 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
     )`,
   },
   {
+    tabelle: "termine",
+    ddl: `CREATE TABLE IF NOT EXISTS termine (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      datum DATE NOT NULL,
+      start_zeit VARCHAR(5) NULL,
+      end_zeit VARCHAR(5) NULL,
+      titel VARCHAR(255) NOT NULL,
+      beschreibung TEXT NULL,
+      farbe VARCHAR(12) NULL,
+      quelle VARCHAR(40) NOT NULL DEFAULT 'manuell',
+      mail_id BIGINT UNSIGNED NULL,
+      erstellt_von VARCHAR(40) NOT NULL DEFAULT 'mensch',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX termine_datum (datum)
+    )`,
+  },
+  {
     tabelle: "kontakte",
     ddl: `CREATE TABLE IF NOT EXISTS kontakte (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

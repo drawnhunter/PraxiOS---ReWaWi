@@ -1690,6 +1690,106 @@ app.post("/kontakte-extraktion", async (c) => {
   return c.json({ ok: true, ...ergebnis });
 });
 
+// ── Anhang-Inhaltserkennung: PDF-Text / Bild-OCR (serverseitig) ────────────
+app.get("/mail/:id/anhang/:index/text", async (c) => {
+  const mailId = Number(c.req.param("id"));
+  const index = Number(c.req.param("index"));
+  const { mailMails, postEingang } = await import("@db/schema");
+  const { metaLesen } = await import("./lib/mailBeleg");
+  const db = getDb();
+  const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+  if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
+  const meta = metaLesen(m.anhaenge)[index];
+  if (!meta) return c.json({ ok: false, fehler: "Anhang nicht gefunden." }, 404);
+  if (!meta.postEingangId) return c.json({ ok: false, fehler: "Anhangtyp nur als Metadaten (kein Inhalt verfügbar)." }, 404);
+  const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
+  if (!beleg?.dateiInhalt) return c.json({ ok: false, fehler: "Anhang-Datei nicht vorhanden." }, 404);
+  const { extrahiereAnhangText } = await import("./lib/anhangText");
+  const ergebnis = await extrahiereAnhangText(Buffer.from(beleg.dateiInhalt, "base64"), beleg.mime);
+  if (!ergebnis.ok) return c.json({ ok: false, methode: ergebnis.methode, fehler: ergebnis.fehler }, 422);
+  return c.json({
+    ok: true,
+    methode: ergebnis.methode,
+    dateiname: beleg.originalname,
+    mime: beleg.mime,
+    text: ergebnis.text,
+  });
+});
+
+// ── Kalender (Termine für Agent + Google-ICS) ───────────────────────────────
+app.get("/termine", async (c) => {
+  const { termine } = await import("@db/schema");
+  const { and, asc, gte, lte } = await import("drizzle-orm");
+  const von = c.req.query("von");
+  const bis = c.req.query("bis");
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(termine)
+    .where(
+      von && bis
+        ? and(gte(termine.datum, von), lte(termine.datum, bis))
+        : von
+          ? gte(termine.datum, von)
+          : undefined,
+    )
+    .orderBy(asc(termine.datum), asc(termine.startZeit))
+    .limit(500);
+  return c.json({ anzahl: rows.length, termine: rows });
+});
+
+app.post("/termin", async (c) => {
+  const body = await bodyLesen(c);
+  const titel = String(body.titel ?? "").trim();
+  const datum = String(body.datum ?? "");
+  if (!titel) return c.json({ ok: false, fehler: "titel fehlt." }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return c.json({ ok: false, fehler: "datum im Format JJJJ-MM-TT nötig." }, 400);
+  const { termine } = await import("@db/schema");
+  const db = getDb();
+  const zeitFeld = (v: unknown) => (v && /^\d{2}:\d{2}$/.test(String(v)) ? String(v) : null);
+  const [{ id }] = await db
+    .insert(termine)
+    .values({
+      datum,
+      startZeit: zeitFeld(body.startZeit),
+      endZeit: zeitFeld(body.endZeit),
+      titel,
+      beschreibung: body.beschreibung ? String(body.beschreibung) : null,
+      farbe: body.farbe ? String(body.farbe) : null,
+      quelle: body.mailId ? "mail" : "agent",
+      mailId: body.mailId ? Number(body.mailId) : null,
+      erstelltVon: "agent",
+    })
+    .$returningId();
+  await audit("termin_angelegt", { id, datum, titel });
+  return c.json({ ok: true, id, datum, titel });
+});
+
+app.put("/termin/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { termine } = await import("@db/schema");
+  const db = getDb();
+  const t = await db.query.termine.findFirst({ where: eq(termine.id, id) });
+  if (!t) return c.json({ ok: false, fehler: "Termin nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  for (const feld of ["datum", "startZeit", "endZeit", "titel", "beschreibung", "farbe"] as const) {
+    if (body[feld] !== undefined) patch[feld] = body[feld];
+  }
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "Nichts zu ändern." }, 400);
+  await db.update(termine).set(patch).where(eq(termine.id, id));
+  await audit("termin_geaendert", { id, felder: Object.keys(patch) });
+  return c.json({ ok: true, id });
+});
+
+app.delete("/termin/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { termine } = await import("@db/schema");
+  await getDb().delete(termine).where(eq(termine.id, id));
+  await audit("termin_geloescht", { id });
+  return c.json({ ok: true, geloescht: id });
+});
+
 // ── DATEV-Export per API ───────────────────────────────────────────────────
 app.post("/datev-export", async (c) => {
   const body = await bodyLesen(c);

@@ -798,6 +798,22 @@ export const kontakte = mysqlTable("kontakte", {
   (t) => [uniqueIndex("kontakte_email_uniq").on(t.email)],
 );
 
+// ── Kalender: Termine (ICS-Feed für Google & Co., Agent-endpunkte) ─────────
+export const termine = mysqlTable("termine", {
+  id: serial("id").primaryKey(),
+  datum: date("datum", { mode: "string" }).notNull(),
+  startZeit: varchar("start_zeit", { length: 5 }), // HH:MM oder null = ganztägig
+  endZeit: varchar("end_zeit", { length: 5 }),
+  titel: varchar("titel", { length: 255 }).notNull(),
+  beschreibung: text("beschreibung"),
+  farbe: varchar("farbe", { length: 12 }),
+  quelle: varchar("quelle", { length: 40 }).notNull().default("manuell"), // manuell / mail / beleg / agent
+  mailId: bigint("mail_id", { mode: "number", unsigned: true }),
+  erstelltVon: varchar("erstellt_von", { length: 40 }).notNull().default("mensch"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});
+
 // ── Kontenrahmen SKR03/SKR04 (Seed aus skr-data.ts, Basisdaten MIT-lizenziert)
 export const kontenrahmen = mysqlTable(
   "kontenrahmen",

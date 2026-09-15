@@ -23,6 +23,7 @@ import { nachweisRouter } from "./nachweisRouter";
 import { mailRouter } from "./mailRouter";
 import { mailPostfachRouter } from "./mailPostfachRouter";
 import { kontaktRouter } from "./kontaktRouter";
+import { kalenderRouter } from "./kalenderRouter";
 import { einrechnungRouter } from "./einrechnungRouter";
 import { lagerRouter } from "./lagerRouter";
 import { labelRouter } from "./labelRouter";
@@ -60,6 +61,7 @@ export const appRouter = createRouter({
   mail: mailRouter,
   postfach: mailPostfachRouter,
   kontakte: kontaktRouter,
+  kalender: kalenderRouter,
   einrechnung: einrechnungRouter,
   lager: lagerRouter,
   label: labelRouter,

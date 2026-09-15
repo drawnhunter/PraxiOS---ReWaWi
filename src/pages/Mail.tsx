@@ -2,17 +2,13 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2,
-  Send, Save, Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight,
+  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { Link } from "react-router";
 import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
@@ -129,7 +125,7 @@ export default function MailPostfach() {
           >
             Postfach
           </button>
-          {tabs.map((t, i) => {
+          {tabs.map((t) => {
             const istAktiv = aktiv === t;
             const label = t.typ === "mail" ? (t.betreff || "(kein Betreff)") : "✉ Verfassen";
             const key = t.typ === "mail" ? `m${t.id}` : `v${t.schluessel}`;
@@ -227,7 +223,8 @@ export default function MailPostfach() {
                 key={vorschau}
                 id={vorschau}
                 kompakt
-                onAntworten={(m) => setVerfassenOffen(m)}
+                onAntworten={oeffneVerfassen}
+                onTabOeffnen={oeffneTab}
                 onAusklappen={() => {
                   const m = vorschau;
                   oeffneTab(m, "");
@@ -240,15 +237,14 @@ export default function MailPostfach() {
         )}
       </div>
 
-    </div>
-  );
       {schliessenDialog !== null && aktiv?.typ === "verfassen" && aktiv.schluessel === schliessenDialog && (
         <VerfassenSchliessenDialog
           onWahl={(aktion) => { setAbschlussAktion(aktion); setSchliessenDialog(null); }}
           onAbbrechen={() => setSchliessenDialog(null)}
         />
       )}
-
+    </div>
+  );
 }
 
 /* ═══ Spalte 1
