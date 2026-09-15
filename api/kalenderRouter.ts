@@ -3,7 +3,7 @@ import { z } from "zod";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { termine } from "@db/schema";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, lte, or } from "drizzle-orm";
 
 const terminInput = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

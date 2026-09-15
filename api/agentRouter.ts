@@ -1466,17 +1466,25 @@ app.get("/rechnung/:id/zahlungen", async (c) => {
 
 app.get("/mails", async (c) => {
   const { mailMails } = await import("@db/schema");
-  const { and, desc, eq, like: driLike, or } = await import("drizzle-orm");
+  const { and, desc, eq, gte, lte, like: driLike, or, sql } = await import("drizzle-orm");
   const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
   const karte = await ladeSynonymKarte();
   const q = c.req.query("q")?.trim();
   const ordner = c.req.query("ordner");
   const limit = Math.min(100, Number(c.req.query("limit") ?? 40));
+  const offset = Math.max(0, Number(c.req.query("offset") ?? 0) || 0);
+  const von = c.req.query("von")?.trim();
+  const bis = c.req.query("bis")?.trim();
   const bedingungen = [];
   if (ordner) bedingungen.push(eq(mailMails.ordner, ordner));
   if (c.req.query("nurUngelesene") === "1" || c.req.query("nurUngelesene") === "true") {
     bedingungen.push(eq(mailMails.gelesen, false));
   }
+  if (c.req.query("nurMitAnhang") === "1" || c.req.query("nurMitAnhang") === "true") {
+    bedingungen.push(sql`JSON_LENGTH(${mailMails.anhaenge}) > 0`);
+  }
+  if (von && /^\d{4}-\d{2}-\d{2}$/.test(von)) bedingungen.push(gte(mailMails.datum, new Date(`${von}T00:00:00`)));
+  if (bis && /^\d{4}-\d{2}-\d{2}$/.test(bis)) bedingungen.push(lte(mailMails.datum, new Date(`${bis}T23:59:59`)));
   if (q) {
     const muster = `%${q}%`;
     bedingungen.push(
@@ -1493,15 +1501,53 @@ app.get("/mails", async (c) => {
     .from(mailMails)
     .where(bedingungen.length ? and(...bedingungen) : undefined)
     .orderBy(desc(mailMails.datum), desc(mailMails.id))
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
   return c.json({
     anzahl: rows.length,
+    offset,
     mails: rows.map((m) => ({
       id: m.id, ordner: m.ordner, betreff: m.betreff,
       absender: maskiereGegenstelle(karte, m.absenderName ?? m.absenderAdresse ?? ""),
       datum: m.datum, gelesen: m.gelesen,
       anzahlAnhaenge: m.anhaenge ? (JSON.parse(m.anhaenge) as unknown[]).length : 0,
     })),
+  });
+});
+
+/** Sofort-Sync aller Mailkonten (Wasserzeichen-Backfill läuft dabei weiter Richtung Vergangenheit). Kann bei vielen Ordnern >1 min dauern. */
+app.post("/mails/sync", async (c) => {
+  const { emailKonten } = await import("@db/schema");
+  const { synchronisiereKonto } = await import("./imapDienst");
+  const konten = await getDb().select({ id: emailKonten.id }).from(emailKonten);
+  const ergebnisse = [];
+  for (const k of konten) {
+    ergebnisse.push({ kontoId: k.id, ...(await synchronisiereKonto(k.id)) });
+  }
+  await audit("mails_sync", ergebnisse);
+  return c.json({ ok: true, konten: ergebnisse });
+});
+
+/** Mails ohne Datum: Datum aus dem IMAP-Envelope nachpflegen (Fallback: created_at). */
+app.post("/mails/datum-heilen", async (c) => {
+  const { heileMailDaten } = await import("./imapDienst");
+  const ergebnis = await heileMailDaten();
+  await audit("mails_datum_heilung", ergebnis);
+  return c.json({ ok: true, ...ergebnis });
+});
+
+/** Ordner-Übersicht: welche Fächer existieren (je Konto) und wie viele Mails darin liegen. */
+app.get("/mail-ordner", async (c) => {
+  const { mailMails } = await import("@db/schema");
+  const { asc, sql } = await import("drizzle-orm");
+  const rows = await getDb()
+    .select({ ordner: mailMails.ordner, kontoId: mailMails.kontoId, anzahl: sql<number>`COUNT(*)` })
+    .from(mailMails)
+    .groupBy(mailMails.kontoId, mailMails.ordner)
+    .orderBy(asc(mailMails.kontoId), asc(mailMails.ordner));
+  return c.json({
+    ordner: rows.map((r) => ({ kontoId: r.kontoId, ordner: r.ordner, anzahl: Number(r.anzahl) })),
+    gesamt: rows.reduce((s, r) => s + Number(r.anzahl), 0),
   });
 });
 
@@ -1516,13 +1562,20 @@ app.get("/mail/:id", async (c) => {
   try {
     anhaenge = m.anhaenge ? (JSON.parse(m.anhaenge) as unknown[]) : [];
   } catch { /* egal */ }
-  return c.json({
+  const basis = {
     id: m.id, ordner: m.ordner, betreff: m.betreff,
     absender: maskiereGegenstelle(karte, m.absenderName ?? ""),
     absenderAdresse: m.absenderAdresse,
-    datum: m.datum, gelesen: m.gelesen,
-    textPlain: m.textPlain, textHtml: m.textHtml, anhaenge,
-  });
+    datum: m.datum, gelesen: m.gelesen, markiert: m.markiert,
+  };
+  // kurz=1: ohne textHtml (Newsletter-Blobs sind 100–600 KB) — Plaintext + Metadaten reichen
+  if (c.req.query("kurz") === "1" || c.req.query("kurz") === "true") {
+    return c.json({
+      ...basis, textPlain: m.textPlain, anhaenge,
+      htmlVorhanden: Boolean(m.textHtml), htmlLaenge: m.textHtml?.length ?? 0,
+    });
+  }
+  return c.json({ ...basis, textPlain: m.textPlain, textHtml: m.textHtml, anhaenge });
 });
 
 app.get("/mail/:id/anhang/:index", async (c) => {
@@ -1719,20 +1772,19 @@ app.get("/mail/:id/anhang/:index/text", async (c) => {
 // ── Kalender (Termine für Agent + Google-ICS) ───────────────────────────────
 app.get("/termine", async (c) => {
   const { termine } = await import("@db/schema");
-  const { and, asc, gte, lte } = await import("drizzle-orm");
+  const { and, asc, eq, gte, lte } = await import("drizzle-orm");
   const von = c.req.query("von");
   const bis = c.req.query("bis");
-  const db = getDb();
-  const rows = await db
+  const mailId = c.req.query("mailId") ? Number(c.req.query("mailId")) : null;
+  const bedingungen = [];
+  if (von) bedingungen.push(gte(termine.datum, von));
+  if (bis) bedingungen.push(lte(termine.datum, bis));
+  // mailId: Idempotenz-Anker — „gibt es zu dieser Mail schon einen Termin?"
+  if (mailId) bedingungen.push(eq(termine.mailId, mailId));
+  const rows = await getDb()
     .select()
     .from(termine)
-    .where(
-      von && bis
-        ? and(gte(termine.datum, von), lte(termine.datum, bis))
-        : von
-          ? gte(termine.datum, von)
-          : undefined,
-    )
+    .where(bedingungen.length ? and(...bedingungen) : undefined)
     .orderBy(asc(termine.datum), asc(termine.startZeit))
     .limit(500);
   return c.json({ anzahl: rows.length, termine: rows });

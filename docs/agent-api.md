@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.16.5)
+# ReWaWi Agent-API — Leitfaden (Stand v1.16.6)
 
 REST-API für externe Agenten (Kimi Claw). Basis: `https://<host>/api/agent`
 Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Klartext nur einmalig).
@@ -50,9 +50,12 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `GET /bankimporte` · `DELETE /bankimport/:id` · `GET /import-status` → letzte Läufe/Zählstände
 
 ## Mail (ab 1.16)
-- `GET /mails?q=&ordner=&nurUngelesene=&limit=` (pseudonymisiert)
-- `GET /mail/:id` · `GET /mail/:id/anhang/:index` (base64)
-- `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, Bild via OCR) — für Belegerkennung ohne Datei-Download
+- `GET /mails?q=&ordner=&nurUngelesene=&nurMitAnhang=&limit=&offset=&von=&bis=` (pseudonymisiert) — `limit` max 100, `offset` für Pagination, `von`/`bis` als JJJJ-MM-TT (inklusive, kombinierbar mit q), `nurMitAnhang=1` nur Mails mit Dateianhängen (Beleg-Kandidaten)
+- `POST /mails/sync` → sofort-Sync aller Konten. Der Backfill arbeitet mit Wasserzeichen lückenlos rückwärts (neueste → älteste, 50/Lauf/Ordner) — bei Bedarf mehrfach aufrufen, bis `GET /mail-ordner` die erwarteten Stände zeigt. Kann >1 min dauern.
+- `GET /mail-ordner` → alle Fächer je Konto mit Mail-Anzahl (`[{kontoId, ordner, anzahl}], gesamt`) — kein Raten mehr
+- `GET /mail/:id` · `GET /mail/:id?kurz=1` (ohne textHtml, dafür `htmlVorhanden`/`htmlLaenge` — Newsletter-Blobs bleiben draußen) · `GET /mail/:id/anhang/:index` (base64)
+- `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, **Scan-PDFs automatisch per OCR** (pdftoppm+tesseract, erste 8 Seiten), Bilder via OCR)
+- `POST /mails/datum-heilen` → Mails ohne Datum bekommen ihr IMAP-Envelope-Datum nachgepflegt (Fallback: created_at) → `{geprueft, geheilt, fehler}`
 - `POST /mail/versenden` `{empfaenger[], cc?, bcc?, kontoId?, betreff, text, html?, anhaenge?, inReplyTo?, references?}` — nur **vollautomatik**
 - `POST /mail/:id/als-beleg` `{anhangIndex?}` → Eingangsbeleg aus Mail/Anhang
 
@@ -63,7 +66,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `POST /kontakte-extraktion {kandidaten:[{email, name}]}` → kuratierte Auswahl aus der Vorschau übernehmen
 
 ## Kalender & Fristen (ab 1.16.4/1.16.5)
-- `GET /termine?von=&bis=` · `POST /termin {titel*, datum* (JJJJ-MM-TT), startZeit?/endZeit? (SS:MM), beschreibung?, farbe?, mailId?}` · `PUT /termin/:id` · `DELETE /termin/:id`
+- `GET /termine?von=&bis=&mailId=` · `POST /termin {titel*, datum* (JJJJ-MM-TT), startZeit?/endZeit? (SS:MM), beschreibung?, farbe?, mailId?}` · `PUT /termin/:id` · `DELETE /termin/:id` — **Idempotenz:** vor dem Anlegen `GET /termine?mailId=<id>` prüfen, damit aus einer Mail nicht zwei Termine entstehen
 - `GET /zahlungsziele?von=&bis=` → **Quell-Einträge**: Mahnungen (Stufe+Frist), offene Ausgangsrechnungen, Eingangsrechnungen mit Fälligkeit, Wiedervorlagen/fällige Posts — je mit `ueberfaellig`-Flag
 - `GET /posteingang?status=neu|gebucht|abgelegt` → Postmanager-Eingänge (typ, Lieferant, Betreff)
 

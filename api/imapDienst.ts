@@ -19,6 +19,7 @@ async function speichereMail(
   ordner: string,
   uid: number,
   geparst: Awaited<ReturnType<typeof simpleParser>>,
+  umschlagDatum: Date | null = null,
 ): Promise<{ id: number; istNeu: boolean }> {
   const db = getDb();
   const exakt = await db.query.mailMails.findFirst({
@@ -53,7 +54,9 @@ async function speichereMail(
           .filter(Boolean)
           .join(", ") || null;
       })(),
-      datum: geparst.date ?? null,
+      // Datum niemals null: Header-Date → IMAP-Envelope → Jetzt (alte Papierkorb-Mails
+      // haben oft keinen lesbaren Date-Header, Zeitreihen brauchen aber einen Wert)
+      datum: geparst.date ?? umschlagDatum ?? new Date(),
       textPlain: geparst.text ? geparst.text.slice(0, 4_000_000) : null,
       textHtml: typeof geparst.html === "string" ? geparst.html.slice(0, 4_000_000) : null,
       anhaenge: JSON.stringify(anhaenge),
@@ -134,19 +137,40 @@ async function rufeOrdnerAb(
   let importiert = 0;
   const lock = await client.getMailboxLock(ordner);
   try {
-    // Backfill + Intervall: ALLE Mails, neueste zuerst (Dedup macht Wiederholungen
-    // kostenlos — alte Mails wandern Lauf fuer Lauf nach hinten, bis Ordner komplett)
-    const uids = await client.search({}, { uid: true });
-      const liste = (uids || []).sort((a, b) => b - a).slice(0, 50);
-      for (const uid of liste) {
-        const nachricht = (await client.fetchOne(uid, { source: true }, { uid: true })) as
-          | { source?: Buffer }
+    // Lückenloser Backfill per Wasserzeichen: neue Mails (UID > max bekannt) zuerst,
+    // dann wandert das Fenster Lauf für Lauf in die Vergangenheit (UID < min bekannt),
+    // bis der Ordner komplett ist. Dedup macht Wiederholungen kostenlos.
+    const uids: number[] = ((await client.search({}, { uid: true })) as number[] | false) || [];
+    const dbW = getDb();
+    const { and: andW, eq: eqW, sql: sqlW } = await import("drizzle-orm");
+    const [wm] = await dbW
+      .select({
+        minUid: sqlW<number | null>`MIN(${mailMails.uid})`,
+        maxUid: sqlW<number | null>`MAX(${mailMails.uid})`,
+      })
+      .from(mailMails)
+      .where(andW(eqW(mailMails.kontoId, konto.id), eqW(mailMails.ordner, ordner)));
+    const BUDGET = 50;
+    let liste: number[];
+    if (wm?.minUid == null) {
+      liste = [...uids].sort((a, b) => b - a).slice(0, BUDGET); // erster Kontakt: neueste zuerst
+    } else {
+      const neu = uids.filter((u) => u > (wm.maxUid ?? 0)).sort((a, b) => b - a);
+      const aelter = uids
+        .filter((u) => u < (wm.minUid as number))
+        .sort((a, b) => b - a)
+        .slice(0, Math.max(0, BUDGET - neu.length));
+      liste = [...neu, ...aelter];
+    }
+    for (const uid of liste) {
+        const nachricht = (await client.fetchOne(uid, { source: true, envelope: true }, { uid: true })) as
+          | { source?: Buffer; envelope?: { date?: Date } }
           | false;
         if (!nachricht || !nachricht.source) continue;
         const geparst = await simpleParser(nachricht.source);
         const absender = geparst.from?.value?.[0]?.name || geparst.from?.value?.[0]?.address || null;
         // Mail zuerst ablegen (idempotent) — dann Anhaenge in den Post Manager
-        const { id: mailId, istNeu } = await speichereMail(konto, ordner, uid, geparst);
+        const { id: mailId, istNeu } = await speichereMail(konto, ordner, uid, geparst, nachricht.envelope?.date ?? null);
         if (!istNeu) continue; // bekannt: Mail + Anhaenge schon verarbeitet
         // Auto-Routing-Regeln anwenden (Absender/Betreff-Muster → Typ + Kategorie)
         const db0 = getDb();
@@ -260,6 +284,82 @@ export async function synchronisiereKonto(id: number): Promise<{ ok: boolean; fe
     return frisch?.letzterFehler ? { ok: false, fehler: frisch.letzterFehler } : { ok: true };
   } catch (e) {
     return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
+  }
+}
+
+/**
+ * Datum-Heilung: Mails ohne Datum (alte Papierkorb-Reste ohne Date-Header)
+ * bekommen ihr Datum aus dem IMAP-Envelope nachgepflegt. Fallback: created_at.
+ */
+export async function heileMailDaten(): Promise<{ geprueft: number; geheilt: number; fehler: string[] }> {
+  const db = getDb();
+  const { isNull, asc } = await import("drizzle-orm");
+  const offene = await db
+    .select()
+    .from(mailMails)
+    .where(isNull(mailMails.datum))
+    .orderBy(asc(mailMails.kontoId));
+  const ergebnis = { geprueft: offene.length, geheilt: 0, fehler: [] as string[] };
+  if (offene.length === 0) return ergebnis;
+
+  // Je Konto einmal verbinden, dann alle betroffenen UIDs per Envelope lesen
+  const jeKonto = new Map<number, typeof offene>();
+  for (const m of offene) {
+    const liste = jeKonto.get(m.kontoId) ?? [];
+    liste.push(m);
+    jeKonto.set(m.kontoId, liste);
+  }
+  for (const [kontoId, mails] of jeKonto) {
+    const konto = await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, kontoId) });
+    const passwort = konto ? entschluesseln(konto.passwortEnc) : null;
+    if (!konto || !passwort) {
+      ergebnis.fehler.push(`Konto #${kontoId}: nicht lesbar — Fallback created_at`);
+      await fallbackCreatedAt(mails);
+      ergebnis.geheilt += mails.length;
+      continue;
+    }
+    const client = new ImapFlow({
+      host: konto.host, port: konto.port, secure: konto.tls,
+      auth: { user: konto.benutzer, pass: passwort },
+      logger: false, socketTimeout: 20000, greetingTimeout: 10000,
+    });
+    try {
+      await client.connect();
+      let ordnerAktuell: string | null = null;
+      let lock: Awaited<ReturnType<typeof client.getMailboxLock>> | null = null;
+      for (const m of mails) {
+        try {
+          if (ordnerAktuell !== m.ordner) {
+            lock?.release();
+            lock = await client.getMailboxLock(m.ordner);
+            ordnerAktuell = m.ordner;
+          }
+          const n = (await client.fetchOne(m.uid, { envelope: true }, { uid: true })) as
+            | { envelope?: { date?: Date } }
+            | false;
+          const datum = n && n.envelope?.date ? n.envelope.date : m.createdAt;
+          await db.update(mailMails).set({ datum }).where(eq(mailMails.id, m.id));
+          ergebnis.geheilt++;
+        } catch (e) {
+          ergebnis.fehler.push(`Mail #${m.id}: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`);
+          await db.update(mailMails).set({ datum: m.createdAt }).where(eq(mailMails.id, m.id));
+          ergebnis.geheilt++;
+        }
+      }
+      lock?.release();
+      await client.logout();
+    } catch (e) {
+      ergebnis.fehler.push(`Konto #${kontoId}: ${e instanceof Error ? e.message.slice(0, 200) : String(e)} — Fallback created_at`);
+      await fallbackCreatedAt(mails);
+      ergebnis.geheilt += mails.length;
+    }
+  }
+  return ergebnis;
+
+  async function fallbackCreatedAt(mails: typeof offene): Promise<void> {
+    for (const m of mails) {
+      await db.update(mailMails).set({ datum: m.createdAt }).where(eq(mailMails.id, m.id));
+    }
   }
 }
 
