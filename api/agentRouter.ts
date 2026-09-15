@@ -1790,6 +1790,50 @@ app.delete("/termin/:id", async (c) => {
   return c.json({ ok: true, geloescht: id });
 });
 
+// ── Zahlungsziele & Postmanager (für den Agenten) ──────────────────────────
+app.get("/zahlungsziele", async (c) => {
+  const { ladeQuellEintraege } = await import("./kalenderRouter");
+  const von = c.req.query("von") ?? "2000-01-01";
+  const bis = c.req.query("bis") ?? "2099-12-31";
+  const eintraege = await ladeQuellEintraege(von, bis);
+  return c.json({
+    anzahl: eintraege.length,
+    ueberfaellig: eintraege.filter((e) => e.ueberfaellig).length,
+    eintraege,
+  });
+});
+
+app.get("/posteingang", async (c) => {
+  const { postEingang, suppliers } = await import("@db/schema");
+  const { desc } = await import("drizzle-orm");
+  const status = c.req.query("status"); // neu / gebucht / abgelegt
+  const db = getDb();
+  const rows = await db
+    .select({ p: postEingang, lieferantName: suppliers.name })
+    .from(postEingang)
+    .leftJoin(suppliers, eq(postEingang.absenderLieferantId, suppliers.id))
+    .where(status ? eq(postEingang.status, status as "neu" | "gebucht" | "abgelegt") : undefined)
+    .orderBy(desc(postEingang.createdAt))
+    .limit(100);
+  return c.json({
+    anzahl: rows.length,
+    eintraege: rows.map((r) => ({
+      id: r.p.id,
+      typ: r.p.typ,
+      status: r.p.status,
+      stichwort: r.p.stichwort,
+      betrag: r.p.betrag ? Number(r.p.betrag) : null,
+      faelligAm: r.p.faelligAm,
+      wiedervorlageAm: r.p.wiedervorlageAm,
+      lieferant: r.lieferantName ?? r.p.absenderFreitext,
+      quelle: r.p.quelle,
+      mime: r.p.mime,
+      originalname: r.p.originalname,
+      erstelltAm: r.p.createdAt,
+    })),
+  });
+});
+
 // ── DATEV-Export per API ───────────────────────────────────────────────────
 app.post("/datev-export", async (c) => {
   const body = await bodyLesen(c);

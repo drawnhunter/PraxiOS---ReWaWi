@@ -26,7 +26,9 @@ app.get("/ics/kalender.ics", async (c) => {
   const { asc } = await import("drizzle-orm");
   const { baueKalenderIcs } = await import("./kalenderRouter");
   const rows = await getDb().select().from(termine).orderBy(asc(termine.datum)).limit(2000);
-  return c.body(baueKalenderIcs(rows), 200, { "Content-Type": "text/calendar; charset=utf-8" });
+  const { ladeQuellEintraege } = await import("./kalenderRouter");
+  const quellen = await ladeQuellEintraege("2000-01-01", "2099-12-31");
+  return c.body(baueKalenderIcs(rows, quellen), 200, { "Content-Type": "text/calendar; charset=utf-8" });
 });
 
 app.get("/ics/zahlungsziele.ics", async (c) => {
