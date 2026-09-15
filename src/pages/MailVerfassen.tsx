@@ -9,7 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { MailEditor, htmlZuText } from "@/components/MailEditor";
-import { Paperclip, Send, Save, Trash2, X } from "lucide-react";
+import { Paperclip, Send, Save, Trash2, X, UploadCloud } from "lucide-react";
 
 export interface VerfassenStart {
   empfaenger?: string;
@@ -45,6 +45,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [betreff, setBetreff] = useState(start.betreff ?? "");
   const [html, setHtml] = useState(start.html ?? "<p><br></p>");
   const [anhaenge, setAnhaenge] = useState<Anhang[]>([]);
+  const [drag, setDrag] = useState(false);
   const [entwurfId, setEntwurfId] = useState<number | null>(start.entwurfId ?? null);
   const [vorschlaege, setVorschlaege] = useState<{ name: string; email: string; quelle: string }[]>([]);
   const [fehler, setFehler] = useState("");
@@ -62,7 +63,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
 
   const dateiHinzufuegen = (dateien: FileList | null) => {
     if (!dateien) return;
-    for (const d of Array.from(dateien).slice(0, 10)) {
+    for (const d of Array.from(dateien).slice(0, 15)) {
       const leser = new FileReader();
       leser.onload = () => {
         const roh = leser.result as string;
@@ -169,11 +170,21 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
             <label className={feldLabel}>Betreff *</label>
             <Input value={betreff} onChange={(e) => setBetreff(e.target.value)} />
           </div>
-          <div className="sm:col-span-2">
-            <label className={feldLabel}>Anhänge</label>
+          <div
+            className={`sm:col-span-2 rounded-md p-1.5 transition-colors ${drag ? "bg-teal-50 ring-2 ring-teal-400 ring-dashed" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDrag(false);
+              dateiHinzufuegen(e.dataTransfer.files);
+            }}
+          >
+            <label className={feldLabel}>Anhänge <span className="text-neutral-400">(per Drag &amp; Drop hierher ziehen)</span></label>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-3 py-1.5 text-xs text-neutral-600 hover:border-teal-400 hover:text-teal-700">
-                <Paperclip className="h-3.5 w-3.5" /> Datei wählen
+                {drag ? <UploadCloud className="h-3.5 w-3.5 text-teal-600" /> : <Paperclip className="h-3.5 w-3.5" />}
+                {drag ? "Loslassen zum Anhängen" : "Datei wählen"}
                 <input type="file" multiple className="hidden" onChange={(e) => dateiHinzufuegen(e.target.files)} />
               </label>
               {anhaenge.map((a, i) => (

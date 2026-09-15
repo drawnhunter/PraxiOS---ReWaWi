@@ -144,7 +144,7 @@ export default function MailPostfach() {
             );
           })}
           <div className="ml-auto shrink-0">
-            <Button size="sm" onClick={() => oeffneVerfassen({})}>
+            <Button size="sm" onClick={() => oeffneVerfassen({ kontoId })}>
               <Pencil className="mr-1.5 h-4 w-4" /> Verfassen
             </Button>
           </div>
@@ -555,6 +555,7 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
             onClick={() => {
               const zitatHtml = zitatBlock(m);
               onAntworten({
+                kontoId: m.kontoId,
                 empfaenger: m.absenderAdresse ?? "",
                 betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
                 html: `<p><br></p>${zitatHtml}`,
@@ -574,6 +575,7 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
                 .map((x: string) => x.trim())
                 .filter((x: string) => x && !x.includes("@"));
               onAntworten({
+                kontoId: m.kontoId,
                 empfaenger: m.absenderAdresse ?? "",
                 cc: andere.join(", "),
                 betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
@@ -591,6 +593,7 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
             onClick={() => {
               const zitatHtml = zitatBlock(m);
               onAntworten({
+                kontoId: m.kontoId,
                 betreff: m.betreff?.startsWith("Fwd:") ? m.betreff : `Fwd: ${m.betreff ?? ""}`,
                 html: `<p><br></p>${zitatHtml}`,
               });
