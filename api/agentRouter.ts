@@ -1584,6 +1584,112 @@ app.post("/mail/:id/als-beleg", async (c) => {
   }
 });
 
+// ── Kontakte-Kartei (Agenten-Pipeline: extrahieren → kuratieren → übernehmen)
+app.get("/kontakte", async (c) => {
+  const { kontakte } = await import("@db/schema");
+  const { asc, like, or } = await import("drizzle-orm");
+  const q = c.req.query("q")?.trim();
+  const rows = await getDb()
+    .select()
+    .from(kontakte)
+    .where(
+      q
+        ? or(
+            like(kontakte.name, `%${q}%`),
+            like(kontakte.email, `%${q}%`),
+            like(kontakte.firma, `%${q}%`),
+          )
+        : undefined,
+    )
+    .orderBy(asc(kontakte.name));
+  return c.json({
+    anzahl: rows.length,
+    kontakte: rows.map((k) => ({
+      id: k.id, name: k.name, email: k.email, telefon: k.telefon,
+      firma: k.firma, notiz: k.notiz, quelle: k.quelle, erstelltVon: k.erstelltVon,
+    })),
+  });
+});
+
+app.post("/kontakt", async (c) => {
+  const body = await bodyLesen(c);
+  const name = String(body.name ?? "").trim();
+  const email = String(body.email ?? "").trim().toLowerCase();
+  if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return c.json({ ok: false, fehler: "name + gültige email nötig." }, 400);
+  }
+  const { kontakte } = await import("@db/schema");
+  const db = getDb();
+  const vorhanden = await db.query.kontakte.findFirst({ where: eq(kontakte.email, email) });
+  if (vorhanden) return c.json({ ok: false, fehler: `Kontakt existiert bereits (#${vorhanden.id}).` }, 409);
+  const [{ id }] = await db
+    .insert(kontakte)
+    .values({
+      name,
+      email,
+      telefon: body.telefon ? String(body.telefon) : null,
+      firma: body.firma ? String(body.firma) : null,
+      notiz: body.notiz ? String(body.notiz) : null,
+      quelle: "manuell",
+      erstelltVon: "agent",
+    })
+    .$returningId();
+  await audit("kontakt_angelegt", { id, email });
+  return c.json({ ok: true, id, name, email });
+});
+
+app.put("/kontakt/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { kontakte } = await import("@db/schema");
+  const db = getDb();
+  const k = await db.query.kontakte.findFirst({ where: eq(kontakte.id, id) });
+  if (!k) return c.json({ ok: false, fehler: "Kontakt nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  for (const feld of ["name", "email", "telefon", "firma", "notiz"] as const) {
+    if (body[feld] !== undefined) patch[feld] = feld === "email" ? String(body[feld]).toLowerCase() : body[feld];
+  }
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "Nichts zu ändern." }, 400);
+  await db.update(kontakte).set(patch).where(eq(kontakte.id, id));
+  await audit("kontakt_geaendert", { id, felder: Object.keys(patch) });
+  return c.json({ ok: true, id });
+});
+
+app.delete("/kontakt/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { kontakte } = await import("@db/schema");
+  await getDb().delete(kontakte).where(eq(kontakte.id, id));
+  await audit("kontakt_geloescht", { id });
+  return c.json({ ok: true, geloescht: id });
+});
+
+/** Extraktion Vorschau: Kandidaten aus Absender-Metadaten (nichts wird geschrieben). */
+app.get("/kontakte-extraktion", async (c) => {
+  const kontoId = c.req.query("kontoId") ? Number(c.req.query("kontoId")) : undefined;
+  const { extrahiereKandidaten } = await import("./lib/kontaktExtraktion");
+  const kandidaten = await extrahiereKandidaten(kontoId);
+  return c.json({
+    anzahl: kandidaten.length,
+    neu: kandidaten.filter((k) => !k.bereitsVorhanden).length,
+    kandidaten,
+  });
+});
+
+/** Extraktion anwenden: kuratierte Auswahl als Kontakte speichern. */
+app.post("/kontakte-extraktion", async (c) => {
+  const body = await bodyLesen(c);
+  const kandidaten = Array.isArray(body.kandidaten) ? body.kandidaten : [];
+  if (kandidaten.length === 0) {
+    return c.json({ ok: false, fehler: "kandidaten fehlt: [{email, name}] — erst GET /kontakte-extraktion für die Vorschau." }, 400);
+  }
+  const { uebernehmeKandidaten } = await import("./lib/kontaktExtraktion");
+  const ergebnis = await uebernehmeKandidaten(
+    kandidaten.map((k: Record<string, unknown>) => ({ email: String(k.email), name: String(k.name) })),
+  );
+  await audit("kontakte_extraktion", ergebnis);
+  return c.json({ ok: true, ...ergebnis });
+});
+
 // ── DATEV-Export per API ───────────────────────────────────────────────────
 app.post("/datev-export", async (c) => {
   const body = await bodyLesen(c);

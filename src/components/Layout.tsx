@@ -10,6 +10,7 @@ import {
   FileText,
   Receipt,
   Users,
+  Contact,
   Package,
   Boxes,
   Settings,
@@ -83,6 +84,7 @@ const GRUPPEN: NavGruppe[] = [
     titel: "Stammdaten",
     eintraege: [
       { to: "/kunden", label: "Kunden", icon: Users },
+      { to: "/kontakte", label: "Kontakte", icon: Contact },
       { to: "/lieferanten", label: "Lieferanten", icon: Building2 },
       { to: "/produkte", label: "Produkte", icon: Package },
       { to: "/lager", label: "Lager", icon: Boxes },

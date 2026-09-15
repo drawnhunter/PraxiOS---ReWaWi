@@ -782,6 +782,22 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ── Kontakte (Adressbuch; Quelle pro Kontakt dokumentiert — DSGVO) ────────
+export const kontakte = mysqlTable("kontakte", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  telefon: varchar("telefon", { length: 60 }),
+  firma: varchar("firma", { length: 255 }),
+  notiz: text("notiz"),
+  quelle: varchar("quelle", { length: 40 }).notNull().default("manuell"), // mail / kunde / manuell
+  erstelltVon: varchar("erstellt_von", { length: 40 }).notNull().default("mensch"), // agent / mensch / system
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+},
+  (t) => [uniqueIndex("kontakte_email_uniq").on(t.email)],
+);
+
 // ── Kontenrahmen SKR03/SKR04 (Seed aus skr-data.ts, Basisdaten MIT-lizenziert)
 export const kontenrahmen = mysqlTable(
   "kontenrahmen",

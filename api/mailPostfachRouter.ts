@@ -260,6 +260,10 @@ export const mailPostfachRouter = createRouter({
     .query(async ({ input }) => {
       const db = getDb();
       const q = input.q?.trim().toLowerCase() ?? "";
+      const kartei = await db.query.kontakte.findMany();
+      const ausKartei = kartei
+        .filter((k) => !q || k.name.toLowerCase().includes(q) || k.email.toLowerCase().includes(q))
+        .map((k) => ({ name: k.name, email: k.email, quelle: "kartei" as const }));
       const kunden = await db.query.customers.findMany();
       const ausKunden = kunden
         .filter((k) => k.email && (!q || k.name.toLowerCase().includes(q) || k.email.toLowerCase().includes(q)))
@@ -271,7 +275,7 @@ export const mailPostfachRouter = createRouter({
         .filter((m) => m.email && (!q || (m.name ?? "").toLowerCase().includes(q) || m.email.toLowerCase().includes(q)))
         .map((m) => ({ name: m.name ?? m.email!, email: m.email!, quelle: "mail" as const }));
       const gesehen = new Set<string>();
-      return [...ausKunden, ...ausMails].filter((k) => {
+      return [...ausKartei, ...ausKunden, ...ausMails].filter((k) => {
         const key = k.email.toLowerCase();
         if (gesehen.has(key)) return false;
         gesehen.add(key);
