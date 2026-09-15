@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.16.x)
+# ReWaWi Agent-API — Leitfaden (Stand v1.16.5)
 
 REST-API für externe Agenten (Kimi Claw). Basis: `https://<host>/api/agent`
 Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Klartext nur einmalig).
@@ -14,7 +14,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `GET /rechnung/:id` → Einzelrechnung mit Positionen
 - `GET /rechnung/:id/zahlungen` → zugeordnete Bankbuchungen + `differenzManuell` (manuell gebucht ohne Bankzuordnung)
 - `GET /kunden-ohne-rechnung?tage=30`
-- `GET /mahnungen` → fällige Mahnstufen
+- `GET /mahnungen` → fällige Mahnstufen · `POST /mahnung {rechnungId|nummer}` → nächste Stufe · `DELETE /mahnung/:id` (irrtümliche)
 - `POST /kunde` → Quick-Add `{name, email?, strasse?, plz?, ort?}`
 - `GET /kunden` · `GET /kunde/:id` · `PUT /kunde/:id`
 - `POST /rechnung-entwurf` → `{"kunde":"Name"|"kundenId":N|"id":N, "items":[{"bezeichnung","menge"?,"einzelpreis","ustSatz"?}], "pdfNotiz"?}` → Entwurf (Mensch gibt frei)
@@ -47,13 +47,25 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 
 ## Import & Historie
 - `POST /bankimport` **oder Alias `/bankbuchungen/import`** → CSV `{"bankAccountId","dateiname","csvText"}` **oder** PDF `{"bankAccountId","pdfBase64"}` → Dedup (quell_id) + Auto-Match
-- `GET /bankimporte` · `DELETE /bankimport/:id`
+- `GET /bankimporte` · `DELETE /bankimport/:id` · `GET /import-status` → letzte Läufe/Zählstände
 
 ## Mail (ab 1.16)
 - `GET /mails?q=&ordner=&nurUngelesene=&limit=` (pseudonymisiert)
 - `GET /mail/:id` · `GET /mail/:id/anhang/:index` (base64)
+- `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, Bild via OCR) — für Belegerkennung ohne Datei-Download
 - `POST /mail/versenden` `{empfaenger[], cc?, bcc?, kontoId?, betreff, text, html?, anhaenge?, inReplyTo?, references?}` — nur **vollautomatik**
 - `POST /mail/:id/als-beleg` `{anhangIndex?}` → Eingangsbeleg aus Mail/Anhang
+
+## Kontakte (ab 1.16.3)
+- `GET /kontakte?q=` → Kartei (id, name, email, telefon, firma, notiz, quelle)
+- `POST /kontakt {name*, email*, telefon?, firma?, notiz?}` (409 bei Duplikat-E-Mail) · `PUT /kontakt/:id` · `DELETE /kontakt/:id`
+- `GET /kontakte-extraktion?kontoId=` → **Vorschau**: Kandidaten aus Absender-Metadaten aller Mailkonten (DSGVO-stark: keine Mail-Inhalte), mit `bereitsVorhanden`-Markierung — schreibt nichts
+- `POST /kontakte-extraktion {kandidaten:[{email, name}]}` → kuratierte Auswahl aus der Vorschau übernehmen
+
+## Kalender & Fristen (ab 1.16.4/1.16.5)
+- `GET /termine?von=&bis=` · `POST /termin {titel*, datum* (JJJJ-MM-TT), startZeit?/endZeit? (SS:MM), beschreibung?, farbe?, mailId?}` · `PUT /termin/:id` · `DELETE /termin/:id`
+- `GET /zahlungsziele?von=&bis=` → **Quell-Einträge**: Mahnungen (Stufe+Frist), offene Ausgangsrechnungen, Eingangsrechnungen mit Fälligkeit, Wiedervorlagen/fällige Posts — je mit `ueberfaellig`-Flag
+- `GET /posteingang?status=neu|gebucht|abgelegt` → Postmanager-Eingänge (typ, Lieferant, Betreff)
 
 ## Autonomie-Stufen (Einstellungen → Agent-API)
 - `vorschlag` (Standard): Lesen + Entwürfe/Aufgaben/Kategorien/Belege
@@ -65,3 +77,9 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 
 ## Aufgabenliste
 - `GET/POST /aufgaben` · `POST /aufgaben/:id/erledigt`
+
+## Stolpersteine (FAQ)
+- **Windows-curl**: einfache Anführungszeichen um JSON funktionieren in cmd.exe **nicht** → Body kommt leer an (400/404 mit Echo der empfangenen Felder). Doppelte Anführungszeichen + Escape (`\"`) oder Body-Datei (`--data @body.json`) verwenden. **Auf Linux/Mac ist `'…'` korrekt.**
+- **id vs. nummer**: Endpunkte mit `:id` erwarten die numerische ID. Wo Nummern akzeptiert werden (zuordnen, rechnung-entwurf, mahnung), steht es explizit dabei.
+- **403 bei Versand**: `/rechnung/:id/versenden` und `/mail/versenden` brauchen Autonomie-Stufe **vollautomatik** (Einstellungen → Agent-API).
+- **Alias-Regel**: Wo Aliase existieren (`/bankbuchungen/import`, `/eingangsrechnung(en)`, `/export/datev`), liefern beide Pfade dasselbe — 404 heißt: Instanz läuft noch auf altem Stand.
