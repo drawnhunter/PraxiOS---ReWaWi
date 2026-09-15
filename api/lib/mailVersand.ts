@@ -6,6 +6,9 @@ import { ladeFirmaLive } from "../pdfBelege";
 export interface VersandEingabe {
   empfaenger: string[]; // E-Mail-Adressen
   cc?: string[];
+  bcc?: string[];
+  /** HTML-Inhalt (wenn gesetzt: multipart text+html, text wird als Plain-Version generiert) */
+  html?: string;
   betreff: string;
   text: string;
   anhaenge?: { dateiname: string; base64: string; mime: string }[];
@@ -22,6 +25,9 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   const settings = await getDb().query.companySettings.findFirst();
   const signatur = e.mitSignatur !== false && settings?.signatur ? `\n\n${settings.signatur}` : "";
   const text = `${e.text}${signatur}`;
+  const htmlBody = e.html
+    ? `${e.html}${signatur ? `<p style="color:#6b7280">${signatur.replace(/\n/g, "<br>")}</p>` : ""}`
+    : undefined;
 
   const empfaengerListe = e.empfaenger.map((x) => x.trim()).filter(Boolean);
   if (empfaengerListe.length === 0) return { ok: false, fehler: "Kein Empfänger angegeben." };
@@ -33,8 +39,10 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
       from: `"${absender}" <${firma.email ?? absender}>`,
       to: empfaengerListe.join(", "),
       cc: e.cc?.map((x) => x.trim()).filter(Boolean).join(", ") || undefined,
+      bcc: e.bcc?.map((x) => x.trim()).filter(Boolean).join(", ") || undefined,
       subject: e.betreff,
       text,
+      html: htmlBody,
       inReplyTo: e.inReplyTo ?? undefined,
       references: e.references ?? undefined,
       attachments: (e.anhaenge ?? []).map((a) => ({

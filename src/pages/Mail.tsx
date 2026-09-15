@@ -15,6 +15,7 @@ import {
   Send, Save, Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { Link } from "react-router";
+import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
 
 function datumFmt(d: string | Date | null): string {
   if (!d) return "—";
@@ -27,7 +28,9 @@ function datumFmt(d: string | Date | null): string {
 type FilterWahl = "alle" | "ungelesen" | "gelesen" | "markiert" | "gesendet" | "empfangen";
 type SortWahl = "datum_desc" | "datum_asc" | "absender_asc" | "absender_desc" | "groesse_desc" | "groesse_asc";
 
-interface MailTab { id: number; betreff: string }
+type Tab =
+  | { typ: "mail"; id: number; betreff: string }
+  | { typ: "verfassen"; schluessel: number; start: VerfassenStart };
 
 function ladeBreite(key: string, fallback: number): number {
   try {
@@ -73,12 +76,13 @@ export default function MailPostfach() {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const [linksBreite, setLinksBreite] = nutzeBreite("mail-spalte-links", 240, 160, 380);
   const [listeBreite, setListeBreite] = nutzeBreite("mail-spalte-liste", 400, 280, 640);
-  const [tabs, setTabs] = useState<MailTab[]>([]);
-  const [aktiv, setAktiv] = useState<number | null>(null);
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [aktiv, setAktiv] = useState<Tab | null>(null);
+  const [abschlussAktion, setAbschlussAktion] = useState<"loeschen" | "entwurf" | "senden" | null>(null);
+  const [schliessenDialog, setSchliessenDialog] = useState<number | null>(null);
   const [vorschau, setVorschau] = useState<number | null>(null);
   const [kontoId, setKontoId] = useState<number | null>(null);
   const [ordner, setOrdner] = useState<string | null>(null);
-  const [verfassenOffen, setVerfassenOffen] = useState<null | { empfaenger?: string; betreff?: string; text?: string; inReplyTo?: string | null; references?: string | null }>(null);
   // Toolbar-State (fester Block oben, unabhaengig von Spaltenbreite)
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<FilterWahl>("alle");
@@ -86,12 +90,23 @@ export default function MailPostfach() {
   const [seite, setSeite] = useState(1);
 
   const oeffneTab = (id: number, betreff: string) => {
-    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, betreff }]));
-    setAktiv(id);
+    const tab: Tab = { typ: "mail", id, betreff };
+    setTabs((t) => (t.some((x) => x.typ === "mail" && x.id === id) ? t : [...t, tab]));
+    setAktiv(tab);
   };
-  const schliesseTab = (id: number) => {
-    setTabs((t) => t.filter((x) => x.id !== id));
-    if (aktiv === id) setAktiv(null);
+  const oeffneVerfassen = (start: VerfassenStart) => {
+    const tab: Tab = { typ: "verfassen", schluessel: Date.now(), start };
+    setTabs((t) => [...t, tab]);
+    setAktiv(tab);
+  };
+  const schliesseTab = (tab: Tab) => {
+    if (tab.typ === "verfassen") {
+      // Bei Verfassen-Tabs immer erst fragen (Löschen / Entwurf / Senden)
+      setSchliessenDialog(tab.schluessel);
+      return;
+    }
+    setTabs((t) => t.filter((x) => x !== tab));
+    if (aktiv === tab) setAktiv(null);
   };
 
   return (
@@ -114,17 +129,22 @@ export default function MailPostfach() {
           >
             Postfach
           </button>
-          {tabs.map((t) => (
-            <div
-              key={t.id}
-              className={`flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${aktiv === t.id ? "border-neutral-300 bg-white font-medium" : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
-            >
-              <button onClick={() => setAktiv(t.id)} className="max-w-40 truncate">{t.betreff || "(kein Betreff)"}</button>
-              <button onClick={() => schliesseTab(t.id)} className="rounded p-0.5 hover:bg-neutral-300"><X className="h-3 w-3" /></button>
-            </div>
-          ))}
+          {tabs.map((t, i) => {
+            const istAktiv = aktiv === t;
+            const label = t.typ === "mail" ? (t.betreff || "(kein Betreff)") : "✉ Verfassen";
+            const key = t.typ === "mail" ? `m${t.id}` : `v${t.schluessel}`;
+            return (
+              <div
+                key={key}
+                className={`flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${istAktiv ? "border-neutral-300 bg-white font-medium" : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
+              >
+                <button onClick={() => setAktiv(t)} className="max-w-40 truncate">{label}</button>
+                <button onClick={() => schliesseTab(t)} className="rounded p-0.5 hover:bg-neutral-300"><X className="h-3 w-3" /></button>
+              </div>
+            );
+          })}
           <div className="ml-auto shrink-0">
-            <Button size="sm" onClick={() => setVerfassenOffen({})}>
+            <Button size="sm" onClick={() => oeffneVerfassen({})}>
               <Pencil className="mr-1.5 h-4 w-4" /> Verfassen
             </Button>
           </div>
@@ -175,8 +195,19 @@ export default function MailPostfach() {
           </div>
         )}
 
-        {aktiv !== null ? (
-          <MailDetail key={aktiv} id={aktiv} kompakt={false} onAntworten={(m) => setVerfassenOffen(m)} />
+        {aktiv?.typ === "mail" ? (
+          <MailDetail key={aktiv.id} id={aktiv.id} kompakt={false} onAntworten={oeffneVerfassen} onTabOeffnen={oeffneTab} />
+        ) : aktiv?.typ === "verfassen" ? (
+          <MailVerfassen
+            key={aktiv.schluessel}
+            start={aktiv.start}
+            abschlussAktion={abschlussAktion}
+            onAktionErledigt={() => {
+              setTabs((t) => t.filter((x) => x !== aktiv));
+              setAktiv(null);
+              setAbschlussAktion(null);
+            }}
+          />
         ) : (
           <div className="flex min-h-0 flex-1 gap-3">
             {/* Spalte 2: Liste (mittig, Outlook) */}
@@ -209,11 +240,18 @@ export default function MailPostfach() {
         )}
       </div>
 
-      {verfassenOffen !== null && (
-        <VerfassenDialog start={verfassenOffen} onSchliessen={() => setVerfassenOffen(null)} />
-      )}
     </div>
   );
+      {schliessenDialog !== null && aktiv?.typ === "verfassen" && aktiv.schluessel === schliessenDialog && (
+        <VerfassenSchliessenDialog
+          onWahl={(aktion) => { setAbschlussAktion(aktion); setSchliessenDialog(null); }}
+          onAbbrechen={() => setSchliessenDialog(null)}
+        />
+      )}
+
+}
+
+/* ═══ Spalte 1
 }
 
 /* ═══ Spalte 1: Konten + Ordner + Regeln ═══ */
@@ -449,11 +487,19 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl,
   );
 }
 
+/* Zitat-Block für Antworten/Weiterleiten (mail-sicheres HTML) */
+function zitatBlock(m: { betreff?: string | null; absenderName?: string | null; absenderAdresse?: string | null; datum?: Date | string | null; textPlain?: string | null; textHtml?: string | null }): string {
+  const kopf = `--- Originalnachricht --- Von: ${m.absenderName ?? m.absenderAdresse ?? "?"} · ${m.betreff ?? ""}`;
+  const inhalt = m.textHtml ?? (m.textPlain ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+  return `<blockquote style="border-left:2px solid #d6d3d1;padding-left:8px;color:#57534e"><p style="font-size:12px;color:#78716c">${kopf.replace(/</g, "&lt;")}</p>${inhalt}</blockquote>`;
+}
+
 /* ═══ Spalte 3: Detail / Vorschau ═══ */
-function MailDetail({ id, kompakt, onAntworten, onAusklappen, onSchliessen }: {
+function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSchliessen }: {
   id: number;
   kompakt: boolean;
-  onAntworten: (m: { empfaenger: string; betreff: string; text: string; inReplyTo: string | null; references: string | null }) => void;
+  onAntworten: (m: VerfassenStart) => void;
+  onTabOeffnen: (id: number, betreff: string) => void;
   onAusklappen?: () => void;
   onSchliessen?: () => void;
 }) {
@@ -507,17 +553,58 @@ function MailDetail({ id, kompakt, onAntworten, onAusklappen, onSchliessen }: {
           <Button
             variant="outline" size="sm"
             onClick={() => {
-              const zitat = (m.textPlain ?? "").split("\n").map((z: string) => `> ${z}`).join("\n");
+              const zitatHtml = zitatBlock(m);
               onAntworten({
                 empfaenger: m.absenderAdresse ?? "",
                 betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
-                text: `\n\n--- Originalnachricht ---\n${zitat}`,
+                html: `<p><br></p>${zitatHtml}`,
                 inReplyTo: m.messageId ?? null,
                 references: m.messageId ?? null,
               });
             }}
           >
             <Reply className="mr-1.5 h-4 w-4" /> Antworten
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => {
+              const zitatHtml = zitatBlock(m);
+              const andere = (m.empfaenger ?? "")
+                .split(",")
+                .map((x: string) => x.trim())
+                .filter((x: string) => x && !x.includes("@"));
+              onAntworten({
+                empfaenger: m.absenderAdresse ?? "",
+                cc: andere.join(", "),
+                betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
+                html: `<p><br></p>${zitatHtml}`,
+                inReplyTo: m.messageId ?? null,
+                references: m.messageId ?? null,
+              });
+            }}
+            title="An Absender + alle Empfänger"
+          >
+            Allen Antworten
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => {
+              const zitatHtml = zitatBlock(m);
+              onAntworten({
+                betreff: m.betreff?.startsWith("Fwd:") ? m.betreff : `Fwd: ${m.betreff ?? ""}`,
+                html: `<p><br></p>${zitatHtml}`,
+              });
+            }}
+            title="Mail weiterleiten"
+          >
+            Weiterleiten
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => onTabOeffnen(id, m.betreff ?? "")}
+            title="Diese Mail in einem extra Tab öffnen"
+          >
+            <ExternalLink className="mr-1.5 h-4 w-4" /> Tab öffnen
           </Button>
           <Button
             size="sm" variant="outline"
@@ -561,168 +648,6 @@ function MailDetail({ id, kompakt, onAntworten, onAusklappen, onSchliessen }: {
         )}
       </div>
     </div>
-  );
-}
 
-/* ═══ Verfassen-Dialog ═══ */
-function VerfassenDialog({ start, onSchliessen }: {
-  start: { empfaenger?: string; betreff?: string; text?: string; inReplyTo?: string | null; references?: string | null };
-  onSchliessen: () => void;
-}) {
-  const [empfaenger, setEmpfaenger] = useState(start.empfaenger ?? "");
-  const [cc, setCc] = useState("");
-  const [betreff, setBetreff] = useState(start.betreff ?? "");
-  const [text, setText] = useState(start.text ?? "");
-  const [entwurfId, setEntwurfId] = useState<number | null>(null);
-  const [vorschlaege, setVorschlaege] = useState<{ name: string; email: string; quelle: string }[]>([]);
-
-  const einstellungen = trpc.settings.get.useQuery();
-  const postfaecher = trpc.postfach.postfaecher.useQuery();
-  const [kontoId, setKontoId] = useState<number | null>(null);
-  const entwuerfe = trpc.postfach.entwuerfe.useQuery();
-  const versenden = trpc.postfach.versenden.useMutation({ onSuccess: onSchliessen });
-  const entwurfSpeichern = trpc.postfach.entwurfSpeichern.useMutation();
-  const entwurfLoeschen = trpc.postfach.entwurfLoeschen.useMutation({ onSuccess: () => entwuerfe.refetch() });
-  const utils = trpc.useUtils();
-
-  const sucheKontakte = async (q: string) => {
-    if (q.trim().length < 2) { setVorschlaege([]); return; }
-    const r = await utils.postfach.kontakte.fetch({ q });
-    setVorschlaege(r);
-  };
-
-  const entwurfLaden = (id: number) => {
-    const e = (entwuerfe.data ?? []).find((x) => x.id === id);
-    if (!e) return;
-    setEntwurfId(id);
-    setEmpfaenger(e.empfaenger ?? "");
-    setCc(e.cc ?? "");
-    setBetreff(e.betreff ?? "");
-    setText(e.text ?? "");
-  };
-
-  const entwurfSichern = () => {
-    entwurfSpeichern.mutate(
-      { id: entwurfId ?? undefined, empfaenger, cc, betreff, text },
-      { onSuccess: (r) => { setEntwurfId(r.id); entwuerfe.refetch(); } },
-    );
-  };
-
-  const signatur = einstellungen.data?.signatur ?? "";
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onSchliessen()}>
-      <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-2xl flex-col overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>E-Mail verfassen</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          {(entwuerfe.data ?? []).length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-xs text-neutral-500">Entwurf laden:</span>
-              {(entwuerfe.data ?? []).slice(0, 5).map((e) => (
-                <button
-                  key={e.id}
-                  onClick={() => entwurfLaden(e.id)}
-                  className={`rounded-md border px-2 py-1 text-xs ${entwurfId === e.id ? "border-teal-400 bg-teal-50" : "border-neutral-200 hover:bg-neutral-50"}`}
-                >
-                  {(e.betreff || "(ohne Betreff)").slice(0, 30)}
-                </button>
-              ))}
-            </div>
-          )}
-          <div>
-            <label className="mb-1 block text-xs text-neutral-500">Von (Konto)</label>
-            <Select
-              value={kontoId === null ? "firma" : String(kontoId)}
-              onValueChange={(v) => setKontoId(v === "firma" ? null : Number(v))}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="firma">Firmen-SMTP (Standard)</SelectItem>
-                {(postfaecher.data ?? []).map((k) => (
-                  <SelectItem key={k.id} value={String(k.id)}>{k.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="relative">
-            <label className="mb-1 block text-xs text-neutral-500">An *</label>
-            <Input
-              value={empfaenger}
-              onChange={(e) => { setEmpfaenger(e.target.value); sucheKontakte(e.target.value.split(",").pop() ?? ""); }}
-              placeholder="empfaenger@beispiel.de, zweite@adresse.de"
-            />
-            {vorschlaege.length > 0 && (
-              <div className="absolute z-20 mt-1 w-full rounded-md border border-neutral-200 bg-white shadow-lg">
-                {vorschlaege.map((v) => (
-                  <button
-                    key={v.email}
-                    className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
-                    onClick={() => {
-                      const teile = empfaenger.split(",").map((x) => x.trim()).filter(Boolean);
-                      teile.pop();
-                      setEmpfaenger([...teile, v.email].join(", "));
-                      setVorschlaege([]);
-                    }}
-                  >
-                    <span>{v.name}</span>
-                    <span className="text-xs text-neutral-400">{v.email}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-neutral-500">CC</label>
-            <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="optional" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-neutral-500">Betreff *</label>
-            <Input value={betreff} onChange={(e) => setBetreff(e.target.value)} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-neutral-500">Text *</label>
-            <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} />
-            {signatur && (
-              <details className="mt-1 text-xs text-neutral-400">
-                <summary className="cursor-pointer">Signatur (wird angehängt)</summary>
-                <pre className="mt-1 whitespace-pre-wrap rounded bg-neutral-50 p-2">{signatur}</pre>
-              </details>
-            )}
-          </div>
-          {versenden.error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{versenden.error.message}</p>}
-        </div>
-        <DialogFooter className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={entwurfSichern} disabled={entwurfSpeichern.isPending}>
-              <Save className="mr-1.5 h-4 w-4" /> {entwurfId ? "Entwurf aktualisieren" : "Als Entwurf speichern"}
-            </Button>
-            {entwurfId && (
-              <Button variant="ghost" size="sm" onClick={() => { entwurfLoeschen.mutate({ id: entwurfId }); setEntwurfId(null); }}>
-                Entwurf löschen
-              </Button>
-            )}
-          </div>
-          <Button
-            disabled={!empfaenger.trim() || !betreff.trim() || !text.trim() || versenden.isPending}
-            onClick={() =>
-              versenden.mutate({
-                kontoId: kontoId ?? undefined,
-                empfaenger: empfaenger.split(",").map((x) => x.trim()).filter(Boolean),
-                cc: cc.split(",").map((x) => x.trim()).filter(Boolean),
-                betreff,
-                text,
-                inReplyTo: start.inReplyTo ?? null,
-                references: start.references ?? null,
-                mitSignatur: true,
-              })
-            }
-          >
-            <Send className="mr-1.5 h-4 w-4" /> {versenden.isPending ? "Sende …" : "Senden"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

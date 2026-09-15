@@ -774,6 +774,8 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   id: serial("id").primaryKey(),
   empfaenger: varchar("empfaenger", { length: 500 }),
   cc: varchar("cc", { length: 500 }),
+  bcc: varchar("bcc", { length: 500 }),
+  kontoId: bigint("konto_id", { mode: "number", unsigned: true }),
   betreff: varchar("betreff", { length: 500 }),
   text: text("text"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),

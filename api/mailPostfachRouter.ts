@@ -235,8 +235,10 @@ export const mailPostfachRouter = createRouter({
       z.object({
         empfaenger: z.array(z.string().email()).min(1),
         cc: z.array(z.string().email()).optional(),
+        bcc: z.array(z.string().email()).optional(),
         betreff: z.string().min(1).max(500),
         text: z.string().min(1),
+        html: z.string().optional(),
         anhaenge: z.array(z.object({ dateiname: z.string(), base64: z.string(), mime: z.string() })).optional(),
         inReplyTo: z.string().nullish(),
         references: z.string().nullish(),
@@ -334,6 +336,8 @@ export const mailPostfachRouter = createRouter({
         id: z.number().optional(),
         empfaenger: z.string().max(500).optional(),
         cc: z.string().max(500).optional(),
+        bcc: z.string().max(500).optional(),
+        kontoId: z.number().optional(),
         betreff: z.string().max(500).optional(),
         text: z.string().optional(),
       }),
@@ -347,6 +351,8 @@ export const mailPostfachRouter = createRouter({
           .set({
             empfaenger: input.empfaenger ?? null,
             cc: input.cc ?? null,
+            bcc: input.bcc ?? null,
+            kontoId: input.kontoId ?? null,
             betreff: input.betreff ?? null,
             text: input.text ?? null,
           })
@@ -358,6 +364,8 @@ export const mailPostfachRouter = createRouter({
         .values({
           empfaenger: input.empfaenger ?? null,
           cc: input.cc ?? null,
+          bcc: input.bcc ?? null,
+          kontoId: input.kontoId ?? null,
           betreff: input.betreff ?? null,
           text: input.text ?? null,
         })

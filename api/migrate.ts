@@ -77,6 +77,8 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "email_konten", spalte: "smtp_passwort_enc", ddl: "ALTER TABLE email_konten ADD COLUMN smtp_passwort_enc VARCHAR(500) NULL" },
   { tabelle: "email_konten", spalte: "smtp_absender", ddl: "ALTER TABLE email_konten ADD COLUMN smtp_absender VARCHAR(255) NULL" },
   { tabelle: "users", spalte: "mail_konto_ids", ddl: "ALTER TABLE users ADD COLUMN mail_konto_ids TEXT NULL" },
+  { tabelle: "mail_entwuerfe", spalte: "bcc", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN bcc VARCHAR(500) NULL AFTER cc" },
+  { tabelle: "mail_entwuerfe", spalte: "konto_id", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN konto_id BIGINT UNSIGNED NULL AFTER bcc" },
   { tabelle: "incoming_invoices", spalte: "kategorie_id", ddl: "ALTER TABLE incoming_invoices ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER gegenkonto, ADD INDEX incoming_kategorie_idx (kategorie_id)" },
   { tabelle: "incoming_invoices", spalte: "beleg_base64", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_base64 MEDIUMTEXT NULL AFTER kategorie_id" },
   { tabelle: "incoming_invoices", spalte: "beleg_mime", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_mime VARCHAR(60) NULL AFTER beleg_base64" },
