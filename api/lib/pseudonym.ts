@@ -3,6 +3,7 @@
 // werden gegen bekannte Stammdaten aufgelöst oder maskiert. Die Klarnamen
 // bleiben im System (GoBD); die Agent-API liefert standardmäßig Pseudonyme.
 import { eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { getDb } from "../queries/connection";
 import { customers, suppliers, companySettings } from "@db/schema";
 import { besterTreffer } from "@contracts/fuzzy";
@@ -74,9 +75,12 @@ export function maskiereGegenstelle(karte: SynonymKarte, name: string): string {
   if (!karte.aktiv) return name;
   const t = besterTreffer(karte.namen, name, (x) => x.name, 80);
   if (t) return t.treffer.synonym || (t.treffer.art === "kunde" ? `K-${String(t.treffer.id).padStart(4, "0")}` : `L-${String(t.treffer.id).padStart(4, "0")}`);
-  // Unbekannt: Anfang kürzen, Rest maskieren (kein Re-Identifikations-Anker)
+  // Unbekannt: Anfang kürzen + kurzer Hash, damit verschiedene Gegenstellen
+  // unterscheidbar bleiben (war sonst „ABCDEF…" für alle) — ohne Re-Identifikations-Anker
   const sauber = name.trim().replace(/\s+/g, " ");
-  return sauber.length <= 5 ? sauber : `${sauber.slice(0, 5)}…`;
+  if (sauber.length <= 8) return sauber;
+  const hash = createHash("sha256").update(sauber.toLowerCase()).digest("hex").slice(0, 4);
+  return `${sauber.slice(0, 8)}…${hash}`;
 }
 
 /** Lieferantenname → Synonym (Eingangsbelege). */

@@ -62,10 +62,21 @@ async function speichereMail(
       anhaenge: JSON.stringify(anhaenge),
     })
     .$returningId();
+  // Webhook: mail.neu (fire-and-forget; absenderAdresse unmaskiert — Server-intern)
+  import("./lib/webhooks").then(({ feuereWebhooks }) =>
+    feuereWebhooks("mail.neu", {
+      mailId: id,
+      kontoId: konto.id,
+      ordner,
+      betreff: geparst.subject ?? null,
+      absenderAdresse: geparst.from?.value?.[0]?.address ?? null,
+      datum: (geparst.date ?? umschlagDatum ?? new Date()).toISOString(),
+    }),
+  ).catch(() => undefined);
   return { id, istNeu: true };
 }
 
-async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void> {
+async function rufeKontoAb(konto: typeof emailKonten.$inferSelect, nurOrdner: string | null = null): Promise<void> {
   const db = getDb();
   const passwort = entschluesseln(konto.passwortEnc);
   if (!passwort) throw new Error("Passwort konnte nicht entschlüsselt werden.");
@@ -102,6 +113,7 @@ async function rufeKontoAb(konto: typeof emailKonten.$inferSelect): Promise<void
     }
 
     for (const ordner of ordnerListe) {
+      if (nurOrdner && ordner !== nurOrdner) continue; // gezielter Sync (Agent: POST /mails/sync {ordner})
       await rufeOrdnerAb(client, konto, ordner, (n) => { importiert += n; });
     }
     await client.logout();
@@ -274,15 +286,47 @@ export async function testeKonto(id: number): Promise<{ ok: boolean; fehler?: st
   }
 }
 
-/** Manueller Sync eines Kontos (UI-Button „Jetzt abrufen"). */
-export async function synchronisiereKonto(id: number): Promise<{ ok: boolean; fehler?: string }> {
+/** Manueller Sync eines Kontos (UI-Button „Jetzt abrufen"; optional nur ein Ordner). */
+export async function synchronisiereKonto(id: number, nurOrdner: string | null = null): Promise<{ ok: boolean; fehler?: string }> {
   const konto = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, id) });
   if (!konto) throw new Error("Konto nicht gefunden.");
   try {
-    await rufeKontoAb(konto);
+    await rufeKontoAb(konto, nurOrdner);
     const frisch = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, id) });
     return frisch?.letzterFehler ? { ok: false, fehler: frisch.letzterFehler } : { ok: true };
   } catch (e) {
+    return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
+  }
+}
+
+/** Mail per IMAP-MOVE in einen anderen Ordner verschieben (Server bleibt Wahrheit). */
+export async function verschiebeMail(
+  kontoId: number,
+  quellOrdner: string,
+  uid: number,
+  zielOrdner: string,
+): Promise<{ ok: boolean; fehler?: string }> {
+  const konto = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, kontoId) });
+  if (!konto) return { ok: false, fehler: "Konto nicht gefunden." };
+  const passwort = entschluesseln(konto.passwortEnc);
+  if (!passwort) return { ok: false, fehler: "Passwort nicht lesbar." };
+  const client = new ImapFlow({
+    host: konto.host, port: konto.port, secure: konto.tls,
+    auth: { user: konto.benutzer, pass: passwort },
+    logger: false, socketTimeout: 20000, greetingTimeout: 10000,
+  });
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(quellOrdner);
+    try {
+      await client.messageMove(String(uid), zielOrdner, { uid: true });
+    } finally {
+      lock.release();
+    }
+    await client.logout();
+    return { ok: true };
+  } catch (e) {
+    try { await client.logout(); } catch { /* ok */ }
     return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
   }
 }

@@ -424,6 +424,19 @@ export async function persistiereUndMatche(
       betrag: z.betrag, gebuehr: z.gebuehr, vorschlag: await autoMatch(z),
     });
   }
+  // Webhook: bankbuchung.neu (kompakt: nur Zählung + IDs, kein Klartext-Feuerwerk)
+  if (neu.length > 0) {
+    import("./lib/webhooks")
+      .then(({ feuereWebhooks }) =>
+        feuereWebhooks("bankbuchung.neu", {
+          bankAccountId,
+          importId,
+          anzahl: neu.length,
+          transaktionIds: neu.map((n) => n.id),
+        }),
+      )
+      .catch(() => undefined);
+  }
   return {
     importId,
     importiert: neu.length,

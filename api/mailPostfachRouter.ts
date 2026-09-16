@@ -344,36 +344,26 @@ export const mailPostfachRouter = createRouter({
         kontoId: z.number().optional(),
         betreff: z.string().max(500).optional(),
         text: z.string().optional(),
+        anhaenge: z.array(z.object({ dateiname: z.string(), base64: z.string(), mime: z.string() })).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const { mailEntwuerfe } = await import("@db/schema");
       const db = getDb();
+      const werte = {
+        empfaenger: input.empfaenger ?? null,
+        cc: input.cc ?? null,
+        bcc: input.bcc ?? null,
+        kontoId: input.kontoId ?? null,
+        betreff: input.betreff ?? null,
+        text: input.text ?? null,
+        anhaenge: input.anhaenge?.length ? JSON.stringify(input.anhaenge) : null,
+      };
       if (input.id) {
-        await db
-          .update(mailEntwuerfe)
-          .set({
-            empfaenger: input.empfaenger ?? null,
-            cc: input.cc ?? null,
-            bcc: input.bcc ?? null,
-            kontoId: input.kontoId ?? null,
-            betreff: input.betreff ?? null,
-            text: input.text ?? null,
-          })
-          .where(eq(mailEntwuerfe.id, input.id));
+        await db.update(mailEntwuerfe).set(werte).where(eq(mailEntwuerfe.id, input.id));
         return { ok: true, id: input.id };
       }
-      const [{ id }] = await db
-        .insert(mailEntwuerfe)
-        .values({
-          empfaenger: input.empfaenger ?? null,
-          cc: input.cc ?? null,
-          bcc: input.bcc ?? null,
-          kontoId: input.kontoId ?? null,
-          betreff: input.betreff ?? null,
-          text: input.text ?? null,
-        })
-        .$returningId();
+      const [{ id }] = await db.insert(mailEntwuerfe).values(werte).$returningId();
       return { ok: true, id };
     }),
 

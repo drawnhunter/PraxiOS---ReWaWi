@@ -2,6 +2,44 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.17.0] — 2026-09-16
+
+### Neu (Agent-API Ausbau: „KI macht vor, Mensch sendet ab")
+
+- **Mail-Entwürfe per API:** `POST /mail/entwurf` (mit Anhängen), `GET /mail-entwuerfe`, `DELETE /mail-entwurf/:id`, `POST /mail/:id/als-entwurf` (Antwort/Weiterleitung inkl. Anhang-Übernahme). Entwürfe erscheinen in der UI-Seitenleiste (KI-Badge), prüfbar und per Klick sendbar — kein „vollautomatik" nötig.
+- **Kunden-Zuordnung ohne Klartext:** `GET /kunde/nach-email/:email`, `GET /kunde/nach-name/:name` (fuzzy, 5 Kandidaten), `GET /kunde/:id/rechnungen` (alle, mit bezahlt/offen), `GET /rechnungen?q=&von=&bis=&status=`.
+- **`GET /rechnung/:id/pdf`** — das GoBD-PDF als base64.
+- **Bankbuchungen-Suche:** `GET /bankbuchungen` mit `q` (Name/Zweck), `von`/`bis`, `betragMin/Max`, `kontoId`.
+- **Beleg-Extraktion:** `POST /beleg/extrahieren {base64, mime}` — OCR + regelbasierte Felder (Lieferant, Datum, Brutto, MwSt, Nummer, IBAN) mit Konfidenz je Feld.
+- **Mail-Status:** `POST /mail/:id/gelesen`, `/markierung`, `/verschieben` (echter IMAP-Move).
+- **Gezielter Sync:** `POST /mails/sync {kontoId?, ordner?}`.
+- **Granulare Autonomie:** Token-Feld `freigabeEmpfaenger` (Adressen/@domains) erlaubt Direktversand an Routine-Empfänger auch in Stufe „vorschlag"; `GET /versand-log`.
+- **Audit-Log lesbar:** `GET /audit-log?von=&bis=&aktion=`.
+- **Idempotenz-Keys:** Header `Idempotenz-Key` bei POSTs — Retry-sicher.
+- **Webhooks:** `POST/GET/DELETE /webhooks` für `mail.neu` + `bankbuchung.neu`.
+- **Termine:** `serie` (wöchentlich/14-tägig/monatlich, 12 Vorkommen materialisiert), `erinnereAm` (ICS-VALARM), `kundenId`-Filter.
+- **Aufgaben:** `faelligAm`, `prioritaet`, `referenz {art,id}` — echte Wiedervorlage.
+- **`GET /uebersicht/heute`** — Morgen-Briefing in einem Call.
+
+### Behoben
+
+- **Bank-Maskierung:** unbekannte Gegenstellen jetzt mit Hash-Suffix (`Musterha…a1b2`) statt alle gleich abgeschnitten — unterscheidbar, weiterhin maskiert.
+- **CSV-Umlaute:** `csvBase64` wird serverseitig als UTF-8/Windows-1252 dekodiert.
+- **`/kontostand`:** zusätzlich explizites `bankAccountId`-Feld.
+
+## [1.16.6] — 2026-09-16
+
+### Behoben
+
+- **Kritisch — Mail-Backfill:** der Ordner-Sync holte bei jedem Lauf nur die 50 NEUESTEN Mails (Fenster bewegte sich nie rückwärts; ältere Monate fehlten). Jetzt Wasserzeichen-Backfill (min/max UID je Konto+Ordner): lückenlos bis zum Ordneranfang.
+- **OCR-Fallback:** Scan-PDFs ohne Textebene laufen jetzt automatisch durch pdftoppm→tesseract (deu+eng).
+- **`GET /zahlungsziele` HTTP 500** (fehlender `or`-Import; betraf auch Kalender-Quelleinträge).
+- **Mails ohne Datum:** Envelope-Fallback beim Sync + `POST /mails/datum-heilen` für Bestand.
+
+### Neu
+
+- `GET /mails`: `offset`, `von`/`bis`, `nurMitAnhang` · `GET /mail-ordner` · `GET /mail/:id?kurz=1` · `POST /mails/sync` · `POST /mails/datum-heilen` · `GET /termine?mailId=`.
+
 ## [1.15.1] — 2026-09-14
 
 ### Neu

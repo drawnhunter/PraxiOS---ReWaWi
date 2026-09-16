@@ -112,6 +112,12 @@ export default function MailPostfach() {
         <Seitenleiste
           kontoId={kontoId} setKontoId={(v) => { setKontoId(v); setOrdner(null); }}
           ordner={ordner} setOrdner={setOrdner}
+          onEntwurfOeffnen={(e) => oeffneVerfassen({
+            empfaenger: e.empfaenger ?? "", cc: e.cc ?? "", bcc: e.bcc ?? "",
+            betreff: e.betreff ?? "", html: e.text ?? "<p><br></p>",
+            kontoId: e.kontoId ?? kontoId, entwurfId: e.id,
+            anhaenge: e.anhaengeParsed,
+          })}
         />
       </div>
       <Resizer onDrag={(dx) => setLinksBreite(linksBreite + dx)} />
@@ -251,9 +257,10 @@ export default function MailPostfach() {
 }
 
 /* ═══ Spalte 1: Konten + Ordner + Regeln ═══ */
-function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner }: {
+function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen }: {
   kontoId: number | null; setKontoId: (v: number | null) => void;
   ordner: string | null; setOrdner: (v: string | null) => void;
+  onEntwurfOeffnen: (e: EntwurfEintrag) => void;
 }) {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const sync = trpc.postfach.syncJetzt.useMutation({ onSuccess: () => postfaecher.refetch() });
@@ -311,7 +318,48 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner }: {
           Noch keine Konten — in den <Link to="/einstellungen" className="underline">Einstellungen</Link> anlegen.
         </p>
       )}
+      <EntwuerfeSektion onOeffnen={onEntwurfOeffnen} />
       <RegelnSektion />
+    </div>
+  );
+}
+
+/* ═══ Entwürfe (inkl. KI-vorbereitete, Quelle „agent") ═══ */
+interface EntwurfEintrag {
+  id: number; empfaenger: string | null; cc: string | null; bcc: string | null;
+  kontoId: number | null; betreff: string | null; text: string | null;
+  anhaenge: string | null; quelle: string; updatedAt: string | Date;
+  anhaengeParsed?: { dateiname: string; base64: string; mime: string }[];
+}
+
+function EntwuerfeSektion({ onOeffnen }: { onOeffnen: (e: EntwurfEintrag) => void }) {
+  const entwuerfe = trpc.postfach.entwuerfe.useQuery(undefined, { refetchInterval: 30000 });
+  const liste = (entwuerfe.data ?? []) as EntwurfEintrag[];
+  if (liste.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-neutral-100 pt-2">
+      <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Entwürfe ({liste.length})</span>
+      <div className="mt-1 space-y-0.5">
+        {liste.map((e) => {
+          let anhaengeParsed: EntwurfEintrag["anhaengeParsed"] = [];
+          try { anhaengeParsed = e.anhaenge ? JSON.parse(e.anhaenge) : []; } catch { /* egal */ }
+          return (
+            <button
+              key={e.id}
+              onClick={() => onOeffnen({ ...e, anhaengeParsed })}
+              className="w-full truncate rounded-md px-2 py-1.5 text-left text-xs hover:bg-teal-50"
+              title={e.empfaenger ?? ""}
+            >
+              <span className="flex items-center gap-1.5">
+                {e.quelle === "agent" && <Brain className="h-3 w-3 shrink-0 text-teal-600" />}
+                <span className="truncate font-medium">{e.betreff || "(kein Betreff)"}</span>
+                {(anhaengeParsed?.length ?? 0) > 0 && <span className="text-neutral-400">📎{anhaengeParsed!.length}</span>}
+              </span>
+              <span className="block truncate text-neutral-400">an {e.empfaenger || "—"}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

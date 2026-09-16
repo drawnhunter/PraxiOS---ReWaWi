@@ -82,6 +82,19 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "incoming_invoices", spalte: "kategorie_id", ddl: "ALTER TABLE incoming_invoices ADD COLUMN kategorie_id BIGINT UNSIGNED NULL AFTER gegenkonto, ADD INDEX incoming_kategorie_idx (kategorie_id)" },
   { tabelle: "incoming_invoices", spalte: "beleg_base64", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_base64 MEDIUMTEXT NULL AFTER kategorie_id" },
   { tabelle: "incoming_invoices", spalte: "beleg_mime", ddl: "ALTER TABLE incoming_invoices ADD COLUMN beleg_mime VARCHAR(60) NULL AFTER beleg_base64" },
+  // ── v1.17.0: Agent-API Ausbau ──
+  { tabelle: "mail_entwuerfe", spalte: "anhaenge", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN anhaenge MEDIUMTEXT NULL AFTER text" },
+  { tabelle: "mail_entwuerfe", spalte: "in_reply_to", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN in_reply_to VARCHAR(500) NULL AFTER anhaenge" },
+  { tabelle: "mail_entwuerfe", spalte: "referenzen", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN referenzen VARCHAR(1000) NULL AFTER in_reply_to" },
+  { tabelle: "mail_entwuerfe", spalte: "quelle", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN quelle VARCHAR(20) NOT NULL DEFAULT 'mensch' AFTER referenzen" },
+  { tabelle: "agent_tokens", spalte: "freigabe_empfaenger", ddl: "ALTER TABLE agent_tokens ADD COLUMN freigabe_empfaenger TEXT NULL AFTER aktiv" },
+  { tabelle: "agent_aufgaben", spalte: "faellig_am", ddl: "ALTER TABLE agent_aufgaben ADD COLUMN faellig_am DATE NULL AFTER erledigt_am" },
+  { tabelle: "agent_aufgaben", spalte: "prioritaet", ddl: "ALTER TABLE agent_aufgaben ADD COLUMN prioritaet VARCHAR(10) NOT NULL DEFAULT 'normal' AFTER faellig_am" },
+  { tabelle: "agent_aufgaben", spalte: "referenz_json", ddl: "ALTER TABLE agent_aufgaben ADD COLUMN referenz_json TEXT NULL AFTER prioritaet" },
+  { tabelle: "termine", spalte: "kunden_id", ddl: "ALTER TABLE termine ADD COLUMN kunden_id BIGINT UNSIGNED NULL AFTER mail_id" },
+  { tabelle: "termine", spalte: "erinnere_am", ddl: "ALTER TABLE termine ADD COLUMN erinnere_am DATETIME NULL AFTER kunden_id" },
+  { tabelle: "termine", spalte: "serie", ddl: "ALTER TABLE termine ADD COLUMN serie VARCHAR(20) NULL AFTER erinnere_am" },
+  { tabelle: "termine", spalte: "serie_id", ddl: "ALTER TABLE termine ADD COLUMN serie_id VARCHAR(36) NULL AFTER serie" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -485,6 +498,31 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       CONSTRAINT bank_tx_import_fk FOREIGN KEY (import_id) REFERENCES bank_importe(id) ON DELETE SET NULL,
       CONSTRAINT bank_tx_invoice_fk FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL,
       CONSTRAINT bank_tx_incoming_fk FOREIGN KEY (incoming_invoice_id) REFERENCES incoming_invoices(id) ON DELETE SET NULL
+    )`,
+  },
+  // ── v1.17.0 ──
+  {
+    tabelle: "agent_idempotenz",
+    ddl: `CREATE TABLE IF NOT EXISTS agent_idempotenz (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      schluessel VARCHAR(128) NOT NULL,
+      endpunkt VARCHAR(255) NOT NULL,
+      status INT NOT NULL,
+      antwort_json MEDIUMTEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE INDEX agent_idem_key (schluessel)
+    )`,
+  },
+  {
+    tabelle: "webhooks",
+    ddl: `CREATE TABLE IF NOT EXISTS webhooks (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      ereignis VARCHAR(40) NOT NULL,
+      url VARCHAR(1000) NOT NULL,
+      aktiv TINYINT(1) NOT NULL DEFAULT 1,
+      fehler INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX webhooks_ereignis (ereignis, aktiv)
     )`,
   },
 ];

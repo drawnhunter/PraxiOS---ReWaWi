@@ -163,6 +163,15 @@ export function baueKalenderIcs(rows: (typeof termine.$inferSelect)[], quellen: 
     zeilen.push(`SUMMARY:${icsEscape(t.titel)}`);
     if (t.beschreibung) zeilen.push(`DESCRIPTION:${icsEscape(t.beschreibung)}`);
     if (t.farbe) zeilen.push(`COLOR:${t.farbe}`);
+    // Erinnerung (VALARM, absolut — wird von Google Kalender/Apple übernommen)
+    if (t.erinnereAm) {
+      const wann = new Date(t.erinnereAm).toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+      zeilen.push("BEGIN:VALARM");
+      zeilen.push("ACTION:DISPLAY");
+      zeilen.push(`TRIGGER;VALUE=DATE-TIME:${wann}`);
+      zeilen.push(`DESCRIPTION:${icsEscape(t.titel)}`);
+      zeilen.push("END:VALARM");
+    }
     zeilen.push("END:VEVENT");
   }
   for (const q of quellen) {

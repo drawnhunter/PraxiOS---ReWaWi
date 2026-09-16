@@ -16,6 +16,13 @@ import { APP_VERSION } from "./lib/version";
 import { computeTotals, centToDecimal } from "./queries/invoicing";
 import { besterTreffer } from "@contracts/fuzzy";
 
+// Token-Zeile (agent_tokens) steht nach der Auth-Middleware im Kontext
+declare module "hono" {
+  interface ContextVariableMap {
+    agentToken: typeof agentTokens.$inferSelect;
+  }
+}
+
 const app = new Hono();
 
 function hashToken(t: string): string {
@@ -28,7 +35,7 @@ export function erzeugeAgentToken(): string {
 }
 export { hashToken };
 
-// ── Auth-Middleware ────────────────────────────────────────────────────────
+// ── Auth-Middleware (+ Token-Kontext + Idempotenz-Keys) ───────────────────
 app.use("*", async (c, next) => {
   const kopf = c.req.header("authorization") ?? "";
   const token = kopf.startsWith("Bearer ") ? kopf.slice(7).trim() : "";
@@ -42,8 +49,56 @@ app.use("*", async (c, next) => {
     .set({ letzteNutzung: new Date() })
     .where(eq(agentTokens.id, treffer.id))
     .catch(() => undefined);
+  c.set("agentToken", treffer);
+
+  // Idempotenz: POST mit Idempotenz-Key → gespeicherte Antwort replayen (Retry-sicher)
+  const idemKey = c.req.header("idempotenz-key") ?? c.req.header("idempotency-key");
+  if (c.req.method === "POST" && idemKey) {
+    const { agentIdempotenz } = await import("@db/schema");
+    const db = getDb();
+    const bekannt = await db.query.agentIdempotenz.findFirst({
+      where: eq(agentIdempotenz.schluessel, idemKey.slice(0, 128)),
+    });
+    if (bekannt) {
+      return new Response(bekannt.antwortJson ?? "{}", {
+        status: bekannt.status,
+        headers: { "content-type": "application/json", "x-idempotent-replay": "1" },
+      });
+    }
+    await next();
+    try {
+      const klon = c.res.clone();
+      const antwort = await klon.text();
+      if (klon.status < 500) {
+        await db
+          .insert(agentIdempotenz)
+          .values({ schluessel: idemKey.slice(0, 128), endpunkt: c.req.path, status: klon.status, antwortJson: antwort })
+          .catch(() => undefined);
+      }
+    } catch { /* Idempotenz darf nie blockieren */ }
+    return;
+  }
   return next();
 });
+
+/** Granulare Autonomie: vollautomatik erlaubt alles; sonst Token-Freigabeliste (Adresse oder @domain). */
+async function versandErlaubt(c: { get: (k: string) => unknown }, empfaenger: string[]): Promise<{ ok: boolean; via: string }> {
+  const stufe = await autonomie();
+  if (stufe === "vollautomatik") return { ok: true, via: "vollautomatik" };
+  const token = c.get("agentToken") as { freigabeEmpfaenger?: string | null } | undefined;
+  let liste: string[] = [];
+  try {
+    liste = token?.freigabeEmpfaenger ? (JSON.parse(token.freigabeEmpfaenger) as string[]) : [];
+  } catch { liste = []; }
+  if (liste.length === 0) return { ok: false, via: "gesperrt" };
+  const norm = liste.map((x) => x.toLowerCase().trim());
+  const alleOk = empfaenger.every((e) => {
+    const adr = e.toLowerCase().trim();
+    const dom = adr.split("@")[1] ?? "";
+    return norm.includes(adr) || norm.includes(`@${dom}`);
+  });
+  return alleOk ? { ok: true, via: "freigabeliste" } : { ok: false, via: "gesperrt" };
+}
 
 async function audit(aktion: string, details?: unknown) {
   try {
@@ -163,17 +218,36 @@ app.get("/bankbuchungen", async (c) => {
   const tage = Math.max(1, Math.min(365, Number(c.req.query("tage") ?? "30")));
   const seit = new Date(Date.now() - tage * 86400000).toISOString().slice(0, 10);
   const { bankTransaktionen, bankAccounts } = await import("@db/schema");
-  const { gte, asc } = await import("drizzle-orm");
+  const { and, asc, gte, lte, like, or, eq: eqD } = await import("drizzle-orm");
   const { kategorien } = await import("@db/schema");
   const { ladeSynonymKarte, maskiereGegenstelle } = await import("./lib/pseudonym");
   const karte = await ladeSynonymKarte();
+  // Filter: q (Name/Zweck), von/bis (überschreibt tage), betragMin/Max, kontoId
+  const q = c.req.query("q")?.trim();
+  const von = c.req.query("von");
+  const bis = c.req.query("bis");
+  const betragMin = c.req.query("betragMin");
+  const betragMax = c.req.query("betragMax");
+  const kontoId = c.req.query("kontoId");
+  const bedingungen = [];
+  if (von && /^\d{4}-\d{2}-\d{2}$/.test(von)) bedingungen.push(gte(bankTransaktionen.datum, von));
+  if (bis && /^\d{4}-\d{2}-\d{2}$/.test(bis)) bedingungen.push(lte(bankTransaktionen.datum, bis));
+  if (!von && !bis) bedingungen.push(gte(bankTransaktionen.datum, seit));
+  if (q) {
+    const muster = `%${q}%`;
+    bedingungen.push(or(like(bankTransaktionen.name, muster), like(bankTransaktionen.zweck, muster)));
+  }
+  if (betragMin !== undefined && betragMin !== "" && !Number.isNaN(Number(betragMin))) bedingungen.push(gte(bankTransaktionen.betrag, String(Number(betragMin))));
+  if (betragMax !== undefined && betragMax !== "" && !Number.isNaN(Number(betragMax))) bedingungen.push(lte(bankTransaktionen.betrag, String(Number(betragMax))));
+  if (kontoId) bedingungen.push(eqD(bankTransaktionen.bankAccountId, Number(kontoId)));
   const rows = await getDb()
     .select({ t: bankTransaktionen, konto: bankAccounts.bezeichnung, kategorieName: kategorien.name })
     .from(bankTransaktionen)
     .leftJoin(bankAccounts, eq(bankTransaktionen.bankAccountId, bankAccounts.id))
     .leftJoin(kategorien, eq(bankTransaktionen.kategorieId, kategorien.id))
-    .where(gte(bankTransaktionen.datum, seit))
-    .orderBy(asc(bankTransaktionen.datum));
+    .where(bedingungen.length ? and(...bedingungen) : undefined)
+    .orderBy(asc(bankTransaktionen.datum))
+    .limit(1000);
   return c.json({
     tage,
     anzahl: rows.length,
@@ -225,6 +299,7 @@ app.get("/kontostand", async (c) => {
       .where(eq(bankTransaktionen.bankAccountId, k.id));
     aus.push({
       kontoId: k.id,
+      bankAccountId: k.id, // Alias — eindeutige Benennung für Import-Calls
       bezeichnung: k.bezeichnung,
       iban: k.iban,
       saldo: letzteSaldo[0]?.saldo !== null && letzteSaldo[0]?.saldo !== undefined
@@ -299,6 +374,94 @@ app.get("/kunden", async (c) => {
         : { zusatz: k.zusatz, strasse: k.strasse, plz: k.plz, ort: k.ort, land: k.land, email: k.email }),
       land: k.land,
       zahlungszielTage: k.zahlungszielTage,
+    })),
+  });
+});
+
+/** E-Mail → Kunde (Zuordnung Mail↔Kunde, ohne Klartext rauszugeben). */
+app.get("/kunde/nach-email/:email", async (c) => {
+  const email = decodeURIComponent(c.req.param("email")).toLowerCase().trim();
+  const { like } = await import("drizzle-orm");
+  const rows = await getDb().select().from(customers).where(like(customers.email, email));
+  const treffer = rows[0] ?? null;
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  if (!treffer) return c.json({ ok: false, fehler: "Kein Kunde mit dieser E-Mail." }, 404);
+  return c.json({ ok: true, kundenId: treffer.id, pseudonym: agentName(karte, treffer.id, treffer.name), ort: treffer.ort });
+});
+
+/** Name (fuzzy) → Kandidaten mit ID + Pseudonym. */
+app.get("/kunde/nach-name/:name", async (c) => {
+  const name = decodeURIComponent(c.req.param("name")).trim();
+  if (name.length < 2) return c.json({ ok: false, fehler: "name zu kurz." }, 400);
+  const rows = await getDb().select().from(customers);
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const { fuzzyScore } = await import("@contracts/fuzzy");
+  const karte = await ladeSynonymKarte();
+  const kandidaten = rows
+    .map((k) => ({ k, score: fuzzyScore(k.name, name) }))
+    .filter((x): x is { k: (typeof rows)[number]; score: number } => x.score !== null && x.score >= 55)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+  return c.json({
+    ok: true,
+    anzahl: kandidaten.length,
+    kandidaten: kandidaten.map(({ k, score }) => ({
+      kundenId: k.id,
+      pseudonym: agentName(karte, k.id, k.name),
+      ort: k.ort,
+      score,
+    })),
+  });
+});
+
+/** Alle Rechnungen eines Kunden (nicht nur offene) — Status, Beträge, Daten. */
+app.get("/kunde/:id/rechnungen", async (c) => {
+  const kundenId = Number(c.req.param("id"));
+  const { desc } = await import("drizzle-orm");
+  const rows = await getDb()
+    .select()
+    .from(invoices)
+    .where(eq(invoices.customerId, kundenId))
+    .orderBy(desc(invoices.rechnungsdatum))
+    .limit(200);
+  return c.json({
+    anzahl: rows.length,
+    rechnungen: rows.map((r) => ({
+      id: r.id, nummer: r.nummer, status: r.status,
+      datum: r.rechnungsdatum, faellig: r.faelligkeitsdatum,
+      brutto: Number(r.brutto), bezahlt: Number(r.bezahltBetrag),
+      offen: (Number(r.brutto) - Number(r.bezahltBetrag)).toFixed(2),
+    })),
+  });
+});
+
+/** Rechnungs-Suche: Nummer (Teilstring), Zeitraum, optional Status. */
+app.get("/rechnungen", async (c) => {
+  const { and, desc, gte, lte, like, eq: eqD } = await import("drizzle-orm");
+  const q = c.req.query("q")?.trim();
+  const von = c.req.query("von");
+  const bis = c.req.query("bis");
+  const status = c.req.query("status");
+  const bedingungen = [];
+  if (q) bedingungen.push(like(invoices.nummer, `%${q}%`));
+  if (von && /^\d{4}-\d{2}-\d{2}$/.test(von)) bedingungen.push(gte(invoices.rechnungsdatum, von));
+  if (bis && /^\d{4}-\d{2}-\d{2}$/.test(bis)) bedingungen.push(lte(invoices.rechnungsdatum, bis));
+  if (status === "entwurf" || status === "finalisiert" || status === "storniert") bedingungen.push(eqD(invoices.status, status));
+  const rows = await getDb()
+    .select()
+    .from(invoices)
+    .where(bedingungen.length ? and(...bedingungen) : undefined)
+    .orderBy(desc(invoices.rechnungsdatum))
+    .limit(100);
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  return c.json({
+    anzahl: rows.length,
+    rechnungen: rows.map((r) => ({
+      id: r.id, nummer: r.nummer, status: r.status, datum: r.rechnungsdatum,
+      kunde: agentName(karte, r.customerId, r.kundeName),
+      brutto: Number(r.brutto), bezahlt: Number(r.bezahltBetrag),
     })),
   });
 });
@@ -496,11 +659,17 @@ app.post("/aufgaben", async (c) => {
   const body = await bodyLesen(c);
   const text = String(body.text ?? "").trim();
   if (!text || text.length > 500) return c.json({ fehler: "text fehlt (max. 500 Zeichen)." }, 400);
+  const faelligAm = body.faelligAm && /^\d{4}-\d{2}-\d{2}$/.test(String(body.faelligAm)) ? String(body.faelligAm) : null;
+  const prioritaet = ["niedrig", "normal", "hoch"].includes(String(body.prioritaet)) ? String(body.prioritaet) : "normal";
+  const referenz =
+    body.referenz && typeof body.referenz === "object" && ["mail", "rechnung", "beleg"].includes(String((body.referenz as Record<string, unknown>).art))
+      ? JSON.stringify(body.referenz)
+      : null;
   const [{ id }] = await getDb()
     .insert(agentAufgaben)
-    .values({ text, quelle: "agent" })
+    .values({ text, quelle: "agent", faelligAm, prioritaet, referenzJson: referenz })
     .$returningId();
-  await audit("aufgabe_angelegt", { id, text });
+  await audit("aufgabe_angelegt", { id, text, faelligAm, prioritaet });
   return c.json({ ok: true, id });
 });
 
@@ -627,16 +796,20 @@ app.post("/rechnung-entwurf", async (c) => {
   return c.json({ ok: true, id, kunde: kundeAnzeige, kundenId: kunde.id, brutto: centToDecimal(totals.bruttoCent), hinweis: "Entwurf angelegt — Freigabe erfolgt durch einen Menschen (oder Vollautomatik in Einstellungen)." });
 });
 
+/** Rechnungs-PDF als base64 (GoBD: dasselbe PDF wie im UI-Download). */
+app.get("/rechnung/:id/pdf", async (c) => {
+  const id = Number(c.req.param("id"));
+  const r = await getDb().query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status === "entwurf") return c.json({ ok: false, fehler: "Entwurf — noch kein GoBD-PDF (erst finalisieren)." }, 409);
+  const { ladeRechnungsBeleg, ladeDesign } = await import("./pdfBelege");
+  const { renderBelegPdf } = await import("./pdf");
+  const { beleg, dateiname } = await ladeRechnungsBeleg(id);
+  const pdf = await renderBelegPdf(beleg, await ladeDesign());
+  return c.json({ ok: true, dateiname: `Rechnung-${dateiname}.pdf`, base64: pdf.toString("base64"), mime: "application/pdf" });
+});
+
 app.post("/rechnung/:id/versenden", async (c) => {
-  const stufe = await autonomie();
-  if (stufe !== "vollautomatik") {
-    return c.json(
-      {
-        fehler: "Versand ist in der Autonomie-Stufe „vorschlag“ gesperrt. Entwurf prüfen und manuell versenden — oder Einstellungen → Agent-API auf „vollautomatik“ stellen.",
-      },
-      403,
-    );
-  }
   const id = Number(c.req.param("id"));
   const body = await bodyLesen(c);
   const db = getDb();
@@ -647,6 +820,13 @@ app.post("/rechnung/:id/versenden", async (c) => {
   const kundeRow = await db.query.customers.findFirst({ where: eq(customers.id, r.customerId) });
   const empfaenger = String(body.empfaenger ?? kundeRow?.email ?? "").trim();
   if (!empfaenger) return c.json({ fehler: "Keine Empfänger-Adresse (empfaenger angeben oder beim Kunden hinterlegen)." }, 400);
+  const erlaubnis = await versandErlaubt(c, [empfaenger]);
+  if (!erlaubnis.ok) {
+    return c.json(
+      { fehler: "Versand gesperrt: weder Stufe „vollautomatik“ noch Token-Freigabeliste deckt den Empfänger ab. Alternative: GET /rechnung/:id/pdf + POST /mail/entwurf (Mensch-Review)." },
+      403,
+    );
+  }
 
   const { ladeRechnungsBeleg } = await import("./pdfBelege");
   const { renderBelegPdf } = await import("./pdf");
@@ -1407,8 +1587,18 @@ app.post("/bankimport", async (c) => {
     return c.json({ ok: true, ...ergebnis, auszugMeta: meta });
   }
 
-  const csvText = String(body.csvText ?? "");
-  if (!csvText.trim()) return c.json({ ok: false, fehler: "pdfBase64 oder csvText nötig." }, 400);
+  // csvBase64: Rohbytes serverseitig dekodieren (UTF-8 strikt, Fallback Windows-1252) —
+  // rettet Umlaute aus Excel-/Legacy-Exporten, die als Text schon zerstört wären
+  let csvText = String(body.csvText ?? "");
+  if (body.csvBase64) {
+    const bytes = Buffer.from(String(body.csvBase64), "base64");
+    try {
+      csvText = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      csvText = new TextDecoder("windows-1252").decode(bytes);
+    }
+  }
+  if (!csvText.trim()) return c.json({ ok: false, fehler: "pdfBase64, csvBase64 oder csvText nötig." }, 400);
   const { parseCsv, errate, parseZeilen, parseSumUpVollZeilen, parseSumUpBerichtZeilen, persistiereUndMatche } = await import("./bankTransaktionenRouter");
   const rows = parseCsv(csvText);
   if (rows.length === 0) return c.json({ ok: false, fehler: "Keine Datenzeilen in der CSV gefunden." }, 400);
@@ -1515,16 +1705,24 @@ app.get("/mails", async (c) => {
   });
 });
 
-/** Sofort-Sync aller Mailkonten (Wasserzeichen-Backfill läuft dabei weiter Richtung Vergangenheit). Kann bei vielen Ordnern >1 min dauern. */
+/** Sofort-Sync (optional gezielt: {kontoId?, ordner?} im Body). Wasserzeichen-Backfill läuft dabei weiter Richtung Vergangenheit. */
 app.post("/mails/sync", async (c) => {
   const { emailKonten } = await import("@db/schema");
   const { synchronisiereKonto } = await import("./imapDienst");
+  let kontoFilter: number | null = null;
+  let ordnerFilter: string | null = null;
+  try {
+    const body = await bodyLesen(c);
+    kontoFilter = body.kontoId ? Number(body.kontoId) : null;
+    ordnerFilter = body.ordner ? String(body.ordner) : null;
+  } catch { /* leerer Body = alle Konten */ }
   const konten = await getDb().select({ id: emailKonten.id }).from(emailKonten);
   const ergebnisse = [];
   for (const k of konten) {
-    ergebnisse.push({ kontoId: k.id, ...(await synchronisiereKonto(k.id)) });
+    if (kontoFilter && k.id !== kontoFilter) continue;
+    ergebnisse.push({ kontoId: k.id, ...(await synchronisiereKonto(k.id, ordnerFilter)) });
   }
-  await audit("mails_sync", ergebnisse);
+  await audit("mails_sync", { kontoFilter, ordnerFilter, ergebnisse });
   return c.json({ ok: true, konten: ergebnisse });
 });
 
@@ -1595,32 +1793,144 @@ app.get("/mail/:id/anhang/:index", async (c) => {
 });
 
 app.post("/mail/versenden", async (c) => {
-  const stufe = await autonomie();
-  if (stufe !== "vollautomatik") {
-    return c.json({ ok: false, fehler: "Mail-Versand ist in der Stufe „vorschlag“ gesperrt (Einstellungen → Agent-API → vollautomatik)." }, 403);
-  }
   const body = await bodyLesen(c);
   const empfaenger = Array.isArray(body.empfaenger)
     ? body.empfaenger.map(String)
     : String(body.empfaenger ?? "").split(",").map((x) => x.trim());
   if (empfaenger.filter(Boolean).length === 0) return c.json({ ok: false, fehler: "empfaenger fehlt (Array oder kommagetrennt)." }, 400);
+  const erlaubnis = await versandErlaubt(c, empfaenger);
+  if (!erlaubnis.ok) {
+    return c.json({ ok: false, fehler: "Direktversand gesperrt: weder Stufe „vollautomatik“ noch Token-Freigabeliste deckt alle Empfänger ab. Tipp: POST /mail/entwurf für den Mensch-Review-Weg." }, 403);
+  }
   const betreff = String(body.betreff ?? "").trim();
   const text = String(body.text ?? "");
   if (!betreff || !text) return c.json({ ok: false, fehler: "betreff + text nötig." }, 400);
+  const anhaenge = Array.isArray(body.anhaenge)
+    ? (body.anhaenge as { dateiname?: unknown; base64?: unknown; mime?: unknown }[])
+        .filter((a) => a?.dateiname && a?.base64)
+        .map((a) => ({ dateiname: String(a.dateiname), base64: String(a.base64), mime: String(a.mime ?? "application/octet-stream") }))
+    : undefined;
   const { versendeMail } = await import("./lib/mailVersand");
   const r = await versendeMail({
     kontoId: body.kontoId ? Number(body.kontoId) : undefined,
     empfaenger,
     cc: Array.isArray(body.cc) ? body.cc.map(String) : undefined,
+    bcc: Array.isArray(body.bcc) ? body.bcc.map(String) : undefined,
     betreff,
     text,
+    html: body.html ? String(body.html) : undefined,
+    anhaenge,
     inReplyTo: body.inReplyTo ? String(body.inReplyTo) : null,
     references: body.references ? String(body.references) : null,
     mitSignatur: body.mitSignatur !== false,
   });
-  await audit("mail_versendet", { empfaenger, betreff, erfolg: r.ok, fehler: r.fehler });
+  await audit("mail_versendet", { empfaenger, betreff, via: erlaubnis.via, erfolg: r.ok, fehler: r.fehler });
   if (!r.ok) return c.json({ ok: false, fehler: `Versand fehlgeschlagen: ${r.fehler}` }, 502);
-  return c.json({ ok: true });
+  return c.json({ ok: true, via: erlaubnis.via });
+});
+
+// ── Mail-Entwürfe (Agent legt vor, Mensch prüft & sendet in der UI) ────────
+app.post("/mail/entwurf", async (c) => {
+  const body = await bodyLesen(c);
+  const empfaenger = Array.isArray(body.empfaenger)
+    ? body.empfaenger.map(String).join(", ")
+    : String(body.empfaenger ?? "").trim();
+  const betreff = String(body.betreff ?? "").trim();
+  const text = String(body.text ?? body.html ?? "");
+  if (!empfaenger || !betreff || !text) return c.json({ ok: false, fehler: "empfaenger + betreff + text nötig." }, 400);
+  const { mailEntwuerfe } = await import("@db/schema");
+  const anhaenge = Array.isArray(body.anhaenge)
+    ? (body.anhaenge as { dateiname?: unknown; base64?: unknown; mime?: unknown }[])
+        .filter((a) => a?.dateiname && a?.base64)
+        .map((a) => ({ dateiname: String(a.dateiname), base64: String(a.base64), mime: String(a.mime ?? "application/octet-stream") }))
+    : null;
+  const [{ id }] = await getDb()
+    .insert(mailEntwuerfe)
+    .values({
+      empfaenger,
+      cc: Array.isArray(body.cc) ? body.cc.map(String).join(", ") : body.cc ? String(body.cc) : null,
+      bcc: Array.isArray(body.bcc) ? body.bcc.map(String).join(", ") : body.bcc ? String(body.bcc) : null,
+      kontoId: body.kontoId ? Number(body.kontoId) : null,
+      betreff,
+      text,
+      anhaenge: anhaenge ? JSON.stringify(anhaenge) : null,
+      inReplyTo: body.inReplyTo ? String(body.inReplyTo) : null,
+      referenzen: body.references ? String(body.references) : null,
+      quelle: "agent",
+    })
+    .$returningId();
+  await audit("mail_entwurf_angelegt", { id, empfaenger, betreff, anhaenge: anhaenge?.length ?? 0 });
+  return c.json({ ok: true, id, hinweis: "Entwurf liegt im Verfassen-Tab (Entwürfe-Liste) — der Mensch prüft und sendet." });
+});
+
+app.get("/mail-entwuerfe", async (c) => {
+  const { mailEntwuerfe } = await import("@db/schema");
+  const { desc, eq } = await import("drizzle-orm");
+  const kontoId = c.req.query("kontoId") ? Number(c.req.query("kontoId")) : null;
+  const rows = await getDb()
+    .select()
+    .from(mailEntwuerfe)
+    .where(kontoId ? eq(mailEntwuerfe.kontoId, kontoId) : undefined)
+    .orderBy(desc(mailEntwuerfe.updatedAt))
+    .limit(100);
+  return c.json({
+    anzahl: rows.length,
+    entwuerfe: rows.map((e) => ({
+      id: e.id, empfaenger: e.empfaenger, cc: e.cc, bcc: e.bcc, kontoId: e.kontoId,
+      betreff: e.betreff, text: e.text,
+      anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string }[]).map((a) => a.dateiname) : [],
+      quelle: e.quelle, aktualisiert: e.updatedAt,
+    })),
+  });
+});
+
+app.delete("/mail-entwurf/:id", async (c) => {
+  const { mailEntwuerfe } = await import("@db/schema");
+  const id = Number(c.req.param("id"));
+  await getDb().delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, id));
+  await audit("mail_entwurf_verworfen", { id });
+  return c.json({ ok: true, verworfen: id });
+});
+
+/** Aus einer vorhandenen Mail einen Antwort-/Weiterleiten-Entwurf bauen (Anhänge optional mitnehmen). */
+app.post("/mail/:id/als-entwurf", async (c) => {
+  const mailId = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { mailMails } = await import("@db/schema");
+  const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+  if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
+  const empfaenger = String(body.empfaenger ?? m.absenderAdresse ?? "").trim();
+  if (!empfaenger) return c.json({ ok: false, fehler: "empfaenger fehlt (Original-Absender unbekannt)." }, 400);
+  const betreff = String(body.betreff ?? `Re: ${m.betreff ?? ""}`).trim();
+  const text = String(body.text ?? "");
+  if (!text) return c.json({ ok: false, fehler: "text fehlt (Entwurfs-Inhalt)." }, 400);
+
+  // Anhänge der Originalmail optional übernehmen (aus post_eingang)
+  let anhaenge: { dateiname: string; base64: string; mime: string }[] = [];
+  if (body.mitAnhaengen === true || body.mitAnhaengen === 1) {
+    const { metaLesen } = await import("./lib/mailBeleg");
+    const { postEingang } = await import("@db/schema");
+    for (const meta of metaLesen(m.anhaenge)) {
+      if (!meta.postEingangId) continue;
+      const p = await getDb().query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
+      if (p?.dateiInhalt) anhaenge.push({ dateiname: p.originalname, base64: p.dateiInhalt, mime: p.mime ?? "application/octet-stream" });
+    }
+  }
+  const { mailEntwuerfe } = await import("@db/schema");
+  const [{ id }] = await getDb()
+    .insert(mailEntwuerfe)
+    .values({
+      empfaenger,
+      kontoId: m.kontoId,
+      betreff,
+      text,
+      anhaenge: anhaenge.length ? JSON.stringify(anhaenge) : null,
+      inReplyTo: m.messageId ?? null,
+      quelle: "agent",
+    })
+    .$returningId();
+  await audit("mail_als_entwurf", { mailId, entwurfId: id, anhaenge: anhaenge.length });
+  return c.json({ ok: true, id, empfaenger, betreff, anhaengeUebernommen: anhaenge.length });
 });
 
 app.post("/mail/:id/als-beleg", async (c) => {
@@ -1776,11 +2086,13 @@ app.get("/termine", async (c) => {
   const von = c.req.query("von");
   const bis = c.req.query("bis");
   const mailId = c.req.query("mailId") ? Number(c.req.query("mailId")) : null;
+  const kundenId = c.req.query("kundenId") ? Number(c.req.query("kundenId")) : null;
   const bedingungen = [];
   if (von) bedingungen.push(gte(termine.datum, von));
   if (bis) bedingungen.push(lte(termine.datum, bis));
   // mailId: Idempotenz-Anker — „gibt es zu dieser Mail schon einen Termin?"
   if (mailId) bedingungen.push(eq(termine.mailId, mailId));
+  if (kundenId) bedingungen.push(eq(termine.kundenId, kundenId));
   const rows = await getDb()
     .select()
     .from(termine)
@@ -1799,22 +2111,45 @@ app.post("/termin", async (c) => {
   const { termine } = await import("@db/schema");
   const db = getDb();
   const zeitFeld = (v: unknown) => (v && /^\d{2}:\d{2}$/.test(String(v)) ? String(v) : null);
-  const [{ id }] = await db
-    .insert(termine)
-    .values({
-      datum,
-      startZeit: zeitFeld(body.startZeit),
-      endZeit: zeitFeld(body.endZeit),
-      titel,
-      beschreibung: body.beschreibung ? String(body.beschreibung) : null,
-      farbe: body.farbe ? String(body.farbe) : null,
-      quelle: body.mailId ? "mail" : "agent",
-      mailId: body.mailId ? Number(body.mailId) : null,
-      erstelltVon: "agent",
-    })
-    .$returningId();
-  await audit("termin_angelegt", { id, datum, titel });
-  return c.json({ ok: true, id, datum, titel });
+  const erinnereAm = body.erinnereAm && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(String(body.erinnereAm))
+    ? new Date(String(body.erinnereAm).replace(" ", "T"))
+    : null;
+  const kundenId = body.kundenId ? Number(body.kundenId) : null;
+  const serie = ["woechentlich", "14taegig", "monatlich"].includes(String(body.serie)) ? String(body.serie) : null;
+  const serieId = serie ? randomBytes(8).toString("hex") : null;
+  const basis = {
+    startZeit: zeitFeld(body.startZeit),
+    endZeit: zeitFeld(body.endZeit),
+    titel,
+    beschreibung: body.beschreibung ? String(body.beschreibung) : null,
+    farbe: body.farbe ? String(body.farbe) : null,
+    quelle: body.mailId ? "mail" : "agent",
+    mailId: body.mailId ? Number(body.mailId) : null,
+    kundenId,
+    erinnereAm,
+    serie,
+    serieId,
+    erstelltVon: "agent" as const,
+  };
+  // Serie: nächste 12 Vorkommen als eigene Termine materialisieren (einfach & robust)
+  const schrittTage = serie === "woechentlich" ? 7 : serie === "14taegig" ? 14 : null;
+  const daten: string[] = [datum];
+  if (serie) {
+    let d = new Date(`${datum}T00:00:00`);
+    for (let i = 1; i < 12; i++) {
+      d = new Date(d);
+      if (schrittTage) d.setDate(d.getDate() + schrittTage);
+      else d.setMonth(d.getMonth() + 1);
+      daten.push(d.toISOString().slice(0, 10));
+    }
+  }
+  let ersterId = 0;
+  for (const d of daten) {
+    const [{ id }] = await db.insert(termine).values({ ...basis, datum: d }).$returningId();
+    if (!ersterId) ersterId = id;
+  }
+  await audit("termin_angelegt", { id: ersterId, datum, titel, serie, vorkommen: daten.length });
+  return c.json({ ok: true, id: ersterId, datum, titel, ...(serie ? { serie, serieId, vorkommen: daten.length } : {}) });
 });
 
 app.put("/termin/:id", async (c) => {
@@ -1904,6 +2239,190 @@ app.post("/datev-export", async (c) => {
     hinweise: r.hinweise,
     csvBase64: Buffer.from(r.csv, "utf8").toString("base64"),
   });
+});
+
+// ── v1.17.0: Beleg-Extraktion, Mail-Status, Audit, Webhooks, Briefing ──────
+
+/** OCR + strukturierte Extraktion aus einer Datei (Beleg-Vorentwurf). */
+app.post("/beleg/extrahieren", async (c) => {
+  const body = await bodyLesen(c);
+  const base64 = String(body.base64 ?? "");
+  const mime = String(body.mime ?? "application/pdf");
+  if (!base64) return c.json({ ok: false, fehler: "base64 fehlt." }, 400);
+  const { extrahiereAnhangText } = await import("./lib/anhangText");
+  const { extrahiereBelegFelder } = await import("./lib/belegExtraktion");
+  const text = await extrahiereAnhangText(Buffer.from(base64, "base64"), mime);
+  if (!text.ok || !text.text) return c.json({ ok: false, fehler: text.fehler ?? "Kein Text lesbar.", methode: text.methode }, 422);
+  const felder = extrahiereBelegFelder(text.text);
+  return c.json({ ok: true, methode: text.methode, felder, textVorschau: text.text.slice(0, 500) });
+});
+
+/** Mail-Status: gelesen/ungelesen (lokal; IMAP-Flag wird beim nächsten Sync nicht überschrieben). */
+app.post("/mail/:id/gelesen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const status = body.status === true || body.status === 1 || body.status === "1" || body.status === "true";
+  const { mailMails } = await import("@db/schema");
+  await getDb().update(mailMails).set({ gelesen: status }).where(eq(mailMails.id, id));
+  await audit("mail_gelesen", { id, status });
+  return c.json({ ok: true, id, gelesen: status });
+});
+
+/** Mail-Markierung (Brain-Flag, z. B. Follow-up). */
+app.post("/mail/:id/markierung", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const status = body.status === true || body.status === 1 || body.status === "1" || body.status === "true";
+  const { mailMails } = await import("@db/schema");
+  await getDb().update(mailMails).set({ markiert: status }).where(eq(mailMails.id, id));
+  await audit("mail_markierung", { id, status });
+  return c.json({ ok: true, id, markiert: status });
+});
+
+/** Mail in anderen IMAP-Ordner verschieben (Server-Move + lokale Aktualisierung). */
+app.post("/mail/:id/verschieben", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const ziel = String(body.ordner ?? "").trim();
+  if (!ziel) return c.json({ ok: false, fehler: "ordner (Ziel) fehlt." }, 400);
+  const { mailMails } = await import("@db/schema");
+  const db = getDb();
+  const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, id) });
+  if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
+  const { verschiebeMail } = await import("./imapDienst");
+  const r = await verschiebeMail(m.kontoId, m.ordner, m.uid, ziel);
+  if (!r.ok) return c.json({ ok: false, fehler: r.fehler }, 502);
+  await db.update(mailMails).set({ ordner: ziel }).where(eq(mailMails.id, id));
+  await audit("mail_verschoben", { id, von: m.ordner, nach: ziel });
+  return c.json({ ok: true, id, ordner: ziel });
+});
+
+/** Versand-Log: was ging (automatisch) raus — mail_log der letzten 200 Sendungen. */
+app.get("/versand-log", async (c) => {
+  const { mailLog } = await import("@db/schema");
+  const rows = await getDb().select().from(mailLog).orderBy(desc(mailLog.gesendetAm)).limit(200);
+  return c.json({
+    anzahl: rows.length,
+    sendungen: rows.map((r) => ({
+      id: r.id, belegArt: r.belegArt, belegId: r.belegId, empfaenger: r.empfaenger,
+      betreff: r.betreff, erfolg: r.erfolg, fehler: r.fehler, gesendetAm: r.gesendetAm,
+    })),
+  });
+});
+
+/** Audit-Log lesen: jede Agent-Aktion (Zeit, Aktion, Details). GoBD-Transparenz. */
+app.get("/audit-log", async (c) => {
+  const { and, gte, lte, like } = await import("drizzle-orm");
+  const bedingungen = [];
+  const von = c.req.query("von");
+  const bis = c.req.query("bis");
+  const aktion = c.req.query("aktion");
+  if (von && /^\d{4}-\d{2}-\d{2}$/.test(von)) bedingungen.push(gte(agentLog.createdAt, new Date(`${von}T00:00:00`)));
+  if (bis && /^\d{4}-\d{2}-\d{2}$/.test(bis)) bedingungen.push(lte(agentLog.createdAt, new Date(`${bis}T23:59:59`)));
+  if (aktion) bedingungen.push(like(agentLog.aktion, `%${aktion}%`));
+  const rows = await getDb()
+    .select()
+    .from(agentLog)
+    .where(bedingungen.length ? and(...bedingungen) : undefined)
+    .orderBy(desc(agentLog.id))
+    .limit(Math.min(500, Number(c.req.query("limit") ?? 200)));
+  return c.json({
+    anzahl: rows.length,
+    eintraege: rows.map((r) => ({ id: r.id, aktion: r.aktion, details: r.details, zeit: r.createdAt })),
+  });
+});
+
+// ── Webhooks (Echtzeit statt Polling) ───────────────────────────────────────
+app.get("/webhooks", async (c) => {
+  const { webhooks } = await import("@db/schema");
+  const rows = await getDb().select().from(webhooks);
+  return c.json({ anzahl: rows.length, webhooks: rows });
+});
+
+app.post("/webhooks", async (c) => {
+  const body = await bodyLesen(c);
+  const ereignis = String(body.ereignis ?? "");
+  const url = String(body.url ?? "").trim();
+  if (!["mail.neu", "bankbuchung.neu"].includes(ereignis)) {
+    return c.json({ ok: false, fehler: "ereignis muss mail.neu oder bankbuchung.neu sein." }, 400);
+  }
+  if (!/^https?:\/\//.test(url)) return c.json({ ok: false, fehler: "url muss mit http(s):// beginnen." }, 400);
+  const { webhooks } = await import("@db/schema");
+  const [{ id }] = await getDb().insert(webhooks).values({ ereignis, url }).$returningId();
+  await audit("webhook_registriert", { id, ereignis, url });
+  return c.json({ ok: true, id });
+});
+
+app.delete("/webhooks/:id", async (c) => {
+  const { webhooks } = await import("@db/schema");
+  const id = Number(c.req.param("id"));
+  await getDb().delete(webhooks).where(eq(webhooks.id, id));
+  await audit("webhook_geloescht", { id });
+  return c.json({ ok: true, geloescht: id });
+});
+
+/** Morgen-Briefing in einem Call: Fristen, neue Mails, offene Bankbuchungen, Aufgaben. */
+app.get("/uebersicht/heute", async (c) => {
+  const db = getDb();
+  const heuteS = heute();
+  const { ladeQuellEintraege } = await import("./kalenderRouter");
+  const quellen = await ladeQuellEintraege("2000-01-01", heuteS);
+  const { mailMails, termine } = await import("@db/schema");
+  const { and, eq: eqD, gte, sql } = await import("drizzle-orm");
+  const [neueMails] = await db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(mailMails)
+    .where(gte(mailMails.createdAt, new Date(Date.now() - 24 * 3600 * 1000)));
+  const [ungelesen] = await db.select({ n: sql<number>`COUNT(*)` }).from(mailMails).where(eqD(mailMails.gelesen, false));
+  const { bankTransaktionen } = await import("@db/schema");
+  const [offenBank] = await db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(bankTransaktionen)
+    .where(and(eqD(bankTransaktionen.status, "offen"), sql`${bankTransaktionen.invoiceId} IS NULL`, sql`${bankTransaktionen.incomingInvoiceId} IS NULL`));
+  const termineHeute = await db.select().from(termine).where(eqD(termine.datum, heuteS));
+  const aufgabenOffen = await db.select().from(agentAufgaben).where(eqD(agentAufgaben.erledigt, false));
+  return c.json({
+    datum: heuteS,
+    ueberfaelligeZiele: quellen.filter((q) => q.ueberfaellig),
+    termineHeute: termineHeute.map((t) => ({ id: t.id, titel: t.titel, startZeit: t.startZeit })),
+    mailsNeu24h: Number(neueMails?.n ?? 0),
+    mailsUngelesen: Number(ungelesen?.n ?? 0),
+    bankOffenOhneZuordnung: Number(offenBank?.n ?? 0),
+    aufgabenOffen: aufgabenOffen.map((a) => ({
+      id: a.id, text: a.text, prioritaet: a.prioritaet, faelligAm: a.faelligAm,
+    })),
+  });
+});
+
+/** Direkt aus einer Mail einen Kalender-Termin anlegen (Workflow-Zucker für /termin). */
+app.post("/mail/:id/als-termin", async (c) => {
+  const mailId = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { mailMails, termine } = await import("@db/schema");
+  const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+  if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
+  const datum = String(body.datum ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return c.json({ ok: false, fehler: "datum im Format JJJJ-MM-TT nötig (aus dem Mail-Text erkannt)." }, 400);
+  const titel = String(body.titel ?? m.betreff ?? "Termin aus Mail").trim();
+  // Idempotenz: derselbe Mail-Termin nicht doppelt
+  const vorhanden = await getDb().query.termine.findFirst({ where: eq(termine.mailId, mailId) });
+  if (vorhanden) return c.json({ ok: true, id: vorhanden.id, hinweis: "Zu dieser Mail existiert bereits ein Termin.", bereitsVorhanden: true });
+  const zeitFeld = (v: unknown) => (v && /^\d{2}:\d{2}$/.test(String(v)) ? String(v) : null);
+  const [{ id }] = await getDb()
+    .insert(termine)
+    .values({
+      datum,
+      startZeit: zeitFeld(body.startZeit),
+      endZeit: zeitFeld(body.endZeit),
+      titel,
+      beschreibung: body.beschreibung ? String(body.beschreibung) : `Aus Mail #${mailId}: ${m.betreff ?? ""}`,
+      quelle: "mail",
+      mailId,
+      erstelltVon: "agent",
+    })
+    .$returningId();
+  await audit("mail_als_termin", { mailId, terminId: id, datum });
+  return c.json({ ok: true, id, datum, titel });
 });
 
 export default app;

@@ -634,6 +634,9 @@ export const agentTokens = mysqlTable("agent_tokens", {
   name: varchar("name", { length: 100 }).notNull(),
   tokenHash: varchar("token_hash", { length: 64 }).notNull(),
   aktiv: boolean("aktiv").notNull().default(true),
+  // Granulare Autonomie (v1.17.0): JSON-Array erlaubter Empfaenger (Adressen oder @domains)
+  // fuer Direktversand auch in Stufe "vorschlag". null = keine Freigaben.
+  freigabeEmpfaenger: text("freigabe_empfaenger"),
   letzteNutzung: timestamp("letzte_nutzung"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -643,7 +646,31 @@ export const agentAufgaben = mysqlTable("agent_aufgaben", {
   text: varchar("text", { length: 500 }).notNull(),
   erledigt: boolean("erledigt").notNull().default(false),
   erledigtAm: timestamp("erledigt_am"),
+  // Wiedervorlage-Felder (v1.17.0)
+  faelligAm: date("faellig_am", { mode: "string" }),
+  prioritaet: varchar("prioritaet", { length: 10 }).notNull().default("normal"), // niedrig/normal/hoch
+  referenzJson: text("referenz_json"), // {art: "mail"|"rechnung"|"beleg", id: number}
   quelle: varchar("quelle", { length: 20 }).notNull().default("mensch"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Idempotenz-Keys: Retry nach Timeout liefert die gespeicherte Antwort (v1.17.0)
+export const agentIdempotenz = mysqlTable("agent_idempotenz", {
+  id: serial("id").primaryKey(),
+  schluessel: varchar("schluessel", { length: 128 }).notNull(),
+  endpunkt: varchar("endpunkt", { length: 255 }).notNull(),
+  status: int("status").notNull(),
+  antwortJson: text("antwort_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Webhooks: Ereignis → URL (v1.17.0). Feuert mail.neu + bankbuchung.neu.
+export const webhooks = mysqlTable("webhooks", {
+  id: serial("id").primaryKey(),
+  ereignis: varchar("ereignis", { length: 40 }).notNull(), // mail.neu / bankbuchung.neu
+  url: varchar("url", { length: 1000 }).notNull(),
+  aktiv: boolean("aktiv").notNull().default(true),
+  fehler: int("fehler").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -778,6 +805,11 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   kontoId: bigint("konto_id", { mode: "number", unsigned: true }),
   betreff: varchar("betreff", { length: 500 }),
   text: text("text"),
+  // Anhaenge als JSON [{dateiname, base64, mime}] + Antwort-Verknuepfung (v1.17.0)
+  anhaenge: text("anhaenge"),
+  inReplyTo: varchar("in_reply_to", { length: 500 }),
+  referenzen: varchar("referenzen", { length: 1000 }),
+  quelle: varchar("quelle", { length: 20 }).notNull().default("mensch"), // mensch / agent
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -809,6 +841,10 @@ export const termine = mysqlTable("termine", {
   farbe: varchar("farbe", { length: 12 }),
   quelle: varchar("quelle", { length: 40 }).notNull().default("manuell"), // manuell / mail / beleg / agent
   mailId: bigint("mail_id", { mode: "number", unsigned: true }),
+  kundenId: bigint("kunden_id", { mode: "number", unsigned: true }), // v1.17.0: Kundenbezug
+  erinnereAm: timestamp("erinnere_am"), // v1.17.0: Erinnerung (ICS-VALARM)
+  serie: varchar("serie", { length: 20 }), // v1.17.0: woechentlich/14taegig/monatlich (Vorkommen werden materialisiert)
+  serieId: varchar("serie_id", { length: 36 }), // gemeinsame Kennung aller Vorkommen einer Serie
   erstelltVon: varchar("erstellt_von", { length: 40 }).notNull().default("mensch"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),

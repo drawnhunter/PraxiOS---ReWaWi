@@ -21,6 +21,7 @@ export interface VerfassenStart {
   references?: string | null;
   kontoId?: number | null;
   entwurfId?: number | null;
+  anhaenge?: Anhang[];
 }
 
 interface Anhang { dateiname: string; base64: string; mime: string }
@@ -44,7 +45,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [bcc, setBcc] = useState(start.bcc ?? "");
   const [betreff, setBetreff] = useState(start.betreff ?? "");
   const [html, setHtml] = useState(start.html ?? "<p><br></p>");
-  const [anhaenge, setAnhaenge] = useState<Anhang[]>([]);
+  const [anhaenge, setAnhaenge] = useState<Anhang[]>(start.anhaenge ?? []);
   const [drag, setDrag] = useState(false);
   const [entwurfId, setEntwurfId] = useState<number | null>(start.entwurfId ?? null);
   const [vorschlaege, setVorschlaege] = useState<{ name: string; email: string; quelle: string }[]>([]);
@@ -75,7 +76,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
 
   const entwurfSichern = () => {
     entwurfSpeichern.mutate(
-      { id: entwurfId ?? undefined, empfaenger, cc, bcc, kontoId: kontoId ?? undefined, betreff, text: html },
+      { id: entwurfId ?? undefined, empfaenger, cc, bcc, kontoId: kontoId ?? undefined, betreff, text: html, anhaenge: anhaenge.length ? anhaenge : undefined },
       {
         onSuccess: (r) => {
           setEntwurfId(r.id);
