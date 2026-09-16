@@ -7,7 +7,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2,
+  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, Pin, PinOff,
   Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -25,8 +25,8 @@ type FilterWahl = "alle" | "ungelesen" | "gelesen" | "markiert" | "gesendet" | "
 type SortWahl = "datum_desc" | "datum_asc" | "absender_asc" | "absender_desc" | "groesse_desc" | "groesse_asc";
 
 type Tab =
-  | { typ: "mail"; id: number; betreff: string }
-  | { typ: "verfassen"; schluessel: number; start: VerfassenStart };
+  | { typ: "mail"; id: number; betreff: string; geloest?: { x: number; y: number } }
+  | { typ: "verfassen"; schluessel: number; start: VerfassenStart; geloest?: { x: number; y: number } };
 
 function ladeBreite(key: string, fallback: number): number {
   try {
@@ -138,9 +138,27 @@ export default function MailPostfach() {
             return (
               <div
                 key={key}
-                className={`flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${istAktiv ? "border-neutral-300 bg-white font-medium" : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
+                className={`flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${istAktiv && !t.geloest ? "border-neutral-300 bg-white font-medium" : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
               >
-                <button onClick={() => setAktiv(t)} className="max-w-40 truncate">{label}</button>
+                <button onClick={() => { if (!t.geloest) setAktiv(t); }} className="max-w-40 truncate" title={t.geloest ? "Als Fenster gelöst" : label}>{label}</button>
+                <button
+                  onClick={() => {
+                    if (t.geloest) {
+                      // Wieder anbinden
+                      setTabs((alle) => alle.map((x) => (x === t ? { ...x, geloest: undefined } : x)));
+                      setAktiv({ ...t, geloest: undefined });
+                    } else {
+                      // Als eigenes Fenster lösen
+                      const pos = { x: 140 + tabs.indexOf(t) * 36, y: 110 + tabs.indexOf(t) * 28 };
+                      setTabs((alle) => alle.map((x) => (x === t ? { ...x, geloest: pos } : x)));
+                      if (aktiv === t) setAktiv(null);
+                    }
+                  }}
+                  className="rounded p-0.5 hover:bg-neutral-300"
+                  title={t.geloest ? "Wieder anbinden" : "Als eigenes Fenster lösen"}
+                >
+                  {t.geloest ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+                </button>
                 <button onClick={() => schliesseTab(t)} className="rounded p-0.5 hover:bg-neutral-300"><X className="h-3 w-3" /></button>
               </div>
             );
@@ -243,12 +261,92 @@ export default function MailPostfach() {
         )}
       </div>
 
-      {schliessenDialog !== null && aktiv?.typ === "verfassen" && aktiv.schluessel === schliessenDialog && (
-        <VerfassenSchliessenDialog
-          onWahl={(aktion) => { setAbschlussAktion(aktion); setSchliessenDialog(null); }}
-          onAbbrechen={() => setSchliessenDialog(null)}
-        />
-      )}
+      {/* ── Gelöste Tabs als schwebende Fenster ── */}
+      {tabs.filter((t) => t.geloest).map((t) => {
+        const key = t.typ === "mail" ? `m${t.id}` : `v${t.schluessel}`;
+        const titel = t.typ === "mail" ? (t.betreff || "(kein Betreff)") : "✉ Verfassen";
+        return (
+          <Schwebefenster
+            key={key}
+            titel={titel}
+            start={t.geloest!}
+            onAnbinden={() => {
+              setTabs((alle) => alle.map((x) => (x === t ? { ...x, geloest: undefined } : x)));
+              setAktiv({ ...t, geloest: undefined });
+            }}
+            onSchliessen={() => schliesseTab(t)}
+          >
+            {t.typ === "mail" ? (
+              <MailDetail key={`f${t.id}`} id={t.id} kompakt={false} onAntworten={oeffneVerfassen} onTabOeffnen={oeffneTab} />
+            ) : (
+              <MailVerfassen
+                key={`f${t.schluessel}`}
+                start={t.start}
+                abschlussAktion={abschlussAktion}
+                onAktionErledigt={() => {
+                  setTabs((alle) => alle.filter((x) => x !== t));
+                  setAbschlussAktion(null);
+                }}
+              />
+            )}
+          </Schwebefenster>
+        );
+      })}
+
+      {schliessenDialog !== null && (() => {
+        const dlg = tabs.find((t) => t.typ === "verfassen" && t.schluessel === schliessenDialog);
+        return dlg ? (
+          <VerfassenSchliessenDialog
+            onWahl={(aktion) => { setAbschlussAktion(aktion); setSchliessenDialog(null); }}
+            onAbbrechen={() => setSchliessenDialog(null)}
+          />
+        ) : null;
+      })()}
+    </div>
+  );
+}
+
+/* ═══ Schwebendes Fenster für gelöste Tabs (verschiebbar, anbindbar) ═══ */
+function Schwebefenster({ titel, start, onAnbinden, onSchliessen, children }: {
+  titel: string;
+  start: { x: number; y: number };
+  onAnbinden: () => void;
+  onSchliessen: () => void;
+  children: React.ReactNode;
+}) {
+  const [pos, setPos] = useState(start);
+  const ziehen = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const dx = e.clientX - pos.x;
+    const dy = e.clientY - pos.y;
+    const bewegen = (ev: MouseEvent) => {
+      setPos({ x: Math.max(0, ev.clientX - dx), y: Math.max(0, ev.clientY - dy) });
+    };
+    const ende = () => {
+      window.removeEventListener("mousemove", bewegen);
+      window.removeEventListener("mouseup", ende);
+    };
+    window.addEventListener("mousemove", bewegen);
+    window.addEventListener("mouseup", ende);
+  };
+  return (
+    <div
+      className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-2xl"
+      style={{ left: pos.x, top: pos.y, width: "min(820px, 90vw)", height: "min(74vh, 900px)" }}
+    >
+      <div
+        onMouseDown={ziehen}
+        className="flex shrink-0 cursor-move items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2 select-none"
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{titel}</span>
+        <button onClick={onAnbinden} className="rounded p-1 text-neutral-500 hover:bg-neutral-200" title="Wieder anbinden">
+          <Pin className="h-4 w-4" />
+        </button>
+        <button onClick={onSchliessen} className="rounded p-1 text-neutral-500 hover:bg-neutral-200" title="Schließen">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col p-2">{children}</div>
     </div>
   );
 }
@@ -257,6 +355,18 @@ export default function MailPostfach() {
 }
 
 /* ═══ Spalte 1: Konten + Ordner + Regeln ═══ */
+/* ── Postfach-Reihenfolge + Ordner-Favoriten (pro Gerät, localStorage) ── */
+type OrdnerFavorit = { kontoId: number; kontoName: string; ordner: string };
+
+function ladeJson<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen }: {
   kontoId: number | null; setKontoId: (v: number | null) => void;
   ordner: string | null; setOrdner: (v: string | null) => void;
@@ -264,27 +374,92 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
 }) {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const sync = trpc.postfach.syncJetzt.useMutation({ onSuccess: () => postfaecher.refetch() });
+  const [reihenfolge, setReihenfolge] = useState<number[]>(() => ladeJson("mail-konto-reihenfolge", []));
+  const [favoriten, setFavoriten] = useState<OrdnerFavorit[]>(() => ladeJson("mail-ordner-favoriten", []));
+  const [kontext, setKontext] = useState<{ x: number; y: number; fav: OrdnerFavorit } | null>(null);
+  const [dragKonto, setDragKonto] = useState<number | null>(null);
+
+  // Konten in gespeicherter Reihenfolge (unbekannte hinten anhängen)
+  const kontenSortiert = [...(postfaecher.data ?? [])].sort((a, b) => {
+    const ia = reihenfolge.indexOf(a.id);
+    const ib = reihenfolge.indexOf(b.id);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
+  const speichereReihenfolge = (ids: number[]) => {
+    setReihenfolge(ids);
+    localStorage.setItem("mail-konto-reihenfolge", JSON.stringify(ids));
+  };
+  const verschiebeKonto = (vonId: number, aufId: number) => {
+    const ids = kontenSortiert.map((k) => k.id).filter((id) => id !== vonId);
+    ids.splice(ids.indexOf(aufId), 0, vonId);
+    speichereReihenfolge(ids);
+  };
+  const speichereFavoriten = (liste: OrdnerFavorit[]) => {
+    setFavoriten(liste);
+    localStorage.setItem("mail-ordner-favoriten", JSON.stringify(liste));
+  };
+  const istFavorit = (kId: number, o: string) => favoriten.some((f) => f.kontoId === kId && f.ordner === o);
+  const umschalteFavorit = (fav: OrdnerFavorit) => {
+    speichereFavoriten(
+      istFavorit(fav.kontoId, fav.ordner)
+        ? favoriten.filter((f) => !(f.kontoId === fav.kontoId && f.ordner === fav.ordner))
+        : [...favoriten, fav],
+    );
+  };
 
   return (
-    <div className="h-full space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3">
+    <div className="h-full space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3" onClick={() => setKontext(null)}>
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Postfächer</span>
         <Link to="/einstellungen" title="Konten verwalten">
           <Settings2 className="h-3.5 w-3.5 text-neutral-400 hover:text-neutral-600" />
         </Link>
       </div>
+
+      {/* ── Favoriten-Fächer (per Rechtsklick auf einen Ordner) ── */}
+      {favoriten.length > 0 && (
+        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50/60 p-1.5">
+          <span className="mb-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-amber-700">
+            <Star className="h-3 w-3 fill-amber-400 text-amber-400" /> Favoriten
+          </span>
+          {favoriten.map((f) => (
+            <button
+              key={`${f.kontoId}|${f.ordner}`}
+              onClick={() => { setKontoId(f.kontoId); setOrdner(f.ordner); }}
+              onContextMenu={(e) => { e.preventDefault(); setKontext({ x: e.clientX, y: e.clientY, fav: f }); }}
+              className={`flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs ${kontoId === f.kontoId && ordner === f.ordner ? "bg-amber-100 font-medium" : "hover:bg-amber-100/70"}`}
+              title={`${f.kontoName} → ${f.ordner} (Rechtsklick: entfernen)`}
+            >
+              <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
+              <span className="truncate">{f.ordner}</span>
+              <span className="truncate text-amber-600/70">· {f.kontoName}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <button
         onClick={() => setKontoId(null)}
         className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${kontoId === null ? "bg-neutral-100 font-medium" : "hover:bg-neutral-50"}`}
       >
         Alle Konten
       </button>
-      {(postfaecher.data ?? []).map((k) => (
-        <div key={k.id}>
+      {kontenSortiert.map((k) => (
+        <div
+          key={k.id}
+          draggable
+          onDragStart={() => setDragKonto(k.id)}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); if (dragKonto !== null && dragKonto !== k.id) verschiebeKonto(dragKonto, k.id); setDragKonto(null); }}
+          onDragEnd={() => setDragKonto(null)}
+          className={dragKonto === k.id ? "opacity-40" : ""}
+          title="Ziehen zum Umsortieren"
+        >
           <div className="flex items-center gap-1">
             <button
               onClick={() => setKontoId(k.id)}
-              className={`flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm ${kontoId === k.id && !ordner ? "bg-neutral-100 font-medium" : "hover:bg-neutral-50"}`}
+              className={`flex-1 cursor-grab truncate rounded-md px-2 py-1.5 text-left text-sm active:cursor-grabbing ${kontoId === k.id && !ordner ? "bg-neutral-100 font-medium" : "hover:bg-neutral-50"}`}
               title={k.benutzer}
             >
               {k.name}
@@ -302,9 +477,14 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
             <button
               key={o.name}
               onClick={() => setOrdner(ordner === o.name ? null : o.name)}
+              onContextMenu={(e) => { e.preventDefault(); setKontext({ x: e.clientX, y: e.clientY, fav: { kontoId: k.id, kontoName: k.name, ordner: o.name } }); }}
               className={`ml-3 flex w-[calc(100%-12px)] items-center justify-between rounded-md px-2 py-1 text-left text-xs ${ordner === o.name ? "bg-neutral-100 font-medium" : "hover:bg-neutral-50 text-neutral-600"}`}
+              title={`${o.name} (Rechtsklick: Favorit)`}
             >
-              <span className="truncate">{o.name}</span>
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                {istFavorit(k.id, o.name) && <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />}
+                <span className="truncate">{o.name}</span>
+              </span>
               <span className="text-neutral-400">
                 {o.ungelesen > 0 ? <Badge variant="default" className="text-[10px]">{o.ungelesen}</Badge> : o.anzahl > 0 ? o.anzahl : ""}
               </span>
@@ -320,6 +500,23 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
       )}
       <EntwuerfeSektion onOeffnen={onEntwurfOeffnen} />
       <RegelnSektion />
+
+      {/* ── Rechtsklick-Menü (Favoriten) ── */}
+      {kontext && (
+        <div
+          className="fixed z-50 rounded-md border border-neutral-200 bg-white py-1 shadow-xl"
+          style={{ left: kontext.x, top: kontext.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
+            onClick={() => { umschalteFavorit(kontext.fav); setKontext(null); }}
+          >
+            <Star className={`h-3.5 w-3.5 ${istFavorit(kontext.fav.kontoId, kontext.fav.ordner) ? "fill-amber-400 text-amber-400" : "text-neutral-400"}`} />
+            {istFavorit(kontext.fav.kontoId, kontext.fav.ordner) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -659,6 +856,34 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
             onClick={() => alsBeleg.mutate({ mailId: id }, { onSuccess: (r) => setBelegOk(`Beleg #${r.belegId} angelegt`) })}
           >
             <FileCheck2 className="mr-1.5 h-4 w-4" /> Als Beleg
+          </Button>
+          <Button
+            size="sm" variant="outline"
+            title="Drucken bzw. als PDF speichern (im Druckdialog „Als PDF speichern“ wählen)"
+            onClick={() => {
+              const w = window.open("", "_blank", "width=820,height=1000");
+              if (!w) return;
+              const inhalt = m.textHtml ?? `<pre style="white-space:pre-wrap;font-family:sans-serif">${(m.textPlain ?? "").replace(/</g, "&lt;")}</pre>`;
+              w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${(m.betreff ?? "Mail").replace(/</g, "&lt;")}</title>
+<style>
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #171412; margin: 32px; }
+  .kopf { border-bottom: 2px solid #0f766e; padding-bottom: 12px; margin-bottom: 18px; }
+  h1 { font-size: 19px; margin: 0 0 8px; }
+  .meta { font-size: 12.5px; color: #5b564f; line-height: 1.6; }
+  .meta b { color: #171412; }
+  @media print { body { margin: 12mm; } }
+</style></head><body>
+<div class="kopf"><h1>${(m.betreff ?? "(kein Betreff)").replace(/</g, "&lt;")}</h1>
+<div class="meta"><b>Von:</b> ${(m.absenderName ? `${m.absenderName} &lt;${m.absenderAdresse}&gt;` : m.absenderAdresse ?? "—")}<br>
+<b>An:</b> ${(m.empfaenger ?? "—").replace(/</g, "&lt;")}<br>
+<b>Datum:</b> ${m.datum ? new Date(m.datum).toLocaleString("de-DE") : "—"}</div></div>
+${inhalt}
+<script>window.onload = () => setTimeout(() => window.print(), 250);</script>
+</body></html>`);
+              w.document.close();
+            }}
+          >
+            <Printer className="mr-1.5 h-4 w-4" /> Drucken / PDF
           </Button>
         </div>
         {belegOk && <p className="mt-2 rounded-md bg-green-50 px-3 py-1.5 text-xs text-green-800">{belegOk} — Betrag in Eingangsbelege nachtragen.</p>}

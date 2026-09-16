@@ -2,6 +2,18 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.17.1] — 2026-09-16
+
+### Neu (Mail-Office-Runde)
+
+- **Rich-Text-Editor komplett überarbeitet:** Werkzeugleiste bleibt fest (scrollt nie mit), **Schriftgröße in 1px-Schritten (8–32)**, Aktiv-Zustände aller Format-Buttons folgen der Markierung (fett/kursiv/unterstrichen/durchgestrichen/Listen/Ausrichtung), **Rückgängig/Wiederholen**, Durchstreichen, Text- **und** Markierfarbe (freier Farbwähler), Blocksatz, Einzüge, Zitatblock, horizontale Linie, Links einfügen/entfernen.
+- **Bubble-Menü:** Text mit der Maus markieren → Mini-Toolbar (F/K/U/S, Größe, Farbe) erscheint am Maus-Ende, verschwindet bei Klick daneben.
+- **Rechtschreibprüfung** im Editor aktiviert (Browser-Prüfung, Deutsch).
+- **Mails drucken / als PDF speichern:** neuer Button in der Mail-Ansicht — druckfertige Ansicht (Betreff, Von/An/Datum, Inhalt), im Druckdialog „Als PDF" wählbar.
+- **Tabs als Fenster lösen & wieder anbinden:** Pin-Symbol am Tab → schwebendes, verschiebbares Fenster (Mail + Verfassen), per Klick wieder angedockt.
+- **Verfassen kompakter & größer:** Kopfblock (Von/An/CC/BCC/Betreff) gestrafft, Editor füllt den freien Platz, **Drag & Drop von Anhängen jetzt überall im Verfassen-Fenster**.
+- **Postfächer umsortierbar** (Drag & Drop in der Seitenleiste, pro Gerät gespeichert) und **Ordner-Favoriten per Rechtsklick** — Favoriten erscheinen als Schnellzugriff über den Postfächern.
+
 ## [1.17.0] — 2026-09-16
 
 ### Neu (Agent-API Ausbau: „KI macht vor, Mensch sendet ab")

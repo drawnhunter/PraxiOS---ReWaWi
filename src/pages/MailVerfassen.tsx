@@ -110,20 +110,25 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
     );
   };
 
-  const feldLabel = "mb-1 block text-xs text-neutral-500";
+  const feldLabel = "mb-0.5 block text-[11px] text-neutral-500";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-neutral-200 bg-white">
-      {/* Werkzeugblock: Editor-Toolbar direkt ueber dem Feld (liegt im MailEditor) */}
-      <div className="border-b border-neutral-200 p-3">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div
+      className={`flex min-h-0 flex-1 flex-col rounded-lg border bg-white transition-colors ${drag ? "border-teal-400 ring-2 ring-teal-300" : "border-neutral-200"}`}
+      onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes("Files")) setDrag(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDrag(false); }}
+      onDrop={(e) => { e.preventDefault(); setDrag(false); dateiHinzufuegen(e.dataTransfer.files); }}
+    >
+      {/* Kompakter Kopfblock: Von+An, CC+BCC, Betreff, Anhang-Chips in einer Zeile */}
+      <div className="border-b border-neutral-200 px-3 py-2">
+        <div className="grid grid-cols-1 gap-x-2 gap-y-1.5 sm:grid-cols-2">
           <div>
             <label className={feldLabel}>Von (Konto)</label>
             <Select
               value={kontoId === null ? "firma" : String(kontoId)}
               onValueChange={(v) => setKontoId(v === "firma" ? null : Number(v))}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="firma">Firmen-SMTP (Standard)</SelectItem>
                 {(postfaecher.data ?? []).map((k) => (
@@ -135,6 +140,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
           <div className="relative">
             <label className={feldLabel}>An *</label>
             <Input
+              className="h-8 text-sm"
               value={empfaenger}
               onChange={(e) => { setEmpfaenger(e.target.value); sucheKontakte(e.target.value.split(",").pop() ?? ""); }}
               placeholder="empfaenger@beispiel.de, zweite@adresse.de"
@@ -161,54 +167,42 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
           </div>
           <div>
             <label className={feldLabel}>CC</label>
-            <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="optional" />
+            <Input className="h-8 text-sm" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="optional" />
           </div>
           <div>
             <label className={feldLabel}>BCC</label>
-            <Input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="optional" />
+            <Input className="h-8 text-sm" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="optional" />
           </div>
           <div className="sm:col-span-2">
             <label className={feldLabel}>Betreff *</label>
-            <Input value={betreff} onChange={(e) => setBetreff(e.target.value)} />
+            <Input className="h-8 text-sm" value={betreff} onChange={(e) => setBetreff(e.target.value)} />
           </div>
-          <div
-            className={`sm:col-span-2 rounded-md p-1.5 transition-colors ${drag ? "bg-teal-50 ring-2 ring-teal-400 ring-dashed" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDrag(false);
-              dateiHinzufuegen(e.dataTransfer.files);
-            }}
-          >
-            <label className={feldLabel}>Anhänge <span className="text-neutral-400">(per Drag &amp; Drop hierher ziehen)</span></label>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-3 py-1.5 text-xs text-neutral-600 hover:border-teal-400 hover:text-teal-700">
-                {drag ? <UploadCloud className="h-3.5 w-3.5 text-teal-600" /> : <Paperclip className="h-3.5 w-3.5" />}
-                {drag ? "Loslassen zum Anhängen" : "Datei wählen"}
-                <input type="file" multiple className="hidden" onChange={(e) => dateiHinzufuegen(e.target.files)} />
-              </label>
-              {anhaenge.map((a, i) => (
-                <span key={i} className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 text-xs">
-                  {a.dateiname}
-                  <button onClick={() => setAnhaenge(anhaenge.filter((_, x) => x !== i))}><X className="h-3 w-3" /></button>
-                </span>
-              ))}
-            </div>
+          <div className="flex flex-wrap items-center gap-1.5 sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-2.5 py-1 text-xs text-neutral-600 hover:border-teal-400 hover:text-teal-700">
+              {drag ? <UploadCloud className="h-3.5 w-3.5 text-teal-600" /> : <Paperclip className="h-3.5 w-3.5" />}
+              {drag ? "Loslassen zum Anhängen" : "Datei wählen (oder überall im Fenster ablegen)"}
+              <input type="file" multiple className="hidden" onChange={(e) => dateiHinzufuegen(e.target.files)} />
+            </label>
+            {anhaenge.map((a, i) => (
+              <span key={i} className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs">
+                {a.dateiname}
+                <button onClick={() => setAnhaenge(anhaenge.filter((_, x) => x !== i))}><X className="h-3 w-3" /></button>
+              </span>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Großer Schreibbereich */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <MailEditor value={html} onChange={setHtml} />
+      {/* Großer Schreibbereich — Editor füllt den Platz komplett */}
+      <div className="flex min-h-0 flex-1 flex-col p-2">
+        <MailEditor value={html} onChange={setHtml} minHeight={320} />
       </div>
 
       {fehler && <p className="mx-3 mb-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{fehler}</p>}
       {versenden.isSuccess && <p className="mx-3 mb-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Gesendet — Tab schließt sich.</p>}
 
       {/* Untere Buttons nebeneinander */}
-      <div className="flex items-center justify-between border-t border-neutral-200 p-3">
+      <div className="flex items-center justify-between border-t border-neutral-200 px-3 py-2">
         <Button variant="ghost" size="sm" className="text-red-600" onClick={onAktionErledigt}>
           <Trash2 className="mr-1.5 h-4 w-4" /> Löschen
         </Button>
