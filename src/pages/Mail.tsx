@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +75,7 @@ export default function MailPostfach() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [aktiv, setAktiv] = useState<Tab | null>(null);
   const [abschlussAktion, setAbschlussAktion] = useState<"loeschen" | "entwurf" | "senden" | null>(null);
+  const [aktionZiel, setAktionZiel] = useState<number | null>(null); // schluessel des Verfassen-Tabs
   const [schliessenDialog, setSchliessenDialog] = useState<number | null>(null);
   const [vorschau, setVorschau] = useState<number | null>(null);
   const [kontoId, setKontoId] = useState<number | null>(null);
@@ -86,8 +87,20 @@ export default function MailPostfach() {
   const [seite, setSeite] = useState(1);
 
   const oeffneTab = (id: number, betreff: string) => {
+    // Schon (gelöst) offen? → wieder andocken statt Doppelansicht
+    const vorhanden = tabs.find((x) => x.typ === "mail" && x.id === id);
+    if (vorhanden) {
+      if (vorhanden.geloest) {
+        const angedockt = { ...vorhanden, geloest: undefined };
+        setTabs((t) => t.map((x) => (x === vorhanden ? angedockt : x)));
+        setAktiv(angedockt);
+      } else {
+        setAktiv(vorhanden);
+      }
+      return;
+    }
     const tab: Tab = { typ: "mail", id, betreff };
-    setTabs((t) => (t.some((x) => x.typ === "mail" && x.id === id) ? t : [...t, tab]));
+    setTabs((t) => [...t, tab]);
     setAktiv(tab);
   };
   const oeffneVerfassen = (start: VerfassenStart) => {
@@ -105,8 +118,17 @@ export default function MailPostfach() {
     if (aktiv === tab) setAktiv(null);
   };
 
+  // Konsistenz-Wache: aktiv darf nie auf einen nicht mehr existierenden Tab zeigen
+  useEffect(() => {
+    if (!aktiv) return;
+    const existiert = tabs.some((t) =>
+      aktiv.typ === "mail" ? t.typ === "mail" && t.id === aktiv.id : t.typ === "verfassen" && t.schluessel === aktiv.schluessel,
+    );
+    if (!existiert) setAktiv(null);
+  }, [tabs, aktiv]);
+
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-3">
+    <div className="flex h-[calc(100vh-3.5rem)] gap-3">
       {/* ── Spalte 1: Konten + Ordner + Regeln (Office-Stil) ── */}
       <div style={{ width: linksBreite }} className="shrink-0">
         <Seitenleiste
@@ -215,50 +237,64 @@ export default function MailPostfach() {
           </div>
         )}
 
-        {aktiv?.typ === "mail" ? (
-          <MailDetail key={aktiv.id} id={aktiv.id} kompakt={false} onAntworten={oeffneVerfassen} onTabOeffnen={oeffneTab} />
-        ) : aktiv?.typ === "verfassen" ? (
-          <MailVerfassen
-            key={aktiv.schluessel}
-            start={aktiv.start}
-            abschlussAktion={abschlussAktion}
-            onAktionErledigt={() => {
-              setTabs((t) => t.filter((x) => x !== aktiv));
-              setAktiv(null);
-              setAbschlussAktion(null);
-            }}
-          />
-        ) : (
-          <div className="flex min-h-0 flex-1 gap-3">
-            {/* Spalte 2: Liste (mittig, Outlook) */}
-            <div style={{ width: listeBreite }} className="shrink-0">
-              <MailListe
-                key={`${kontoId ?? "alle"}|${ordner ?? "alle"}`}
-                kontoId={kontoId} ordner={ordner}
-                vorschau={vorschau} onVorschau={setVorschau}
-                q={q} filter={filter} sortWahl={sortWahl}
-                seite={seite} setSeite={setSeite}
-              />
-            </div>
-            <Resizer onDrag={(dx) => setListeBreite(listeBreite + dx)} />
-            {/* Spalte 3: Vorschau (rechts, Outlook-Lesefenster) */}
-            {vorschau !== null && (
-              <MailDetail
-                key={vorschau}
-                id={vorschau}
-                kompakt
-                onAntworten={oeffneVerfassen}
-                onTabOeffnen={oeffneTab}
-                onAusklappen={() => {
-                  const m = vorschau;
-                  oeffneTab(m, "");
-                  setVorschau(null);
-                }}
-                onSchliessen={() => setVorschau(null)}
-              />
-            )}
+        {/* Liste + Vorschau (bleibt gemountet, nur versteckt) */}
+        <div className={`min-h-0 flex-1 gap-3 ${aktiv === null ? "flex" : "hidden"}`}>
+          {/* Spalte 2: Liste (mittig, Outlook) */}
+          <div style={{ width: listeBreite }} className="shrink-0">
+            <MailListe
+              key={`${kontoId ?? "alle"}|${ordner ?? "alle"}`}
+              kontoId={kontoId} ordner={ordner}
+              vorschau={vorschau} onVorschau={setVorschau}
+              q={q} filter={filter} sortWahl={sortWahl}
+              seite={seite} setSeite={setSeite}
+            />
           </div>
-        )}
+          <Resizer onDrag={(dx) => setListeBreite(listeBreite + dx)} />
+          {/* Spalte 3: Vorschau (rechts, Outlook-Lesefenster) */}
+          {vorschau !== null && (
+            <MailDetail
+              key={vorschau}
+              id={vorschau}
+              kompakt
+              onAntworten={oeffneVerfassen}
+              onTabOeffnen={oeffneTab}
+              onAusklappen={() => {
+                const m = vorschau;
+                oeffneTab(m, "");
+                setVorschau(null);
+              }}
+              onSchliessen={() => setVorschau(null)}
+            />
+          )}
+        </div>
+
+        {/* Angedockte Tabs: KEEP-ALIVE — alle bleiben gemountet (State/Scroll/Text bleibt),
+            nur der aktive ist sichtbar. Gelöste Tabs rendern als Schwebefenster. */}
+        {tabs.filter((t) => !t.geloest).map((t) => {
+          const istAktiv = aktiv !== null && !t.geloest && (
+            (aktiv.typ === "mail" && t.typ === "mail" && aktiv.id === t.id) ||
+            (aktiv.typ === "verfassen" && t.typ === "verfassen" && aktiv.schluessel === t.schluessel)
+          );
+          const schluessel = t.typ === "mail" ? `m${t.id}` : `v${t.schluessel}`;
+          return (
+            <div key={schluessel} className={istAktiv ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+              {t.typ === "mail" ? (
+                <MailDetail id={t.id} kompakt={false} onAntworten={oeffneVerfassen} onTabOeffnen={oeffneTab} onZurueck={() => setAktiv(null)} />
+              ) : (
+                <MailVerfassen
+                  start={t.start}
+                  abschlussAktion={aktionZiel === t.schluessel ? abschlussAktion : null}
+                  onAktionErledigt={() => {
+                    setTabs((alle) => alle.filter((x) => x !== t));
+                    if (istAktiv) setAktiv(null);
+                    setAbschlussAktion(null);
+                    setAktionZiel(null);
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* ── Gelöste Tabs als schwebende Fenster ── */}
@@ -282,10 +318,11 @@ export default function MailPostfach() {
               <MailVerfassen
                 key={`f${t.schluessel}`}
                 start={t.start}
-                abschlussAktion={abschlussAktion}
+                abschlussAktion={aktionZiel === t.schluessel ? abschlussAktion : null}
                 onAktionErledigt={() => {
                   setTabs((alle) => alle.filter((x) => x !== t));
                   setAbschlussAktion(null);
+                  setAktionZiel(null);
                 }}
               />
             )}
@@ -297,7 +334,7 @@ export default function MailPostfach() {
         const dlg = tabs.find((t) => t.typ === "verfassen" && t.schluessel === schliessenDialog);
         return dlg ? (
           <VerfassenSchliessenDialog
-            onWahl={(aktion) => { setAbschlussAktion(aktion); setSchliessenDialog(null); }}
+            onWahl={(aktion) => { setAbschlussAktion(aktion); setAktionZiel(schliessenDialog); setSchliessenDialog(null); }}
             onAbbrechen={() => setSchliessenDialog(null)}
           />
         ) : null;
@@ -736,13 +773,14 @@ function zitatBlock(m: { betreff?: string | null; absenderName?: string | null; 
 }
 
 /* ═══ Spalte 3: Detail / Vorschau ═══ */
-function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSchliessen }: {
+function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSchliessen, onZurueck }: {
   id: number;
   kompakt: boolean;
   onAntworten: (m: VerfassenStart) => void;
   onTabOeffnen: (id: number, betreff: string) => void;
   onAusklappen?: () => void;
   onSchliessen?: () => void;
+  onZurueck?: () => void;
 }) {
   const mail = trpc.postfach.einzel.useQuery({ id });
   const utils = trpc.useUtils();
@@ -767,6 +805,11 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
     <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-200 bg-white">
       <div className="border-b border-neutral-200 p-3.5">
         <div className="mb-1.5 flex items-center gap-1.5">
+          {onZurueck && (
+            <button onClick={onZurueck} className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs text-neutral-500 hover:bg-neutral-100" title="Zurück zur Liste">
+              <Reply className="h-3.5 w-3.5 -scale-x-100" /> Liste
+            </button>
+          )}
           {kompakt && onSchliessen && (
             <button onClick={onSchliessen} className="rounded p-1 text-neutral-400 hover:bg-neutral-100" title="Vorschau schließen">
               <X className="h-4 w-4" />

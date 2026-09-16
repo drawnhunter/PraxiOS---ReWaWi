@@ -1892,6 +1892,39 @@ app.delete("/mail-entwurf/:id", async (c) => {
   return c.json({ ok: true, verworfen: id });
 });
 
+/** Entwurf direkt senden (Gate: vollautomatik ODER Token-Freigabeliste deckt alle Empfänger). */
+app.post("/mail-entwurf/:id/senden", async (c) => {
+  const { mailEntwuerfe } = await import("@db/schema");
+  const id = Number(c.req.param("id"));
+  const db = getDb();
+  const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, id) });
+  if (!e) return c.json({ ok: false, fehler: "Entwurf nicht gefunden." }, 404);
+  const empfaenger = (e.empfaenger ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (empfaenger.length === 0) return c.json({ ok: false, fehler: "Entwurf hat keine Empfänger." }, 400);
+  const erlaubnis = await versandErlaubt(c, empfaenger);
+  if (!erlaubnis.ok) {
+    return c.json({ ok: false, fehler: "Direktversand gesperrt (weder vollautomatik noch Freigabeliste). Der Entwurf bleibt für den Mensch-Review-Weg in der UI." }, 403);
+  }
+  const { versendeMail } = await import("./lib/mailVersand");
+  const text = e.text ?? "";
+  const r = await versendeMail({
+    kontoId: e.kontoId ?? undefined,
+    empfaenger,
+    cc: e.cc ? e.cc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
+    bcc: e.bcc ? e.bcc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
+    betreff: e.betreff ?? "(kein Betreff)",
+    text: text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || text,
+    html: text.startsWith("<") ? text : undefined,
+    anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
+    inReplyTo: e.inReplyTo ?? null,
+    mitSignatur: true,
+  });
+  if (!r.ok) return c.json({ ok: false, fehler: `Versand fehlgeschlagen: ${r.fehler}` }, 502);
+  await db.delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, id));
+  await audit("mail_entwurf_gesendet", { id, empfaenger, via: erlaubnis.via });
+  return c.json({ ok: true, via: erlaubnis.via, gesendetAn: empfaenger });
+});
+
 /** Aus einer vorhandenen Mail einen Antwort-/Weiterleiten-Entwurf bauen (Anhänge optional mitnehmen). */
 app.post("/mail/:id/als-entwurf", async (c) => {
   const mailId = Number(c.req.param("id"));

@@ -66,6 +66,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `POST /mails/datum-heilen` → Mails ohne Datum bekommen IMAP-Envelope-Datum (Fallback: created_at)
 - **`POST /mail/entwurf {empfaenger[], cc?, bcc?, kontoId?, betreff, text|html, anhaenge?[{dateiname,base64,mime}], inReplyTo?, references?}`** → Entwurf in der UI (Verfassen-Tab → Entwürfe-Liste, Badge „KI"). **Der Mensch-Review-Weg: du bereitest vor, der Mensch sendet ab.** Braucht KEINE vollautomatik.
 - `GET /mail-entwuerfe?kontoId=` → Liste · `DELETE /mail-entwurf/:id`
+- **`POST /mail-entwurf/:id/senden`** → Entwurf direkt senden (Gate: vollautomatik ODER Freigabeliste deckt alle Empfänger) — danach ist der Entwurf gelöscht und die Mail liegt im Gesendet-Ordner (IMAP-Append, sofort sichtbar)
 - **`POST /mail/:id/als-entwurf {empfaenger?, betreff?, text, mitAnhaengen?}`** → Antwort-/Weiterleiten-Entwurf aus vorhandener Mail (Anhänge optional übernommen — „Beleg ans Steuerbüro")
 - `POST /mail/:id/gelesen {status}` · `POST /mail/:id/markierung {status}` (Brain-Flag) · `POST /mail/:id/verschieben {ordner}` (echter IMAP-Move)
 - `POST /mail/:id/als-termin {datum*, titel?, startZeit?, endZeit?}` → Kalender-Termin aus Mail (idempotent per mailId)
