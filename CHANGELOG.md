@@ -2,6 +2,12 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.17.6] — 2026-09-18
+
+### Behoben
+
+- **Hotfix: DB-Image auf `mysql:8.4` (LTS) gehoben.** Instanzen, deren Daten-Volume bereits auf MySQL 8.4 aktualisiert wurde (z. B. nach Wartung/Recovery), starteten mit dem 8.0-Image nicht mehr (Downgrade-Sperre „Cannot downgrade from 80411"). Hinweis: MySQL 8.4 aktualisiert ältere 8.0-Volumes beim ersten Start automatisch (unterstützter Einweg-Upgrade); 8.4 ist die LTS-Serie.
+
 ## [1.17.5] — 2026-09-18
 
 ### Neu (Berichtszentrale — Konkurrenz-Parität im Berichtswesen)
