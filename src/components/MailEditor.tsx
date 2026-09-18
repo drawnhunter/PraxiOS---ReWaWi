@@ -259,9 +259,19 @@ export function MailEditor({
   );
 }
 
-/** HTML → Plain-Text (für die Text-Alternative der Mail). */
+/** HTML → Plain-Text (für die Text-Alternative der Mail) — absatz-sicher:
+ *  <p>/<div> werden zu Zeilen, <br> zu Umbrüchen, Tabs zu 4 Leerzeichen. */
 export function htmlZuText(html: string): string {
+  const vorbereitet = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, "\n")
+    .replace(/<\/(table|ul|ol)>/gi, "\n")
+    .replace(/<li\b[^>]*>/gi, "• ")
+    .replace(/\t/g, "    ");
   const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent ?? "";
+  div.innerHTML = vorbereitet;
+  return (div.textContent ?? "")
+    .replace(/ /g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

@@ -3,6 +3,16 @@ import { getDb } from "../queries/connection";
 import { mailLog } from "@db/schema";
 import { ladeFirmaLive } from "../pdfBelege";
 
+/** Wandelt Text ohne Block-Tags in saubere <p>-Absätze (Doppel-Newline = Absatz, einfache = <br>). */
+function normalisiereHtml(html: string): string {
+  if (/<(p|div|table|ul|ol|blockquote|h[1-6])\b/i.test(html)) return html; // schon strukturiert
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return html
+    .split(/\r?\n\s*\r?\n/)
+    .map((absatz) => `<p>${esc(absatz.trim()).replace(/\r?\n/g, "<br>")}</p>`)
+    .join("");
+}
+
 export interface VersandEingabe {
   empfaenger: string[]; // E-Mail-Adressen
   cc?: string[];
@@ -25,8 +35,11 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   const settings = await getDb().query.companySettings.findFirst();
   const signatur = e.mitSignatur !== false && settings?.signatur ? `\n\n${settings.signatur}` : "";
   const text = `${e.text}${signatur}`;
-  const htmlBody = e.html
-    ? `${e.html}${signatur ? `<p style="color:#6b7280">${signatur.replace(/\n/g, "<br>")}</p>` : ""}`
+  // Plain-Text-„HTML" (KI-Entwürfe ohne Block-Tags) in saubere Absätze wandeln,
+  // Tabs/Leerzeichen-Layout bricht sonst in der Anzeige aus (s. Screenshot-Feedback)
+  const htmlRoh = e.html ? normalisiereHtml(e.html) : undefined;
+  const htmlBody = htmlRoh
+    ? `${htmlRoh}${signatur ? `<p style="color:#6b7280">${signatur.replace(/\n/g, "<br>")}</p>` : ""}`
     : undefined;
 
   const empfaengerListe = e.empfaenger.map((x) => x.trim()).filter(Boolean);
@@ -138,19 +151,25 @@ async function legeInGesendetAb(
 
   // Sofort lokal sichtbar (nur mit echter UID — der Sync dedupt darüber sauber)
   if (uid) {
+    const vonAdresse = String(mailDaten.from ?? "");
+    const vonMatch = vonAdresse.match(/^"?([^"<]+)"?\s*<([^>]+)>$/);
     await db.insert(mailMails).values({
       kontoId,
       ordner: treffer,
       uid,
       messageId: messageId ?? null,
       betreff: String(mailDaten.subject ?? ""),
-      absenderName: null,
-      absenderAdresse: null, // eigenes Konto — Anzeige nutzt kontoName im UI
+      absenderName: vonMatch ? vonMatch[1].trim() : konto.name,
+      absenderAdresse: vonMatch ? vonMatch[2].trim() : (konto.smtpBenutzer ?? konto.benutzer),
       empfaenger: String(mailDaten.to ?? ""),
       datum: new Date(),
       textPlain: String(mailDaten.text ?? "").slice(0, 4_000_000),
       textHtml: typeof mailDaten.html === "string" ? mailDaten.html.slice(0, 4_000_000) : null,
-      anhaenge: JSON.stringify(anhaenge.map((a) => ({ name: a.dateiname, mime: a.mime, groesse: a.base64.length, postEingangId: null }))),
+      // Anhänge gesendeter Mails: Inhalt direkt im Meta (postEingang bleibt sauber)
+      anhaenge: JSON.stringify(anhaenge.map((a) => ({
+        name: a.dateiname, mime: a.mime, groesse: Math.floor(a.base64.length * 0.75),
+        postEingangId: null, inhalt: a.base64,
+      }))),
       gelesen: true,
     }).catch(() => undefined); // Kollision (UID doch schon da) → Sync regelt
   }

@@ -299,6 +299,78 @@ export async function synchronisiereKonto(id: number, nurOrdner: string | null =
   }
 }
 
+// ── Postfach-Ordner verwalten (Agent: Struktur aufbauen/sortieren) ─────────
+const SYSTEM_ORDNER = /^(inbox|gesendet|gesendete objekte|sent|entwürfe|drafts|papierkorb|trash|spam|junk|archiv|archive)$/i;
+
+async function mitKontoClient<T>(
+  kontoId: number,
+  aktion: (client: ImapFlow, konto: typeof emailKonten.$inferSelect) => Promise<T>,
+): Promise<{ ok: boolean; fehler?: string; daten?: T }> {
+  const konto = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, kontoId) });
+  if (!konto) return { ok: false, fehler: "Konto nicht gefunden." };
+  const passwort = entschluesseln(konto.passwortEnc);
+  if (!passwort) return { ok: false, fehler: "Passwort nicht lesbar." };
+  const client = new ImapFlow({
+    host: konto.host, port: konto.port, secure: konto.tls,
+    auth: { user: konto.benutzer, pass: passwort },
+    logger: false, socketTimeout: 20000, greetingTimeout: 10000,
+  });
+  try {
+    await client.connect();
+    const daten = await aktion(client, konto);
+    await client.logout();
+    return { ok: true, daten };
+  } catch (e) {
+    try { await client.logout(); } catch { /* ok */ }
+    return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
+  }
+}
+
+async function ordnerListeAktualisieren(konto: typeof emailKonten.$inferSelect): Promise<string[]> {
+  const r = await mitKontoClient(konto.id, async (client) => {
+    const boxen = await client.list();
+    return boxen.map((b) => b.path).filter(Boolean);
+  });
+  if (r.ok && r.daten) {
+    await getDb().update(emailKonten).set({ ordnerListe: JSON.stringify(r.daten) }).where(eq(emailKonten.id, konto.id));
+    return r.daten;
+  }
+  return konto.ordnerListe ? (JSON.parse(konto.ordnerListe) as string[]) : [];
+}
+
+export async function erstelleOrdner(kontoId: number, name: string): Promise<{ ok: boolean; fehler?: string }> {
+  if (!name.trim() || name.length > 120) return { ok: false, fehler: "Ungültiger Ordnername." };
+  const r = await mitKontoClient(kontoId, async (client, konto) => {
+    await client.mailboxCreate(name.trim());
+    await ordnerListeAktualisieren(konto);
+  });
+  return { ok: r.ok, fehler: r.fehler };
+}
+
+export async function benenneOrdnerUm(kontoId: number, alt: string, neu: string): Promise<{ ok: boolean; fehler?: string }> {
+  if (SYSTEM_ORDNER.test(alt)) return { ok: false, fehler: `System-Ordner „${alt}" kann nicht umbenannt werden.` };
+  if (!neu.trim() || neu.length > 120) return { ok: false, fehler: "Ungültiger neuer Name." };
+  const r = await mitKontoClient(kontoId, async (client, konto) => {
+    await client.mailboxRename(alt, neu.trim());
+    // Lokale Mails umhängen, damit nichts „verschwindet"
+    const { mailMails } = await import("@db/schema");
+    const { and } = await import("drizzle-orm");
+    await getDb().update(mailMails).set({ ordner: neu.trim() })
+      .where(and(eq(mailMails.kontoId, kontoId), eq(mailMails.ordner, alt)));
+    await ordnerListeAktualisieren(konto);
+  });
+  return { ok: r.ok, fehler: r.fehler };
+}
+
+export async function loescheOrdner(kontoId: number, name: string): Promise<{ ok: boolean; fehler?: string }> {
+  if (SYSTEM_ORDNER.test(name)) return { ok: false, fehler: `System-Ordner „${name}" kann nicht gelöscht werden.` };
+  const r = await mitKontoClient(kontoId, async (client, konto) => {
+    await client.mailboxDelete(name);
+    await ordnerListeAktualisieren(konto);
+  });
+  return { ok: r.ok, fehler: r.fehler };
+}
+
 /** Mail per IMAP-MOVE in einen anderen Ordner verschieben (Server bleibt Wahrheit). */
 export async function verschiebeMail(
   kontoId: number,

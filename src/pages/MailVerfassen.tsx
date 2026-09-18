@@ -32,9 +32,20 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   abschlussAktion: "loeschen" | "entwurf" | "senden" | null;
   onAktionErledigt: () => void;
 }) {
+  /** Entwurf wirklich verwerfen: DB-Löschung (falls gespeichert) + Tab zu. */
+  const entwurfVerwerfen = () => {
+    if (entwurfId) {
+      entwurfLoeschen.mutate({ id: entwurfId }, {
+        onSettled: () => { utils.postfach.entwuerfe.invalidate(); onAktionErledigt(); },
+      });
+    } else {
+      onAktionErledigt();
+    }
+  };
+
   // Aktion aus dem Schliessen-Dialog ausfuehren (Loeschen / Entwurf / Senden)
   useEffect(() => {
-    if (abschlussAktion === "loeschen") onAktionErledigt();
+    if (abschlussAktion === "loeschen") entwurfVerwerfen();
     else if (abschlussAktion === "entwurf") entwurfSichern(true);
     else if (abschlussAktion === "senden") senden();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,7 +229,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
 
       {/* Untere Buttons: Löschen | Zurücksetzen | Entwurf speichern | Senden */}
       <div className="flex items-center justify-between border-t border-neutral-200 px-3 py-2">
-        <Button variant="ghost" size="sm" className="text-red-600" onClick={onAktionErledigt}>
+        <Button variant="ghost" size="sm" className="text-red-600" onClick={entwurfVerwerfen} title={entwurfId ? "Entwurf endgültig löschen" : "Verfassen abbrechen"}>
           <Trash2 className="mr-1.5 h-4 w-4" /> Löschen
         </Button>
         <div className="flex items-center gap-2">

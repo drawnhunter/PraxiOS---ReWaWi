@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/select";
 import {
   RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, Pin, PinOff,
-  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight,
+  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy,
 } from "lucide-react";
 import { Link } from "react-router";
 import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
@@ -558,6 +558,98 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
   );
 }
 
+/* ═══ Adress-Interaktion: Klick auf Absender/Empfänger ═══ */
+function AdressChip({ name, adresse, onKlick }: {
+  name: string | null; adresse: string; onKlick: (v: { name: string | null; adresse: string }) => void;
+}) {
+  return (
+    <button
+      onClick={() => onKlick({ name, adresse })}
+      className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700 hover:bg-teal-100 hover:text-teal-800"
+      title={`${adresse} — Aktionen anzeigen`}
+    >
+      {name ? `${name} ‹${adresse}›` : adresse}
+    </button>
+  );
+}
+
+function AdressDialog({ name, adresse, kontoId, onMail, onSchliessen }: {
+  name: string | null; adresse: string; kontoId: number | null;
+  onMail: (s: VerfassenStart) => void; onSchliessen: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const anlegen = trpc.kontakte.anlegen.useMutation();
+  const [kontakt, setKontakt] = useState<{ id: number; name: string; firma: string | null; telefon: string | null } | "laden" | null>("laden");
+  const [kopiert, setKopiert] = useState(false);
+  const [erstellt, setErstellt] = useState<number | null>(null);
+
+  useEffect(() => {
+    let aktiv = true;
+    utils.kontakte.liste.fetch({ q: adresse })
+      .then((r) => { if (aktiv) setKontakt(r.find((k) => k.email.toLowerCase() === adresse.toLowerCase()) ?? null); })
+      .catch(() => aktiv && setKontakt(null));
+    return () => { aktiv = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adresse]);
+
+  const kopieren = async () => {
+    try {
+      await navigator.clipboard.writeText(adresse);
+      setKopiert(true);
+      setTimeout(() => setKopiert(false), 1500);
+    } catch {
+      window.prompt("Adresse kopieren (Strg+C):", adresse); // HTTP-Fallback
+    }
+  };
+
+  const kontaktErstellen = () => {
+    anlegen.mutate(
+      { name: name ?? adresse.split("@")[0], email: adresse },
+      { onSuccess: (r) => { setErstellt(r.id); utils.kontakte.liste.invalidate(); } },
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onSchliessen}>
+      <div className="w-80 rounded-xl border border-neutral-200 bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-sm font-semibold">{name ?? adresse.split("@")[0]}</span>
+          <button onClick={onSchliessen} className="rounded p-1 text-neutral-400 hover:bg-neutral-100"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mb-3 break-all text-xs text-neutral-500">{adresse}</p>
+
+        {kontakt === "laden" ? (
+          <p className="mb-3 text-xs text-neutral-400">Kartei wird geprüft …</p>
+        ) : kontakt ? (
+          <div className="mb-3 rounded-md bg-teal-50 p-2 text-xs">
+            <p className="font-medium text-teal-800">Kontakt in der Kartei #{kontakt.id}</p>
+            <p className="text-teal-700">{kontakt.name}{kontakt.firma ? ` · ${kontakt.firma}` : ""}{kontakt.telefon ? ` · ${kontakt.telefon}` : ""}</p>
+            <Link to="/kontakte" className="mt-1 inline-block text-teal-700 underline">In Kartei öffnen</Link>
+          </div>
+        ) : erstellt ? (
+          <p className="mb-3 rounded-md bg-green-50 p-2 text-xs text-green-800">Kontakt erstellt (#{erstellt}) — sichtbar in der Kartei.</p>
+        ) : (
+          <p className="mb-3 text-xs text-neutral-400">Noch kein Kontakt in der Kartei.</p>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <Button size="sm" onClick={() => { onMail({ kontoId, empfaenger: adresse, betreff: "", html: "<p><br></p>" }); onSchliessen(); }}>
+            <MailPlus className="mr-1.5 h-4 w-4" /> Mail an {adresse.split("@")[0]}
+          </Button>
+          {!kontakt && !erstellt && kontakt !== "laden" && (
+            <Button size="sm" variant="outline" onClick={kontaktErstellen} disabled={anlegen.isPending}>
+              <UserPlus className="mr-1.5 h-4 w-4" /> Kontakt erstellen
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={kopieren}>
+            <Copy className="mr-1.5 h-4 w-4" /> {kopiert ? "Kopiert ✓" : "Adresse kopieren"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══ Entwürfe (inkl. KI-vorbereitete, Quelle „agent") ═══ */
 interface EntwurfEintrag {
   id: number; empfaenger: string | null; cc: string | null; bcc: string | null;
@@ -787,9 +879,14 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
   const alsBeleg = trpc.postfach.alsBeleg.useMutation();
   const markieren = trpc.postfach.markieren.useMutation();
   const [belegOk, setBelegOk] = useState<string | null>(null);
+  const [adressDialog, setAdressDialog] = useState<{ name: string | null; adresse: string } | null>(null);
 
   const anhangLaden = async (index: number) => {
-    const r = await utils.postfach.anhang.fetch({ mailId: id, index });
+    // Gesendet-Anhänge tragen den Inhalt direkt im Meta (kein Server-Fetch nötig)
+    const meta = mail.data?.anhaengeMeta?.[index] as { inhalt?: string; name?: string; mime?: string } | undefined;
+    const r = meta?.inhalt
+      ? { base64: meta.inhalt, dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream" }
+      : await utils.postfach.anhang.fetch({ mailId: id, index });
     const blob = new Blob([Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0))], { type: r.mime });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -829,10 +926,32 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
           )}
         </div>
         <div className="text-xs text-neutral-600">
-          <div className="truncate"><strong>Von:</strong> {m.absenderName ? `${m.absenderName} <${m.absenderAdresse}>` : m.absenderAdresse}</div>
-          <div className="truncate"><strong>An:</strong> {m.empfaenger || "—"}</div>
-          <div>{m.datum ? new Date(m.datum).toLocaleString("de-DE") : "—"} · {m.ordner}</div>
+          <div className="flex flex-wrap items-center gap-1">
+            <strong>Von:</strong>
+            {m.absenderAdresse
+              ? <AdressChip name={m.absenderName} adresse={m.absenderAdresse} onKlick={setAdressDialog} />
+              : <span className="text-neutral-400">—</span>}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
+            <strong>An:</strong>
+            {(m.empfaenger ?? "").split(",").map((x) => x.trim()).filter((x) => x.includes("@")).length > 0
+              ? (m.empfaenger ?? "").split(",").map((x) => x.trim()).filter((x) => x.includes("@")).map((x) => {
+                  const match = x.match(/^"?([^"<]+)"?\s*<([^>]+)>$/);
+                  return <AdressChip key={x} name={match ? match[1].trim() : null} adresse={match ? match[2].trim() : x} onKlick={setAdressDialog} />;
+                })
+              : <span className="text-neutral-400">{m.empfaenger || "—"}</span>}
+          </div>
+          <div className="mt-0.5">{m.datum ? new Date(m.datum).toLocaleString("de-DE") : "—"} · {m.ordner}</div>
         </div>
+        {adressDialog && (
+          <AdressDialog
+            name={adressDialog.name}
+            adresse={adressDialog.adresse}
+            kontoId={m.kontoId}
+            onMail={onAntworten}
+            onSchliessen={() => setAdressDialog(null)}
+          />
+        )}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           <Button
             variant="outline" size="sm"
@@ -933,25 +1052,28 @@ ${inhalt}
         {alsBeleg.error && <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{alsBeleg.error.message}</p>}
         {m.anhaengeMeta.length > 0 && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {m.anhaengeMeta.map((a, i) => (
-              <div key={i} className="flex items-center gap-1 rounded-md border border-neutral-200 px-2 py-1 text-xs">
-                <Paperclip className="h-3 w-3 text-neutral-500" />
-                <span className="max-w-32 truncate">{a.name}</span>
-                <span className="text-neutral-400">({Math.round(a.groesse / 1024)} KB)</span>
-                {a.postEingangId && (
-                  <>
-                    <button className="text-teal-700 hover:underline" onClick={() => anhangLaden(i)}>Download</button>
+            {m.anhaengeMeta.map((a, i) => {
+              const hatInhalt = Boolean(a.postEingangId) || Boolean((a as { inhalt?: string }).inhalt);
+              return (
+                <div key={i} className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${hatInhalt ? "cursor-pointer border-neutral-200 hover:border-teal-300 hover:bg-teal-50" : "border-neutral-200"}`}
+                  onClick={() => hatInhalt && anhangLaden(i)}
+                  title={hatInhalt ? "Anhang öffnen/herunterladen" : "Anhang (nur Metadaten)"}
+                >
+                  <Paperclip className="h-3 w-3 text-neutral-500" />
+                  <span className="max-w-32 truncate">{a.name}</span>
+                  <span className="text-neutral-400">({Math.round(a.groesse / 1024)} KB)</span>
+                  {a.postEingangId && (
                     <button
                       className="text-teal-700 hover:underline"
                       disabled={alsBeleg.isPending}
-                      onClick={() => alsBeleg.mutate({ mailId: id, anhangIndex: i }, { onSuccess: (r) => setBelegOk(`Beleg #${r.belegId} angelegt`) })}
+                      onClick={(e) => { e.stopPropagation(); alsBeleg.mutate({ mailId: id, anhangIndex: i }, { onSuccess: (r) => setBelegOk(`Beleg #${r.belegId} angelegt`) }); }}
                     >
                       → Beleg
                     </button>
-                  </>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -959,7 +1081,7 @@ ${inhalt}
         {m.textHtml ? (
           <iframe sandbox="" title="Mail-Inhalt" srcDoc={m.textHtml} className="h-full min-h-[380px] w-full rounded-md border border-neutral-100" />
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-sm text-neutral-800">{m.textPlain || "(kein Text)"}</pre>
+          <pre className="whitespace-pre-wrap font-sans text-sm text-neutral-800">{(m.textPlain ?? "").replace(/\t/g, "    ") || "(kein Text)"}</pre>
         )}
       </div>
     </div>

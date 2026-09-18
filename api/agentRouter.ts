@@ -1734,6 +1734,44 @@ app.post("/mails/datum-heilen", async (c) => {
   return c.json({ ok: true, ...ergebnis });
 });
 
+// ── Postfach-Ordner verwalten (Struktur aufbauen/umsortieren) ─────────────
+app.post("/mail-ordner/erstellen", async (c) => {
+  const body = await bodyLesen(c);
+  const kontoId = Number(body.kontoId);
+  const name = String(body.name ?? "").trim();
+  if (!kontoId || !name) return c.json({ ok: false, fehler: "kontoId + name nötig (Unterordner mit / — z. B. INBOX/Buchhaltung)." }, 400);
+  const { erstelleOrdner } = await import("./imapDienst");
+  const r = await erstelleOrdner(kontoId, name);
+  if (!r.ok) return c.json(r, 502);
+  await audit("ordner_erstellt", { kontoId, name });
+  return c.json(r);
+});
+
+app.post("/mail-ordner/umbenennen", async (c) => {
+  const body = await bodyLesen(c);
+  const kontoId = Number(body.kontoId);
+  const alt = String(body.alt ?? "").trim();
+  const neu = String(body.neu ?? "").trim();
+  if (!kontoId || !alt || !neu) return c.json({ ok: false, fehler: "kontoId + alt + neu nötig." }, 400);
+  const { benenneOrdnerUm } = await import("./imapDienst");
+  const r = await benenneOrdnerUm(kontoId, alt, neu);
+  if (!r.ok) return c.json(r, alt ? 409 : 502);
+  await audit("ordner_umbenannt", { kontoId, alt, neu });
+  return c.json(r);
+});
+
+app.post("/mail-ordner/loeschen", async (c) => {
+  const body = await bodyLesen(c);
+  const kontoId = Number(body.kontoId);
+  const name = String(body.name ?? "").trim();
+  if (!kontoId || !name) return c.json({ ok: false, fehler: "kontoId + name nötig. System-Ordner sind geschützt." }, 400);
+  const { loescheOrdner } = await import("./imapDienst");
+  const r = await loescheOrdner(kontoId, name);
+  if (!r.ok) return c.json(r, 409);
+  await audit("ordner_geloescht", { kontoId, name });
+  return c.json(r);
+});
+
 /** Ordner-Übersicht: welche Fächer existieren (je Konto) und wie viele Mails darin liegen. */
 app.get("/mail-ordner", async (c) => {
   const { mailMails } = await import("@db/schema");
@@ -1784,8 +1822,12 @@ app.get("/mail/:id/anhang/:index", async (c) => {
   const db = getDb();
   const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
   if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
-  const meta = metaLesen(m.anhaenge)[index];
+  const meta = metaLesen(m.anhaenge)[index] as { postEingangId?: number | null; inhalt?: string; name?: string; mime?: string } | undefined;
   if (!meta) return c.json({ ok: false, fehler: "Anhang nicht gefunden." }, 404);
+  // Gesendet-Anhänge tragen ihren Inhalt direkt im Meta (kein postEingang nötig)
+  if (!meta.postEingangId && meta.inhalt) {
+    return c.json({ ok: true, dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream", base64: meta.inhalt });
+  }
   if (!meta.postEingangId) return c.json({ ok: false, fehler: "Anhangtyp nur als Metadaten (kein Download)." }, 404);
   const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
   if (!beleg?.dateiInhalt) return c.json({ ok: false, fehler: "Anhang-Datei nicht vorhanden." }, 404);
@@ -2095,19 +2137,30 @@ app.get("/mail/:id/anhang/:index/text", async (c) => {
   const db = getDb();
   const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
   if (!m) return c.json({ ok: false, fehler: "Mail nicht gefunden." }, 404);
-  const meta = metaLesen(m.anhaenge)[index];
+  const meta = metaLesen(m.anhaenge)[index] as { postEingangId?: number | null; inhalt?: string; name?: string; mime?: string } | undefined;
   if (!meta) return c.json({ ok: false, fehler: "Anhang nicht gefunden." }, 404);
-  if (!meta.postEingangId) return c.json({ ok: false, fehler: "Anhangtyp nur als Metadaten (kein Inhalt verfügbar)." }, 404);
-  const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
-  if (!beleg?.dateiInhalt) return c.json({ ok: false, fehler: "Anhang-Datei nicht vorhanden." }, 404);
+  let puffer: Buffer | null = null;
+  let dateiname = meta.name ?? "anhang";
+  let mime = meta.mime ?? "application/octet-stream";
+  if (meta.postEingangId) {
+    const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
+    if (!beleg?.dateiInhalt) return c.json({ ok: false, fehler: "Anhang-Datei nicht vorhanden." }, 404);
+    puffer = Buffer.from(beleg.dateiInhalt, "base64");
+    dateiname = beleg.originalname;
+    mime = beleg.mime ?? mime;
+  } else if (meta.inhalt) {
+    puffer = Buffer.from(meta.inhalt, "base64");
+  } else {
+    return c.json({ ok: false, fehler: "Anhangtyp nur als Metadaten (kein Inhalt verfügbar)." }, 404);
+  }
   const { extrahiereAnhangText } = await import("./lib/anhangText");
-  const ergebnis = await extrahiereAnhangText(Buffer.from(beleg.dateiInhalt, "base64"), beleg.mime);
+  const ergebnis = await extrahiereAnhangText(puffer, mime);
   if (!ergebnis.ok) return c.json({ ok: false, methode: ergebnis.methode, fehler: ergebnis.fehler }, 422);
   return c.json({
     ok: true,
     methode: ergebnis.methode,
-    dateiname: beleg.originalname,
-    mime: beleg.mime,
+    dateiname,
+    mime,
     text: ergebnis.text,
   });
 });

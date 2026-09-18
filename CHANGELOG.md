@@ -2,6 +2,36 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.17.3] — 2026-09-17
+
+### Neu
+
+- **Adress-Interaktion:** Klick auf Absender/Empfänger in Mails öffnet Aktionsmenü — „Mail schreiben", „Kontakt anzeigen/erstellen" (Kartei-Abgleich live), „Adresse kopieren" (mit HTTP-sicherem Fallback).
+- **Support-Button global:** fester Platz in der Seitenleiste über „Abmelden" — von überall erreichbar.
+- **Agent: Postfach-Ordner verwalten** — `POST /mail-ordner/erstellen|umbenennen|loeschen` (Unterordner via `INBOX/Name`; System-Ordner geschützt; Umbenennen hängt lokale Mails um).
+
+### Behoben
+
+- **Gesendet-Anzeige ohne Absender:** lokale Gesendet-Zeilen tragen jetzt Absender-Name/-Adresse (Empfänger sahen ihn immer — nur unsere Anzeige nicht).
+- **Anhänge gesendeter Mails** sind anklickbar/herunterladbar (Inhalt direkt im Anhang-Meta, Post Manager bleibt sauber) — auch für `/mail/:id/anhang/:index(/text)` der Agent-API.
+- **„Löschen" verwirft Entwürfe jetzt wirklich** (DB + Seitenleiste), nicht nur den Tab — der „untote" Erst-Entwurf ist damit löschbar.
+- **Absatz-Darstellung:** Plain-Text wird beim Senden in saubere <p>-Absätze gewandelt, htmlZuText ist absatz-sicher, Tabs werden in der Anzeige zu 4 Leerzeichen — kein „verschobenes" Layout mehr.
+
+## [1.17.2] — 2026-09-16
+
+### Behoben
+
+- **Textverlust zwischen Verfassen-Tabs:** Tabs sind jetzt keep-alive (alle gemountet, nur versteckt) — Copy & Paste zwischen Entwürfen verliert nichts mehr.
+- **„Entwurf aktualisieren" setzte Inhalt zurück:** Speichern invalidiert die Entwürfe-Liste sofort; der Tab bleibt offen; neue Button-Logik: Zurücksetzen / Entwurf speichern / Senden.
+- **Gesendet-Ordner blieb leer:** Gesendete Mails werden jetzt per IMAP in den Gesendet-Ordner des Kontos gelegt und sind sofort sichtbar.
+- **Senden ohne sichtbare Reaktion:** Nach dem Senden wird der Entwurf verworfen, Listen aktualisiert, Tab geschlossen; Fehler erscheinen prominent.
+- **Ausklappen-Sackgasse:** Konsistenz-Wache + „← Liste"-Button in der Vollansicht; erneutes Öffnen eines gelösten Tabs dockt wieder an.
+
+### Neu
+
+- **Agent: `POST /mail-entwurf/:id/senden`** — Entwurf direkt senden (Freigabelisten-Gate), danach Gesendet-Ablage + Entwurf weg.
+- Verfassen-Kopf als kompakte 5-Zeilen-Pillen (Von / Empfänger / CC / BCC / Betreff); Mail-Höhe nutzt den Viewport voll.
+
 ## [1.17.1] — 2026-09-16
 
 ### Neu (Mail-Office-Runde)

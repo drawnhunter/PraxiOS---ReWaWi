@@ -28,8 +28,10 @@ import {
   CalendarClock,
   Clock,
   Import,
+  LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
+import { SupportDialog } from "./SupportDialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -123,6 +125,7 @@ export default function Layout() {
   const oben = OBEN.filter((e) => modulAktiv(e.to));
   const [navOffen, setNavOffen] = useState(false);
   const [zugeklappt, setZugeklappt] = useState<Record<string, boolean>>(ladeZugeklappt);
+  const [supportOffen, setSupportOffen] = useState(false);
 
   // Akzentfarbe aus den Einstellungen aufs UI anwenden
   const einstellungen = trpc.settings.get.useQuery(undefined, { retry: false });
@@ -215,6 +218,12 @@ export default function Layout() {
           {user.name ?? "Benutzer"}
         </div>
         <button
+          onClick={() => setSupportOffen(true)}
+          className="mb-1.5 flex w-full items-center justify-center gap-1.5 rounded-md border border-teal-200 bg-teal-50 px-3 py-1.5 text-sm text-teal-700 transition-colors hover:bg-teal-100"
+        >
+          <LifeBuoy className="h-4 w-4" /> Support
+        </button>
+        <button
           onClick={logout}
           className="flex w-full items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900"
         >
@@ -224,6 +233,7 @@ export default function Layout() {
           ReWaWi v{ping.data?.version ?? "…"} · PraxiOS
         </div>
       </div>
+      <SupportDialog offen={supportOffen} onSchliessen={() => setSupportOffen(false)} />
     </div>
   );
 

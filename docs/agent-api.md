@@ -61,6 +61,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `GET /mails?q=&ordner=&nurUngelesene=&nurMitAnhang=&limit=&offset=&von=&bis=` (pseudonymisiert) — **q durchsucht: betreff, absenderName, absenderAdresse, textPlain (Volltext)** · `limit` max 100, `offset` für Pagination, `von`/`bis` JJJJ-MM-TT, `nurMitAnhang=1` Beleg-Kandidaten
 - `POST /mails/sync {kontoId?, ordner?}` → sofort-Sync (gezielt pro Konto/Ordner möglich). Wasserzeichen-Backfill: lückenlos rückwärts, 50/Lauf/Ordner — mehrfach aufrufen, bis `GET /mail-ordner` vollständig zeigt
 - `GET /mail-ordner` → alle Fächer je Konto mit Mail-Anzahl
+- **`POST /mail-ordner/erstellen {kontoId, name}`** (Unterordner mit `/`, z. B. `INBOX/Buchhaltung`) · **`POST /mail-ordner/umbenennen {kontoId, alt, neu}`** (hängt lokale Mails um) · **`POST /mail-ordner/loeschen {kontoId, name}`** — System-Ordner (INBOX, Gesendet, Papierkorb, Spam, Entwürfe, Archiv) sind geschützt
 - `GET /mail/:id` · `GET /mail/:id?kurz=1` (ohne textHtml, dafür `htmlVorhanden`/`htmlLaenge`) · `GET /mail/:id/anhang/:index` (base64)
 - `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, Scan-PDFs automatisch per OCR, Bilder via OCR)
 - `POST /mails/datum-heilen` → Mails ohne Datum bekommen IMAP-Envelope-Datum (Fallback: created_at)
