@@ -1,0 +1,7 @@
+{
+  "produkt": "rewawi",
+  "produktName": "ReWaWi — Rechnungs- & Warenwirtschaft",
+  "hersteller": "PraxiOS",
+  "stempelVersion": 1,
+  "hinweis": "Produkt-Stempel (PraxiOS-Instanz-Pass). Der SupportHub prüft vor jeder Bereitstellung: produkt dieses Pakets === produkt der Ziel-Instanz. Nicht von Hand ändern."
+}

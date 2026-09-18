@@ -125,7 +125,11 @@ if (env.isProduction) {
   serveStaticFiles(app);
 
   const port = parseInt(process.env.PORT || "3000");
+  const { APP_VERSION, APP_PRODUKT, APP_PRODUKT_NAME, APP_HERSTELLER } = await import("./lib/version");
   serve({ fetch: app.fetch, port }, () => {
+    // Produkt-Stempel: erste Logzeile identifiziert diese Instanz eindeutig
+    // (Lehre aus dem Instanz-Verwechslungs-Tag 18.09.2026)
+    console.log(`[stempel] ${APP_HERSTELLER} ${APP_PRODUKT_NAME} · produkt=${APP_PRODUKT} · v${APP_VERSION}`);
     console.log(`Server running on http://localhost:${port}/`);
   });
 }

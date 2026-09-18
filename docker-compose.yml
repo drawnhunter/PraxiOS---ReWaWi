@@ -1,7 +1,12 @@
-name: wawipros
-
 # ─────────────────────────────────────────────────────────────────────────────
 # ReWaWi (wawipros) — App + MySQL 8
+#
+# WICHTIG (Multi-Instanz): Diese Datei setzt bewusst KEIN fixes `name:`-Feld —
+# der Compose-Projektname entsteht aus dem ORDNERNAMEN (oder -p Flag). Sonst
+# kaempfen zwei Checkouts um dieselben Container + dasselbe DB-Volume
+# (Stempel-Release v1.17.4, Lehre aus dem 18.09.).
+# Pro Instanz EIN Ordner, z. B. ~/rewawi-live, ~/rewawi-demo — niemals zwei
+# Checkouts desselben Repos auf einem Host starten.
 #
 # Secrets stehen bewusst NICHT in dieser Datei. Schluessel ohne Wert
 # (Listenform) uebernimmt docker compose automatisch aus .env bzw. aus der

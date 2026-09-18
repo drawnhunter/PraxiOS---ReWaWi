@@ -2,6 +2,13 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.17.4] — 2026-09-18
+
+### Neu (Stempel-Release — Instanz-Sicherheit)
+
+- **Produkt-Stempel (PraxiOS-Instanz-Pass):** `praxios-produkt.json` im Paket (produkt/hersteller), Docker-`LABEL org.praxios.*` im Image, Boot-Log `[stempel] PraxiOS ReWaWi … produkt=rewawi v…` — Pakete, Images, Container und Logs sind jetzt eindeutig einem Produkt zuzuordnen. Grundlage für den Hub-Produkt-Wächter (nie wieder ReWaWi auf PaWaWi-Instanzen).
+- **Compose ohne festen Projektnamen:** das ausgelieferte `docker-compose.yml` setzt kein fixes `name:`-Feld mehr — der Projektname entsteht aus dem Ordnernamen. Zwei Checkouts kämpfen damit nicht mehr um dieselben Container/dasselbe DB-Volume.
+
 ## [1.17.3] — 2026-09-17
 
 ### Neu

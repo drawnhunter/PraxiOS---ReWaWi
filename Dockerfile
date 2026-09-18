@@ -1,5 +1,11 @@
 FROM node:22-slim
 
+# PraxiOS Produkt-Stempel (Container/Images sind so eindeutig identifizierbar —
+# `docker inspect` zeigt Produkt & Hersteller; Hub kann Mismatch erkennen)
+LABEL org.praxios.produkt="rewawi" \
+      org.praxios.produktName="ReWaWi — Rechnungs- & Warenwirtschaft" \
+      org.praxios.hersteller="PraxiOS"
+
 # OCR (Post Manager): Tesseract + deutsches Sprachpaket, pdftoppm fuer PDF-Scans
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu poppler-utils \
