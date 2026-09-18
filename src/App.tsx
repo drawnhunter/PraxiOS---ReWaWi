@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Statistics from "@/pages/Statistics";
+import Berichte from "@/pages/Berichte";
 import MailPostfach from "@/pages/Mail";
 import Kontakte from "@/pages/Kontakte";
 import Kalender from "@/pages/Kalender";
@@ -38,6 +39,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/statistik" element={<Statistics />} />
+        <Route path="/berichte" element={<Berichte />} />
         <Route path="/import" element={<Import />} />
         <Route path="/posteingang" element={<Posteingang />} />
         <Route path="/mail" element={<MailPostfach />} />

@@ -2327,6 +2327,43 @@ app.post("/datev-export", async (c) => {
   });
 });
 
+// ── Berichte (Berichtszentrale; Kundennamen pseudonymisiert) ───────────────
+app.get("/berichte/katalog", async (c) => {
+  const { BERICHT_KATALOG } = await import("./lib/berichte");
+  return c.json({ berichte: BERICHT_KATALOG });
+});
+
+app.get("/berichte/:id", async (c) => {
+  const id = c.req.param("id");
+  const heuteS = heute();
+  const von = c.req.query("von") ?? `${heuteS.slice(0, 4)}-01-01`;
+  const bis = c.req.query("bis") ?? heuteS;
+  const kontoId = c.req.query("kontoId") ? Number(c.req.query("kontoId")) : undefined;
+  const satz = c.req.query("satz") ? Number(c.req.query("satz")) : undefined;
+  const { baueBericht } = await import("./lib/berichte");
+  try {
+    const bericht = await baueBericht(id, { von, bis, kontoId, satz });
+    // DSGVO: Kundennamen in Berichten pseudonymisieren
+    const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+    const karte = await ladeSynonymKarte();
+    if (karte.aktiv && ["debitoren", "zahlungsverhalten", "umsatz-kunden", "zm"].includes(id)) {
+      const { customers } = await import("@db/schema");
+      const kunden = await getDb().select().from(customers);
+      bericht.zeilen = bericht.zeilen.map((z) => ({
+        ...z,
+        zellen: z.zellen.map((v) => {
+          if (typeof v !== "string") return v;
+          const k = kunden.find((x) => x.name === v);
+          return k ? agentName(karte, k.id, k.name) : v;
+        }),
+      }));
+    }
+    return c.json(bericht);
+  } catch (e) {
+    return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
 // ── v1.17.0: Beleg-Extraktion, Mail-Status, Audit, Webhooks, Briefing ──────
 
 /** OCR + strukturierte Extraktion aus einer Datei (Beleg-Vorentwurf). */

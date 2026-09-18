@@ -27,6 +27,7 @@ import { kalenderRouter } from "./kalenderRouter";
 import { einrechnungRouter } from "./einrechnungRouter";
 import { lagerRouter } from "./lagerRouter";
 import { labelRouter } from "./labelRouter";
+import { berichteRouter } from "./berichteRouter";
 import { seriesRouter } from "./seriesRouter";
 import { supportRouter } from "./supportRouter";
 import { magicImportRouter } from "./magicImportRouter";
@@ -65,6 +66,7 @@ export const appRouter = createRouter({
   einrechnung: einrechnungRouter,
   lager: lagerRouter,
   label: labelRouter,
+  berichte: berichteRouter,
   series: seriesRouter,
   support: supportRouter,
   magicImport: magicImportRouter,

@@ -2,6 +2,24 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.17.5] — 2026-09-18
+
+### Neu (Berichtszentrale — Konkurrenz-Parität im Berichtswesen)
+
+Neue Seite **Berichte** (Navigation oben): 12 Berichte aus den eigenen Daten, Zeitraum-Presets (Monat/Quartal/Jahr/frei), jeder Bericht als **CSV + PDF** (generische PDF-Engine im Markendesign). Recherche-Basis: Lexware, sevDesk, FastBill, Accountable, Buchhaltungsbutler, Kontist, Agicap, Qonto, Finom, SumUp.
+
+- **EÜR** (Zuflussprinzip, Kategorien, Netto/Brutto ehrlich getrennt)
+- **Steuer-Rücklage & USt-Prognose** (Kontist-Style: USt-Zahllast + Ertragsteuer-Satz wählbar vs. Kontostand)
+- **ZM-Arbeitsliste** (EU-Umsätze mit USt-IdNr.-Prüfung)
+- **Offene Posten Debitoren** (Aging-Staffeln) **+ Kreditoren**
+- **Zahlungsverhalten** (Ø Zahlungsdauer, Verspätungen, offene Beträge je Kunde)
+- **Kontenblatt** (laufender Saldo, Konto wählbar)
+- **Liquiditäts-Vorschau 90 Tage** (Saldo + offene Posten als Basis-Projektion; Engpass-Markierung)
+- **SumUp-Gebühren** (Brutto/Gebühr/Netto, effektiver Satz je Monat)
+- **Fehlende Belege** (Bankausgaben ohne Beleg + Belege ohne Zahlung)
+- **Ausgaben nach Kategorie** (mit SKR-Konto = einfache BWA) **+ Umsatz nach Kunde**
+- **Agent-API:** `GET /berichte/katalog`, `GET /berichte/:id?von=&bis=&kontoId=&satz=` (Kundennamen pseudonymisiert)
+
 ## [1.17.4] — 2026-09-18
 
 ### Neu (Stempel-Release — Instanz-Sicherheit)

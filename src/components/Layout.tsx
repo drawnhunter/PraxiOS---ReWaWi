@@ -29,6 +29,7 @@ import {
   Clock,
   Import,
   LifeBuoy,
+  FileBarChart2,
   type LucideIcon,
 } from "lucide-react";
 import { SupportDialog } from "./SupportDialog";
@@ -41,6 +42,7 @@ type NavGruppe = { id: string; titel: string; eintraege: NavEintrag[] };
 const OBEN: NavEintrag[] = [
   { to: "/", label: "Übersicht", icon: LayoutDashboard, end: true },
   { to: "/statistik", label: "Statistik", icon: ChartColumn },
+  { to: "/berichte", label: "Berichte", icon: FileBarChart2 },
       { to: "/kalender", label: "Kalender", icon: CalendarDays },
       { to: "/zeit", label: "Zeiterfassung", icon: Clock },
 ];
