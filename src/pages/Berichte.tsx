@@ -47,6 +47,8 @@ export default function Berichte() {
   const [bericht, setBericht] = useState<Bericht | null>(null);
   const [laden, setLaden] = useState(false);
   const [pdfLaden, setPdfLaden] = useState(false);
+  const [paketLaden, setPaketLaden] = useState(false);
+  const [paketOk, setPaketOk] = useState("");
   const [fehler, setFehler] = useState("");
 
   const katalog = trpc.berichte.katalog.useQuery();
@@ -183,8 +185,42 @@ export default function Berichte() {
       {/* Steuerberater-Übergabe: DATEV-Stapel + Belegbilder (aus Einstellungen hierher umgezogen) */}
       <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3">
         <h2 className="mb-1 text-sm font-semibold text-teal-900">Steuerberater-Übergabe (DATEV)</h2>
-        <p className="mb-2 text-xs text-teal-700">Buchungsstapel (EXTF v700) + Belegbilder-ZIP — direkt für die Kanzlei. Konfiguration (Berater-/Mandantennummer, Kontenrahmen) bleibt in den Einstellungen.</p>
+        <p className="mb-2 text-xs text-teal-700">Buchungsstapel (EXTF v700) + Belegbilder-ZIP mit document.xml (DATEV XML-Schnittstelle) — direkt für die Kanzlei bzw. den kostenlosen DATEV-Belegtransfer. Konfiguration (Berater-/Mandantennummer, Kontenrahmen) bleibt in den Einstellungen.</p>
         <DatevExport />
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-teal-100 pt-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={paketLaden}
+            onClick={async () => {
+              setPaketLaden(true);
+              setPaketOk("");
+              setFehler("");
+              try {
+                const einstellungen = await utils.settings.get.fetch();
+                const empfaenger = (einstellungen as { steuerberaterEmail?: string | null })?.steuerberaterEmail ?? "";
+                const r = await utils.client.export.stbPaket.mutate(zeitraum);
+                const betreff = `Buchhaltung ${zeitraum.von} – ${zeitraum.bis} (Stapel + Belege + Berichte)`;
+                await utils.client.postfach.entwurfSpeichern.mutate({
+                  empfaenger,
+                  betreff,
+                  text: `<p>Liebe Kanzlei,</p><p>anbei das Monatspaket ${zeitraum.von} – ${zeitraum.bis}: DATEV-Buchungsstapel (CSV), Belegbilder (ZIP mit document.xml für den DATEV-Belegtransfer) sowie EÜR und Offene-Posten-Listen als PDF.</p><p>Herzliche Grüße</p>`,
+                  anhaenge: r.anhaenge,
+                });
+                utils.postfach.entwuerfe.invalidate();
+                setPaketOk(`Entwurf mit ${r.anhaenge.length} Anhängen liegt in der Mail-Seitenleiste (Entwürfe) — prüfen & senden.${empfaenger ? "" : " Hinweis: Kanzlei-Adresse in den Einstellungen hinterlegen."}`);
+              } catch (e) {
+                setFehler(e instanceof Error ? e.message : String(e));
+              } finally {
+                setPaketLaden(false);
+              }
+            }}
+          >
+            {paketLaden ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+            Monatspaket als Mail-Entwurf (Kanzlei)
+          </Button>
+          {paketOk && <p className="text-xs text-green-700">{paketOk}</p>}
+        </div>
       </div>
 
       {/* Katalog */}

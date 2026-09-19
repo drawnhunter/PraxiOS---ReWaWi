@@ -411,9 +411,13 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
 }) {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const sync = trpc.postfach.syncJetzt.useMutation({ onSuccess: () => postfaecher.refetch() });
+  const ordnerErstellen = trpc.postfach.ordnerErstellen.useMutation({ onSettled: () => postfaecher.refetch() });
+  const ordnerUmbenennen = trpc.postfach.ordnerUmbenennen.useMutation({ onSettled: () => postfaecher.refetch() });
+  const ordnerLoeschen = trpc.postfach.ordnerLoeschen.useMutation({ onSettled: () => postfaecher.refetch() });
   const [reihenfolge, setReihenfolge] = useState<number[]>(() => ladeJson("mail-konto-reihenfolge", []));
   const [favoriten, setFavoriten] = useState<OrdnerFavorit[]>(() => ladeJson("mail-ordner-favoriten", []));
   const [kontext, setKontext] = useState<{ x: number; y: number; fav: OrdnerFavorit } | null>(null);
+  const [kontoKontext, setKontoKontext] = useState<{ x: number; y: number; kontoId: number; kontoName: string } | null>(null);
   const [dragKonto, setDragKonto] = useState<number | null>(null);
 
   // Konten in gespeicherter Reihenfolge (unbekannte hinten anhängen)
@@ -446,7 +450,7 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
   };
 
   return (
-    <div className="h-full space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3" onClick={() => setKontext(null)}>
+    <div className="h-full space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3" onClick={() => { setKontext(null); setKontoKontext(null); }}>
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Postfächer</span>
         <Link to="/einstellungen" title="Konten verwalten">
@@ -496,8 +500,9 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
           <div className="flex items-center gap-1">
             <button
               onClick={() => setKontoId(k.id)}
+              onContextMenu={(e) => { e.preventDefault(); setKontext(null); setKontoKontext({ x: e.clientX, y: e.clientY, kontoId: k.id, kontoName: k.name }); }}
               className={`flex-1 cursor-grab truncate rounded-md px-2 py-1.5 text-left text-sm active:cursor-grabbing ${kontoId === k.id && !ordner ? "bg-neutral-100 font-medium" : "hover:bg-neutral-50"}`}
-              title={k.benutzer}
+              title={`${k.benutzer} (Rechtsklick: Neuer Ordner)`}
             >
               {k.name}
             </button>
@@ -536,9 +541,10 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
         </p>
       )}
       <EntwuerfeSektion onOeffnen={onEntwurfOeffnen} />
+      <AusgangSektion />
       <RegelnSektion />
 
-      {/* ── Rechtsklick-Menü (Favoriten) ── */}
+      {/* ── Rechtsklick-Menü (Favoriten + Ordner-Aktionen) ── */}
       {kontext && (
         <div
           className="fixed z-50 rounded-md border border-neutral-200 bg-white py-1 shadow-xl"
@@ -551,6 +557,49 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
           >
             <Star className={`h-3.5 w-3.5 ${istFavorit(kontext.fav.kontoId, kontext.fav.ordner) ? "fill-amber-400 text-amber-400" : "text-neutral-400"}`} />
             {istFavorit(kontext.fav.kontoId, kontext.fav.ordner) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
+            onClick={() => {
+              const neu = window.prompt(`Ordner „${kontext.fav.ordner}" umbenennen in:`, kontext.fav.ordner);
+              if (neu?.trim() && neu.trim() !== kontext.fav.ordner) {
+                ordnerUmbenennen.mutate({ kontoId: kontext.fav.kontoId, alt: kontext.fav.ordner, neu: neu.trim() });
+              }
+              setKontext(null);
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5 text-neutral-400" /> Ordner umbenennen
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+            onClick={() => {
+              if (window.confirm(`Ordner „${kontext.fav.ordner}" wirklich löschen? (Mails darin werden serverseitig mitgelöscht!)`)) {
+                ordnerLoeschen.mutate({ kontoId: kontext.fav.kontoId, name: kontext.fav.ordner });
+              }
+              setKontext(null);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Ordner löschen
+          </button>
+        </div>
+      )}
+
+      {/* ── Rechtsklick-Menü (Konto: Neuer Ordner) ── */}
+      {kontoKontext && (
+        <div
+          className="fixed z-50 rounded-md border border-neutral-200 bg-white py-1 shadow-xl"
+          style={{ left: kontoKontext.x, top: kontoKontext.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
+            onClick={() => {
+              const name = window.prompt(`Neuer Ordner in „${kontoKontext.kontoName}" (Unterordner mit /, z. B. INBOX/Buchhaltung):`, "");
+              if (name?.trim()) ordnerErstellen.mutate({ kontoId: kontoKontext.kontoId, name: name.trim() });
+              setKontoKontext(null);
+            }}
+          >
+            <Plus className="h-3.5 w-3.5 text-neutral-400" /> Neuer Ordner …
           </button>
         </div>
       )}
@@ -660,7 +709,9 @@ interface EntwurfEintrag {
 
 function EntwuerfeSektion({ onOeffnen }: { onOeffnen: (e: EntwurfEintrag) => void }) {
   const entwuerfe = trpc.postfach.entwuerfe.useQuery(undefined, { refetchInterval: 30000 });
-  const liste = (entwuerfe.data ?? []) as EntwurfEintrag[];
+  const liste = ((entwuerfe.data ?? []) as (EntwurfEintrag & { status?: string })[]).filter(
+    (e) => (e.status ?? "entwurf") === "entwurf",
+  );
   if (liste.length === 0) return null;
   return (
     <div className="mt-3 border-t border-neutral-100 pt-2">
@@ -685,6 +736,55 @@ function EntwuerfeSektion({ onOeffnen }: { onOeffnen: (e: EntwurfEintrag) => voi
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Ausgang (Zwischenpforte: Versand läuft / fehlgeschlagen) ═══ */
+function AusgangSektion() {
+  const utils = trpc.useUtils();
+  const entwuerfe = trpc.postfach.entwuerfe.useQuery(undefined, { refetchInterval: 10000 });
+  const entwurfSenden = trpc.postfach.entwurfSenden.useMutation({ onSettled: () => entwuerfe.refetch() });
+  const ausgangZurueck = trpc.postfach.ausgangZurueck.useMutation({ onSettled: () => entwuerfe.refetch() });
+  void utils;
+  const liste = ((entwuerfe.data ?? []) as { id: number; betreff: string | null; empfaenger: string | null; status?: string; versandFehler?: string | null }[])
+    .filter((e) => e.status === "ausgang");
+  if (liste.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-neutral-100 pt-2">
+      <span className="text-xs font-medium uppercase tracking-wide text-amber-600">Ausgang ({liste.length})</span>
+      <div className="mt-1 space-y-0.5">
+        {liste.map((e) => (
+          <div key={e.id} className="rounded-md bg-amber-50/70 px-2 py-1.5 text-xs">
+            <span className="block truncate font-medium">{e.betreff || "(kein Betreff)"}</span>
+            <span className="block truncate text-neutral-500">an {e.empfaenger || "—"}</span>
+            {e.versandFehler ? (
+              <>
+                <span className="mt-0.5 block text-red-600" title={e.versandFehler}>Fehler: {e.versandFehler.slice(0, 80)}</span>
+                <span className="mt-1 flex gap-2">
+                  <button
+                    className="text-teal-700 hover:underline"
+                    disabled={entwurfSenden.isPending}
+                    onClick={() => entwurfSenden.mutate({ id: e.id })}
+                  >
+                    Erneut senden
+                  </button>
+                  <button
+                    className="text-neutral-500 hover:underline"
+                    onClick={() => ausgangZurueck.mutate({ id: e.id })}
+                  >
+                    → Entwürfe
+                  </button>
+                </span>
+              </>
+            ) : (
+              <span className="mt-0.5 flex items-center gap-1.5 text-amber-700">
+                <RefreshCw className="h-3 w-3 animate-spin" /> wird versendet …
+              </span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

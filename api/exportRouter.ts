@@ -88,8 +88,12 @@ export async function baueDatevStapel(von: string, bis: string) {
     const buchungen: DatevBuchung[] = [];
 
     // ── Belegbilder: Dateien fürs Beleg-ZIP sammeln (Referenz = Belegfeld 1) ──
+    // + DATEV XML-Schnittstelle: GUID je Beleg (Beleglink ↔ document.xml)
     const { baueZip } = await import("./lib/zipWriter");
+    const belegtransfer = await import("./lib/datevBelegtransferXml");
+    const { belegGuid, baueDocumentXml } = belegtransfer;
     const belegDateien: { name: string; inhalt: Buffer }[] = [];
+    const belegEintraege: import("./lib/datevBelegtransferXml").BelegEintrag[] = [];
     const sicher = (s: string) => s.replace(/[^\wäöüÄÖÜß.-]+/g, "_").slice(0, 60);
     const ext = (mime: string | null) =>
       mime === "application/pdf" ? "pdf" : mime?.includes("png") ? "png" : mime?.includes("jpeg") || mime?.includes("jpg") ? "jpg" : "bin";
@@ -107,6 +111,8 @@ export async function baueDatevStapel(von: string, bis: string) {
         belegDateien.push({ name: belegDatei, inhalt: pdf });
         void dateiname;
       } catch { /* PDF optional — Stapel bleibt gültig */ }
+      const guid = belegDatei ? belegGuid(`rechnung-${r.id}`) : undefined;
+      if (belegDatei && guid) belegEintraege.push({ guid, dateiname: belegDatei, typ: 2 });
       const totals = computeTotals(
         r.items.map((it) => ({ einzelpreis: it.einzelpreis, menge: it.menge, ustSatz: it.ustSatz })),
       );
@@ -119,6 +125,7 @@ export async function baueDatevStapel(von: string, bis: string) {
           betragCent: u.basisCent + u.betragCent,
           ustSatz: u.satz,
           belegDatei,
+          belegGuid: guid,
         });
       }
     }
@@ -159,6 +166,8 @@ export async function baueDatevStapel(von: string, bis: string) {
         belegDatei = `ER-${sicher(e.nummer)}.${ext(e.belegMime)}`;
         belegDateien.push({ name: belegDatei, inhalt: Buffer.from(e.belegBase64, "base64") });
       }
+      const guid = belegDatei ? belegGuid(`eingangsrechnung-${e.id}`) : undefined;
+      if (belegDatei && guid) belegEintraege.push({ guid, dateiname: belegDatei, typ: 1 });
       buchungen.push({
         debitornummer: 0,
         belegdatum: e.rechnungsdatum,
@@ -167,6 +176,7 @@ export async function baueDatevStapel(von: string, bis: string) {
         betragCent: Math.round(Number(e.brutto) * 100),
         ustSatz: 0,
         belegDatei,
+        belegGuid: guid,
         direkt: {
           konto: e.konto ?? standardAufwand,
           gegenkonto: e.gegenkonto ?? kreditor,
@@ -238,10 +248,15 @@ export async function baueDatevStapel(von: string, bis: string) {
     if (belegDateien.length > 0) {
       // Duplikate zusammenführen (mehrere Buchungszeilen teilen denselben Beleg)
       const einzigartig = new Map(belegDateien.map((d) => [d.name, d.inhalt]));
-      const zip = baueZip([...einzigartig.entries()].map(([name, inhalt]) => ({ name, inhalt })));
+      // DATEV XML-Schnittstelle: document.xml dazu (Belegtransfer-kompatibel)
+      const documentXml = baueDocumentXml(belegEintraege, `ReWaWi Belege ${von} bis ${bis}`);
+      const zip = baueZip([
+        { name: "document.xml", inhalt: Buffer.from(documentXml, "utf8") },
+        ...[...einzigartig.entries()].map(([name, inhalt]) => ({ name, inhalt })),
+      ]);
       belegeZipBase64 = zip.toString("base64");
       belegeDateiname = `EXTF_Belege_${von}_${bis}.zip`;
-      hinweise.push(`${einzigartig.size} Belegdatei(en) im Beleg-ZIP (Referenz: Belegfeld 1 / Beleginfo „Datei").`);
+      hinweise.push(`${einzigartig.size} Belegdatei(en) im Beleg-ZIP inkl. document.xml (DATEV XML-Schnittstelle — per kostenlosem DATEV-Belegtransfer nach Unternehmen online; Verknüpfung via Beleglink BEDI-GUID).`);
     }
 
     return {
@@ -342,4 +357,37 @@ export const exportRouter = createRouter({
       }),
     )
     .query(({ input }) => baueDatevStapel(input.von, input.bis)),
+
+  /** Monatspaket für die Kanzlei: Stapel + Beleg-ZIP + EÜR + OP-Listen als Anhang-Satz. */
+  stbPaket: authedQuery
+    .input(
+      z.object({
+        von: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        bis: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const anhaenge: { dateiname: string; base64: string; mime: string }[] = [];
+      // 1) DATEV-Stapel + Beleg-ZIP
+      const stapel = await baueDatevStapel(input.von, input.bis);
+      anhaenge.push({ dateiname: stapel.dateiname, base64: Buffer.from(stapel.csv, "utf8").toString("base64"), mime: "text/csv" });
+      if (stapel.belegeZipBase64 && stapel.belegeDateiname) {
+        anhaenge.push({ dateiname: stapel.belegeDateiname, base64: stapel.belegeZipBase64, mime: "application/zip" });
+      }
+      // 2) EÜR + Debitoren als PDF (Berichts-Engine)
+      const { baueBericht } = await import("./lib/berichte");
+      const { renderBerichtPdf } = await import("./lib/berichtPdf");
+      for (const id of ["euer", "debitoren", "kreditoren"] as const) {
+        try {
+          const b = await baueBericht(id, { von: input.von, bis: input.bis });
+          const pdf = await renderBerichtPdf(b);
+          anhaenge.push({ dateiname: `${id}_${input.von}_${input.bis}.pdf`, base64: pdf.toString("base64"), mime: "application/pdf" });
+        } catch { /* einzelner Bericht optional */ }
+      }
+      return {
+        anhaenge,
+        anzahlBuchungen: stapel.anzahlBuchungen,
+        hinweise: stapel.hinweise,
+      };
+    }),
 });

@@ -50,6 +50,7 @@ interface FirmenForm {
   debitorStartnummer: number;
   kreditorStartnummer: number;
   aufwandskontoDefault: string;
+  steuerberaterEmail: string;
   akzentfarbe: string;
   pdfLayout: string;
   smtpHost: string;
@@ -116,6 +117,7 @@ export default function SettingsPage() {
       debitorStartnummer: s.debitorStartnummer,
       kreditorStartnummer: s.kreditorStartnummer,
       aufwandskontoDefault: s.aufwandskontoDefault ?? "",
+      steuerberaterEmail: s.steuerberaterEmail ?? "",
       akzentfarbe: s.akzentfarbe,
       pdfLayout: s.pdfLayout,
       smtpHost: s.smtpHost ?? "",
@@ -312,6 +314,7 @@ export default function SettingsPage() {
                 fussText: firma.fussText || null,
                 datevBeraternummer: firma.datevBeraternummer || null,
                 datevMandantennummer: firma.datevMandantennummer || null,
+                steuerberaterEmail: firma.steuerberaterEmail || null,
                 datevKontenrahmen: firma.datevKontenrahmen as "SKR03" | "SKR04",
                 akzentfarbe: firma.akzentfarbe as "neutral" | "blau" | "gruen" | "bernstein" | "violett" | "rot",
                 pdfLayout: firma.pdfLayout as "klassisch" | "modern" | "kompakt",
@@ -570,6 +573,15 @@ export default function SettingsPage() {
               value={firma.aufwandskontoDefault}
               onChange={(e) => setFirma({ ...firma, aufwandskontoDefault: e.target.value })}
               placeholder={firma.datevKontenrahmen === "SKR04" ? "z. B. 6305" : "z. B. 4900"}
+            />
+          </div>
+          <div>
+            <Label>Kanzlei-Adresse (für das Monatspaket)</Label>
+            <Input
+              type="email"
+              value={firma.steuerberaterEmail}
+              onChange={(e) => setFirma({ ...firma, steuerberaterEmail: e.target.value })}
+              placeholder="buchhaltung@kanzlei.de"
             />
           </div>
         </div>

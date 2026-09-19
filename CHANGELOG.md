@@ -2,6 +2,15 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.18.0] — 2026-09-19
+
+### Neu (Kanzlei-Release + Ausgang-Zwischenpforte + Ordner-Verwaltung)
+
+- **DATEV XML-Schnittstelle (Belegtransfer-Format):** Das Beleg-ZIP enthält jetzt die **document.xml** (Verwaltungsdatendatei nach Spezifikation), und der Buchungsstapel trägt in der Spalte Beleglink die **BEDI-GUID** je Beleg — DATEV ReWe und Unternehmen online verknüpfen Buchung und Beleg nach dem Upload per kostenlosem **DATEV-Belegtransfer** automatisch (Importreihenfolge egal). Kein Partnerprogramm nötig.
+- **Monatspaket für die Kanzlei:** ein Klick in der Berichtszentrale erzeugt einen **Mail-Entwurf** mit DATEV-Stapel (CSV), Beleg-ZIP (inkl. document.xml), EÜR + Offene-Posten-Listen (PDF) — adressiert an die neue Einstellung **Kanzlei-Adresse** (Einstellungen → DATEV). Auch als Agent-Endpunkt `POST /stb-paket` (liefert den Anhang-Satz + Kanzlei-Adresse).
+- **Ausgang-Zwischenpforte:** „Senden" legt den Entwurf sofort in den neuen **Ausgang** (Seitenleiste) — kein Doppelklick, kein Verlust: läuft der Versand (bei großen Anhängen/langsamer Leitung), zeigt der Ausgang „wird versendet"; schlägt er fehl, bleibt die Mail dort **mit Fehlertext**, „Erneut senden" oder „→ Entwürfe". Erst nach erfolgreichem Versand verschwindet sie (Gesendet-Ablage wie gehabt).
+- **Ordner-Verwaltung im UI:** Rechtsklick auf ein Postfach → **„Neuer Ordner …"** (Unterordner mit `INBOX/…`); Rechtsklick auf einen Ordner → **„Ordner umbenennen"** (hängt lokale Mails um) / **„Ordner löschen"** (System-Ordner geschützt). Der Agent hatte diese Fähigkeit bereits per API — jetzt auch der Mensch.
+
 ## [1.17.7] — 2026-09-18
 
 ### Neu
@@ -9,6 +18,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: Sem
 - **DATEV-Belegbilder:** Der Buchungsstapel bringt jetzt ein **Beleg-ZIP** mit — Rechnungs-PDFs (GoBD) + Eingangsbelege aus dem Archiv, benannt nach Belegfeld 1 und im Stapel über Beleginfo-Spalten referenziert. Kanzleien ordnen Belege damit automatisch zu (DATEV-/Addison-/Agenda-tauglich). Neuer ZIP-Schreiber (STORE, eigen getestet).
 - **DATEV-Export umgezogen:** aus den Einstellungen in die **Berichtszentrale** (Karte „Steuerberater-Übergabe" oben). Die Konfiguration (Berater-/Mandantennummer, Kontenrahmen, Startnummern) bleibt in den Einstellungen.
 - **Agent-API `/datev-export`** liefert jetzt zusätzlich `belegeZipBase64`, `belegeDateiname`, `anzahlBelege`.
+- **Agent-API `/berichte/:id?format=`**: Berichte jetzt als **JSON, CSV oder PDF** abrufbar — damit ist der StB-Workflow komplett: Bericht als PDF/CSV ziehen → per `POST /mail/entwurf` (Anhänge) als Entwurf für die individuelle Kanzlei-Zustellung vorbereiten.
 
 ## [1.17.6] — 2026-09-18
 

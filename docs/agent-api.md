@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.17.5)
+# ReWaWi Agent-API — Leitfaden (Stand v1.18.0)
 
 REST-API für externe Agenten (Kimi Claw). Basis: `https://<host>/api/agent`
 Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Klartext nur einmalig).
@@ -96,9 +96,12 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - **Idempotenz**: Header `Idempotenz-Key: <beliebig>` bei jedem POST → Timeout-Retry liefert die gespeicherte Antwort (`x-idempotent-replay: 1`), nichts dupliziert
 - **Webhooks**: `POST /webhooks {ereignis: "mail.neu"|"bankbuchung.neu", url}` → POST JSON bei Ereignis (5s Timeout, Fehlerzähler) · `GET /webhooks` · `DELETE /webhooks/:id`
 
+## Steuerberater-Paket (ab 1.18)
+- `POST /stb-paket {von, bis}` → `{anhaenge: [{dateiname, base64, mime}], kanzleiAdresse}` — DATEV-Stapel + Beleg-ZIP (mit document.xml, DATEV XML-Schnittstelle) + EÜR/OP-Listen-PDFs. Direkt als `anhaenge` in `POST /mail/entwurf` weiterverwendbar.
+
 ## Berichte (ab 1.17.5)
 - `GET /berichte/katalog` → alle 12 Berichte (EÜR, Steuer-Rücklage, ZM, Debitoren/Kreditoren-Aging, Zahlungsverhalten, Kontenblatt, Liquiditäts-Vorschau, SumUp-Gebühren, Fehlende Belege, Ausgaben-Kategorien, Umsatz-Kunden)
-- `GET /berichte/:id?von=&bis=&kontoId=&satz=` → Bericht als JSON (`von`/`bis` JJJJ-MM-TT; `satz` = Ertragsteuer-% für steuer-ruecklage; `kontoId` für kontenblatt) — Kundennamen pseudonymisiert
+- `GET /berichte/:id?von=&bis=&kontoId=&satz=&format=` → Bericht als **JSON** (Standard), **CSV** oder **PDF** (`format=json|csv|pdf` → bei csv/pdf `{dateiname, base64, mime}`) — Kundennamen pseudonymisiert. **StB-Workflow:** Bericht als PDF → `POST /mail/entwurf` mit `anhaenge:[{dateiname, base64, mime}]` → Mensch prüft & sendet
 
 ## Morgen-Briefing (ab 1.17)
 - `GET /uebersicht/heute` → ein Call: überfällige Zahlungsziele, heutige Termine, neue/ungelesene Mails, offene Bankbuchungen ohne Zuordnung, offene Aufgaben

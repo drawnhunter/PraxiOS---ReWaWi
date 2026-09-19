@@ -2330,6 +2330,41 @@ app.post("/datev-export", async (c) => {
   });
 });
 
+/** Monatspaket für die Kanzlei (Stapel + Beleg-ZIP + EÜR/OP-Listen-PDFs als Anhang-Satz). */
+app.post("/stb-paket", async (c) => {
+  const body = await bodyLesen(c);
+  const von = String(body.von ?? "");
+  const bis = String(body.bis ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(von) || !/^\d{4}-\d{2}-\d{2}$/.test(bis)) {
+    return c.json({ ok: false, fehler: "von/bis im Format JJJJ-MM-TT nötig." }, 400);
+  }
+  const db = getDb();
+  const stapel = await (await import("./exportRouter")).baueDatevStapel(von, bis);
+  const anhaenge: { dateiname: string; base64: string; mime: string }[] = [
+    { dateiname: stapel.dateiname, base64: Buffer.from(stapel.csv, "utf8").toString("base64"), mime: "text/csv" },
+  ];
+  if (stapel.belegeZipBase64 && stapel.belegeDateiname) {
+    anhaenge.push({ dateiname: stapel.belegeDateiname, base64: stapel.belegeZipBase64, mime: "application/zip" });
+  }
+  const { baueBericht } = await import("./lib/berichte");
+  const { renderBerichtPdf } = await import("./lib/berichtPdf");
+  for (const id of ["euer", "debitoren", "kreditoren"] as const) {
+    try {
+      const b = await baueBericht(id, { von, bis });
+      const pdf = await renderBerichtPdf(b);
+      anhaenge.push({ dateiname: `${id}_${von}_${bis}.pdf`, base64: pdf.toString("base64"), mime: "application/pdf" });
+    } catch { /* optional */ }
+  }
+  const einst = await db.query.companySettings.findFirst();
+  await audit("stb_paket", { von, bis, anhaenge: anhaenge.length });
+  return c.json({
+    ok: true,
+    anhaenge,
+    kanzleiAdresse: einst?.steuerberaterEmail ?? null,
+    hinweis: "Direkt weiterverwendbar als anhaenge in POST /mail/entwurf.",
+  });
+});
+
 // ── Berichte (Berichtszentrale; Kundennamen pseudonymisiert) ───────────────
 app.get("/berichte/katalog", async (c) => {
   const { BERICHT_KATALOG } = await import("./lib/berichte");
@@ -2343,10 +2378,11 @@ app.get("/berichte/:id", async (c) => {
   const bis = c.req.query("bis") ?? heuteS;
   const kontoId = c.req.query("kontoId") ? Number(c.req.query("kontoId")) : undefined;
   const satz = c.req.query("satz") ? Number(c.req.query("satz")) : undefined;
+  const format = c.req.query("format") ?? "json"; // json | csv | pdf
   const { baueBericht } = await import("./lib/berichte");
   try {
     const bericht = await baueBericht(id, { von, bis, kontoId, satz });
-    // DSGVO: Kundennamen in Berichten pseudonymisieren
+    // DSGVO: Kundennamen in Berichten pseudonymisieren (gilt für alle Ausgabeformate)
     const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
     const karte = await ladeSynonymKarte();
     if (karte.aktiv && ["debitoren", "zahlungsverhalten", "umsatz-kunden", "zm"].includes(id)) {
@@ -2361,6 +2397,36 @@ app.get("/berichte/:id", async (c) => {
         }),
       }));
     }
+
+    if (format === "csv") {
+      const esc = (v: string | number | null) => `"${(v === null || v === undefined ? "" : String(v)).replaceAll('"', '""')}"`;
+      const dez = (v: unknown, rechts?: boolean) =>
+        typeof v === "number" && rechts ? String(v).replace(".", ",") : v;
+      const zeilen = [
+        bericht.spalten.map((s) => esc(s.titel)).join(";"),
+        ...bericht.zeilen.map((z) => z.zellen.map((v, i) => esc(dez(v, bericht.spalten[i]?.rechts) as string | number | null)).join(";")),
+        ...(bericht.summenZeile ? [bericht.summenZeile.map((v, i) => esc(dez(v, bericht.spalten[i]?.rechts) as string | number | null)).join(";")] : []),
+      ];
+      const csv = "﻿" + zeilen.join("\r\n");
+      return c.json({
+        ok: true,
+        dateiname: `${bericht.id}_${bericht.zeitraum.von}_${bericht.zeitraum.bis}.csv`,
+        base64: Buffer.from(csv, "utf8").toString("base64"),
+        mime: "text/csv",
+      });
+    }
+
+    if (format === "pdf") {
+      const { renderBerichtPdf } = await import("./lib/berichtPdf");
+      const pdf = await renderBerichtPdf(bericht);
+      return c.json({
+        ok: true,
+        dateiname: `${bericht.id}_${bericht.zeitraum.von}_${bericht.zeitraum.bis}.pdf`,
+        base64: pdf.toString("base64"),
+        mime: "application/pdf",
+      });
+    }
+
     return c.json(bericht);
   } catch (e) {
     return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 400);

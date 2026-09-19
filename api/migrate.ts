@@ -95,6 +95,11 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "termine", spalte: "erinnere_am", ddl: "ALTER TABLE termine ADD COLUMN erinnere_am DATETIME NULL AFTER kunden_id" },
   { tabelle: "termine", spalte: "serie", ddl: "ALTER TABLE termine ADD COLUMN serie VARCHAR(20) NULL AFTER erinnere_am" },
   { tabelle: "termine", spalte: "serie_id", ddl: "ALTER TABLE termine ADD COLUMN serie_id VARCHAR(36) NULL AFTER serie" },
+  // ── v1.18.0: Kanzlei-Release ──
+  { tabelle: "mail_entwuerfe", spalte: "status", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'entwurf' AFTER quelle" },
+  { tabelle: "mail_entwuerfe", spalte: "versand_versuch_am", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN versand_versuch_am DATETIME NULL AFTER status" },
+  { tabelle: "mail_entwuerfe", spalte: "versand_fehler", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN versand_fehler TEXT NULL AFTER versand_versuch_am" },
+  { tabelle: "company_settings", spalte: "steuerberater_email", ddl: "ALTER TABLE company_settings ADD COLUMN steuerberater_email VARCHAR(320) NULL AFTER signatur" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

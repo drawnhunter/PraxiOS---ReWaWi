@@ -374,4 +374,93 @@ export const mailPostfachRouter = createRouter({
       await getDb().delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, input.id));
       return { ok: true };
     }),
+
+  /**
+   * Ausgang-Zwischenpforte: Entwurf SOFORT aus der Liste nehmen (status=ausgang,
+   * kein Doppelklick möglich), dann versenden. Erfolg → Zeile weg.
+   * Fehler → bleibt im Ausgang (mit Fehlertext + Erneut-versuchen).
+   */
+  entwurfSenden: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { mailEntwuerfe } = await import("@db/schema");
+      const db = getDb();
+      const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, input.id) });
+      if (!e) throw new Error("Entwurf nicht gefunden.");
+      // 1) Sofort in den Ausgang (atomar vor dem Versand)
+      await db
+        .update(mailEntwuerfe)
+        .set({ status: "ausgang", versandVersuchAm: new Date(), versandFehler: null })
+        .where(eq(mailEntwuerfe.id, input.id));
+      // 2) Versand versuchen
+      const empfaenger = (e.empfaenger ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+      if (empfaenger.length === 0) {
+        await db.update(mailEntwuerfe).set({ versandFehler: "Kein Empfänger angegeben." }).where(eq(mailEntwuerfe.id, input.id));
+        return { ok: false, fehler: "Kein Empfänger angegeben." };
+      }
+      const { versendeMail } = await import("./lib/mailVersand");
+      const text = e.text ?? "";
+      const r = await versendeMail({
+        kontoId: e.kontoId ?? undefined,
+        empfaenger,
+        cc: e.cc ? e.cc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
+        bcc: e.bcc ? e.bcc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
+        betreff: e.betreff ?? "(kein Betreff)",
+        text: text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || text,
+        html: text.startsWith("<") ? text : undefined,
+        anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
+        inReplyTo: e.inReplyTo ?? null,
+        mitSignatur: true,
+      });
+      if (!r.ok) {
+        await db.update(mailEntwuerfe).set({ versandFehler: r.fehler ?? "Unbekannter Fehler" }).where(eq(mailEntwuerfe.id, input.id));
+        return { ok: false, fehler: r.fehler };
+      }
+      // 3) Erfolg: Ausgang-Zeile entfernen (Gesendet-Ablage läuft über mailVersand)
+      await db.delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, input.id));
+      return { ok: true };
+    }),
+
+  /** Ausgang → zurück in die Entwürfe (z. B. nach Fehler korrigieren). */
+  ausgangZurueck: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { mailEntwuerfe } = await import("@db/schema");
+      await getDb()
+        .update(mailEntwuerfe)
+        .set({ status: "entwurf", versandFehler: null })
+        .where(eq(mailEntwuerfe.id, input.id));
+      return { ok: true };
+    }),
+
+  // ── Postfach-Ordner verwalten (Nutzer: erstellen/umbenennen/löschen) ──────
+  ordnerErstellen: authedQuery
+    .input(z.object({ kontoId: z.number(), name: z.string().min(1).max(120) }))
+    .mutation(async ({ input, ctx }) => {
+      await pruefeSichtbarkeit(ctx.user, input.kontoId);
+      const { erstelleOrdner } = await import("./imapDienst");
+      const r = await erstelleOrdner(input.kontoId, input.name);
+      if (!r.ok) throw new Error(r.fehler);
+      return r;
+    }),
+
+  ordnerUmbenennen: authedQuery
+    .input(z.object({ kontoId: z.number(), alt: z.string().min(1), neu: z.string().min(1).max(120) }))
+    .mutation(async ({ input, ctx }) => {
+      await pruefeSichtbarkeit(ctx.user, input.kontoId);
+      const { benenneOrdnerUm } = await import("./imapDienst");
+      const r = await benenneOrdnerUm(input.kontoId, input.alt, input.neu);
+      if (!r.ok) throw new Error(r.fehler);
+      return r;
+    }),
+
+  ordnerLoeschen: authedQuery
+    .input(z.object({ kontoId: z.number(), name: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      await pruefeSichtbarkeit(ctx.user, input.kontoId);
+      const { loescheOrdner } = await import("./imapDienst");
+      const r = await loescheOrdner(input.kontoId, input.name);
+      if (!r.ok) throw new Error(r.fehler);
+      return r;
+    }),
 });

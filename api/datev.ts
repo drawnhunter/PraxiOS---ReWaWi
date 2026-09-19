@@ -24,6 +24,8 @@ export interface DatevBuchung {
   direkt?: { konto: string; gegenkonto: string; bu: string };
   /** Dateiname des Belegs im Beleg-ZIP (Beleginfo-Spalten) */
   belegDatei?: string;
+  /** GUID fuer die Beleglink-Verknuepfung (DATEV XML-Schnittstelle: document.xml) */
+  belegGuid?: string;
 }
 
 function feld(v: string): string {
@@ -126,6 +128,9 @@ export function erzeugeBuchungsstapel(
       feld(b.buchungstext.slice(0, 60)),
     ];
     while (basis.length < SPALTEN_ANZAHL) basis.push("");
+    // Beleglink (Spalte 20): BEDI "<guid>" — Verknuepfung zur document.xml
+    // im Beleg-ZIP (DATEV XML-Schnittstelle online, Belegtransfer)
+    if (b.belegGuid) basis[19] = feld(`BEDI "${b.belegGuid}"`);
     // Beleginfo (Spalten 21/22): Verweis auf die Datei im Beleg-ZIP (Belegbilder)
     if (b.belegDatei) {
       basis[20] = feld("Datei");

@@ -8,7 +8,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { MailEditor, htmlZuText } from "@/components/MailEditor";
+import { MailEditor } from "@/components/MailEditor";
 import { Paperclip, Send, Save, Trash2, X, UploadCloud } from "lucide-react";
 
 export interface VerfassenStart {
@@ -65,8 +65,8 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [fehler, setFehler] = useState("");
 
   const postfaecher = trpc.postfach.postfaecher.useQuery();
-  const versenden = trpc.postfach.versenden.useMutation();
   const entwurfSpeichern = trpc.postfach.entwurfSpeichern.useMutation();
+  const entwurfSenden = trpc.postfach.entwurfSenden.useMutation();
   const entwurfLoeschen = trpc.postfach.entwurfLoeschen.useMutation();
   const utils = trpc.useUtils();
 
@@ -110,29 +110,28 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
     setEditorKey((k) => k + 1); // MailEditor remounten → Inhalt wird neu gesetzt
   };
 
+  /**
+   * Senden über die Ausgang-Zwischenpforte: Inhalt sichern → entwurfSenden →
+   * Tab sofort schließen (der Entwurf verschwindet augenblicklich aus der Liste,
+   * kein Doppelklick). Der Server versendet; bei Fehlern liegt die Mail sicher
+   * im Ausgang mit Fehlertext und „Erneut senden".
+   */
   const senden = () => {
     setFehler("");
-    versenden.mutate(
+    entwurfSpeichern.mutate(
+      { id: entwurfId ?? undefined, empfaenger, cc, bcc, kontoId: kontoId ?? undefined, betreff, text: html, anhaenge: anhaenge.length ? anhaenge : undefined },
       {
-        kontoId: kontoId ?? undefined,
-        empfaenger: empfaenger.split(",").map((x) => x.trim()).filter(Boolean),
-        cc: cc.split(",").map((x) => x.trim()).filter(Boolean),
-        bcc: bcc.split(",").map((x) => x.trim()).filter(Boolean),
-        betreff,
-        text: htmlZuText(html),
-        html,
-        anhaenge,
-        inReplyTo: start.inReplyTo ?? null,
-        references: start.references ?? null,
-        mitSignatur: true,
-      },
-      {
-        onSuccess: () => {
-          // Entwurf nach dem Senden verwerfen + Listen aktualisieren
-          if (entwurfId) entwurfLoeschen.mutate({ id: entwurfId });
-          utils.postfach.entwuerfe.invalidate();
-          utils.postfach.liste.invalidate();
-          onAktionErledigt();
+        onSuccess: (r) => {
+          entwurfSenden.mutate(
+            { id: r.id },
+            {
+              onSettled: () => {
+                utils.postfach.entwuerfe.invalidate();
+                utils.postfach.liste.invalidate();
+                onAktionErledigt();
+              },
+            },
+          );
         },
         onError: (e) => setFehler(e.message),
       },
@@ -225,7 +224,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
 
       {fehler && <p className="mx-3 mb-1.5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{fehler}</p>}
       {gespeichert && !fehler && <p className="mx-3 mb-1.5 rounded-md bg-green-50 px-3 py-1.5 text-xs text-green-800">Entwurf gespeichert ({gespeichert}) — sichtbar in der Seitenleiste.</p>}
-      {versenden.isSuccess && <p className="mx-3 mb-1.5 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Gesendet — landet im Ordner „Gesendet", Tab schließt sich.</p>}
+      {entwurfSenden.isPending && <p className="mx-3 mb-1.5 rounded-md bg-teal-50 px-3 py-1.5 text-xs text-teal-800">Wird in den Ausgang gelegt und versendet …</p>}
 
       {/* Untere Buttons: Löschen | Zurücksetzen | Entwurf speichern | Senden */}
       <div className="flex items-center justify-between border-t border-neutral-200 px-3 py-2">
@@ -241,10 +240,10 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
           </Button>
           <Button
             size="sm"
-            disabled={!empfaenger.trim() || !betreff.trim() || versenden.isPending}
+            disabled={!empfaenger.trim() || !betreff.trim() || entwurfSenden.isPending || entwurfSpeichern.isPending}
             onClick={senden}
           >
-            <Send className="mr-1.5 h-4 w-4" /> {versenden.isPending ? "Sende …" : "Senden"}
+            <Send className="mr-1.5 h-4 w-4" /> {entwurfSenden.isPending ? "Sende …" : "Senden"}
           </Button>
         </div>
       </div>

@@ -69,6 +69,8 @@ export const companySettings = mysqlTable("company_settings", {
   smtpPasswortEnc: varchar("smtp_passwort_enc", { length: 500 }),
   smtpAbsender: varchar("smtp_absender", { length: 255 }),
   signatur: text("signatur"),
+  // Kanzlei-Adresse fuer das Monatspaket (v1.18.0)
+  steuerberaterEmail: varchar("steuerberater_email", { length: 320 }),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
 
@@ -810,6 +812,11 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   inReplyTo: varchar("in_reply_to", { length: 500 }),
   referenzen: varchar("referenzen", { length: 1000 }),
   quelle: varchar("quelle", { length: 20 }).notNull().default("mensch"), // mensch / agent
+  // Ausgang-Zwischenpforte (v1.18.0): entwurf = in der Entwuerfe-Liste,
+  // ausgang = Versand laeuft/fehlgeschlagen (gegen Doppelklick + Verlust)
+  status: varchar("status", { length: 20 }).notNull().default("entwurf"),
+  versandVersuchAm: timestamp("versand_versuch_am"),
+  versandFehler: text("versand_fehler"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
