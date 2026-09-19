@@ -21,7 +21,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
-import { DatevExport } from "@/components/DatevExport";
 import { Benutzerverwaltung } from "@/components/Benutzerverwaltung";
 import { EmailEingang } from "@/components/EmailEingang";
 import { KategorienVerwaltung } from "@/components/KategorienVerwaltung";
@@ -574,9 +573,9 @@ export default function SettingsPage() {
             />
           </div>
         </div>
-        <div className="mt-4">
-          <DatevExport />
-        </div>
+        <p className="mt-3 text-xs text-neutral-400">
+          Der DATEV-Export (Buchungsstapel + Belegbilder) liegt jetzt in der <a href="/berichte" className="underline">Berichtszentrale</a>.
+        </p>
       </section>
 
       {/* ── Kategorien (Kontierung) ── */}

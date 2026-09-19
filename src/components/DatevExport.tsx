@@ -13,7 +13,7 @@ export function DatevExport() {
   const [von, setVon] = useState(`${jahr}-01-01`);
   const [bis, setBis] = useState(`${jahr}-01-31`);
   const [laedt, setLaedt] = useState(false);
-  const [ergebnis, setErgebnis] = useState<{ anzahl: number; hinweise: string[] } | null>(null);
+  const [ergebnis, setErgebnis] = useState<{ anzahl: number; belege: number; hinweise: string[] } | null>(null);
   const [fehler, setFehler] = useState("");
 
   const klick = async () => {
@@ -23,7 +23,16 @@ export function DatevExport() {
     try {
       const antwort = await utils.client.export.datevBuchungsstapel.query({ von, bis });
       textHerunterladen(antwort.dateiname, "﻿" + antwort.csv, "text/csv");
-      setErgebnis({ anzahl: antwort.anzahlBuchungen, hinweise: antwort.hinweise });
+      // Belegbilder-ZIP direkt mit ausliefern (falls Belege vorhanden)
+      if (antwort.belegeZipBase64 && antwort.belegeDateiname) {
+        const bytes = Uint8Array.from(atob(antwort.belegeZipBase64), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: "application/zip" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = antwort.belegeDateiname;
+        a.click();
+      }
+      setErgebnis({ anzahl: antwort.anzahlBuchungen, belege: antwort.anzahlBelege ?? 0, hinweise: antwort.hinweise });
     } catch (e) {
       setFehler(e instanceof Error ? e.message : "Export fehlgeschlagen.");
     } finally {
@@ -54,16 +63,19 @@ export function DatevExport() {
       {fehler && <p className="mt-2 text-sm text-red-600">{fehler}</p>}
       {ergebnis && (
         <div className="mt-2 text-sm text-neutral-600">
-          <p>{ergebnis.anzahl} Buchungssätze exportiert.</p>
+          <p>
+            {ergebnis.anzahl} Buchungssätze exportiert
+            {ergebnis.belege > 0 ? ` · ${ergebnis.belege} Belegdateien im ZIP` : ""}.
+          </p>
           {ergebnis.hinweise.map((h, i) => (
             <p key={i} className="text-xs text-amber-700">{h}</p>
           ))}
         </div>
       )}
       <p className="mt-2 text-xs text-neutral-400">
-        Exportiert werden finalisierte Rechnungen (Soll Debitor an Erlöskonto, Umsatzsteuer-
-        automatik per BU-Schlüssel) und Gutschriften des Zeitraums. Kunden ohne Debitornummer
-        erhalten automatisch die nächste freie Nummer.
+        Exportiert werden finalisierte Rechnungen (Soll Debitor an Erlöskonto, BU-Schlüssel),
+        Gutschriften, Eingangsrechnungen und kategorisierte Bankbuchungen des Zeitraums.
+        Belege liegen als ZIP bei (Referenz: Belegfeld 1) — bereit für die Kanzlei/DATEV-Belegbilder.
       </p>
     </div>
   );

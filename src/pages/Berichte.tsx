@@ -6,6 +6,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Download, FileText, Loader2, FileBarChart2 } from "lucide-react";
+import { DatevExport } from "@/components/DatevExport";
 import type { Bericht } from "@/../api/lib/berichte";
 
 type Preset = "monat" | "letzter-monat" | "quartal" | "jahr" | "frei";
@@ -177,6 +178,13 @@ export default function Berichte() {
             Bericht aktualisieren
           </Button>
         )}
+      </div>
+
+      {/* Steuerberater-Übergabe: DATEV-Stapel + Belegbilder (aus Einstellungen hierher umgezogen) */}
+      <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3">
+        <h2 className="mb-1 text-sm font-semibold text-teal-900">Steuerberater-Übergabe (DATEV)</h2>
+        <p className="mb-2 text-xs text-teal-700">Buchungsstapel (EXTF v700) + Belegbilder-ZIP — direkt für die Kanzlei. Konfiguration (Berater-/Mandantennummer, Kontenrahmen) bleibt in den Einstellungen.</p>
+        <DatevExport />
       </div>
 
       {/* Katalog */}

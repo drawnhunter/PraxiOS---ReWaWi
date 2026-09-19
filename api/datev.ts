@@ -22,6 +22,8 @@ export interface DatevBuchung {
   ustSatz: number;
   /** Abweichende Zeile (z. B. Eingangsrechnung): Konto/Gegenkonto/BU direkt */
   direkt?: { konto: string; gegenkonto: string; bu: string };
+  /** Dateiname des Belegs im Beleg-ZIP (Beleginfo-Spalten) */
+  belegDatei?: string;
 }
 
 function feld(v: string): string {
@@ -124,6 +126,11 @@ export function erzeugeBuchungsstapel(
       feld(b.buchungstext.slice(0, 60)),
     ];
     while (basis.length < SPALTEN_ANZAHL) basis.push("");
+    // Beleginfo (Spalten 21/22): Verweis auf die Datei im Beleg-ZIP (Belegbilder)
+    if (b.belegDatei) {
+      basis[20] = feld("Datei");
+      basis[21] = feld(b.belegDatei);
+    }
     return basis.join(";");
   });
 

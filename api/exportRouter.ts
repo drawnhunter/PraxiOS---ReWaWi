@@ -51,6 +51,8 @@ export async function baueDatevStapel(von: string, bis: string) {
           brutto: incomingInvoices.brutto,
           konto: incomingInvoices.konto,
           gegenkonto: incomingInvoices.gegenkonto,
+          belegBase64: incomingInvoices.belegBase64,
+          belegMime: incomingInvoices.belegMime,
           postLieferantId: postEingang.absenderLieferantId,
         })
         .from(incomingInvoices)
@@ -85,8 +87,26 @@ export async function baueDatevStapel(von: string, bis: string) {
 
     const buchungen: DatevBuchung[] = [];
 
+    // ── Belegbilder: Dateien fürs Beleg-ZIP sammeln (Referenz = Belegfeld 1) ──
+    const { baueZip } = await import("./lib/zipWriter");
+    const belegDateien: { name: string; inhalt: Buffer }[] = [];
+    const sicher = (s: string) => s.replace(/[^\wäöüÄÖÜß.-]+/g, "_").slice(0, 60);
+    const ext = (mime: string | null) =>
+      mime === "application/pdf" ? "pdf" : mime?.includes("png") ? "png" : mime?.includes("jpeg") || mime?.includes("jpg") ? "jpg" : "bin";
+
     for (const r of rechnungen) {
       const deb = await debitorFuer(r.customerId);
+      // Rechnungs-PDF erzeugen (GoBD-PDF wie im UI-Download)
+      let belegDatei: string | undefined;
+      try {
+        const { ladeRechnungsBeleg, ladeDesign } = await import("./pdfBelege");
+        const { renderBelegPdf } = await import("./pdf");
+        const { beleg, dateiname } = await ladeRechnungsBeleg(r.id);
+        const pdf = await renderBelegPdf(beleg, await ladeDesign());
+        belegDatei = `RE-${sicher(r.nummer ?? String(r.id))}.pdf`;
+        belegDateien.push({ name: belegDatei, inhalt: pdf });
+        void dateiname;
+      } catch { /* PDF optional — Stapel bleibt gültig */ }
       const totals = computeTotals(
         r.items.map((it) => ({ einzelpreis: it.einzelpreis, menge: it.menge, ustSatz: it.ustSatz })),
       );
@@ -98,6 +118,7 @@ export async function baueDatevStapel(von: string, bis: string) {
           buchungstext: `Rechnung ${r.nummer ?? r.id} ${r.kundeName}`,
           betragCent: u.basisCent + u.betragCent,
           ustSatz: u.satz,
+          belegDatei,
         });
       }
     }
@@ -132,6 +153,12 @@ export async function baueDatevStapel(von: string, bis: string) {
       const kreditor = e.postLieferantId
         ? String(s.kreditorStartnummer + e.postLieferantId)
         : sammelKreditor;
+      // Eingangsbeleg-Datei (aus GoBD-Archiv in der DB)
+      let belegDatei: string | undefined;
+      if (e.belegBase64) {
+        belegDatei = `ER-${sicher(e.nummer)}.${ext(e.belegMime)}`;
+        belegDateien.push({ name: belegDatei, inhalt: Buffer.from(e.belegBase64, "base64") });
+      }
       buchungen.push({
         debitornummer: 0,
         belegdatum: e.rechnungsdatum,
@@ -139,6 +166,7 @@ export async function baueDatevStapel(von: string, bis: string) {
         buchungstext: `Eingangsrechnung ${e.nummer} ${e.lieferantName}`.slice(0, 60),
         betragCent: Math.round(Number(e.brutto) * 100),
         ustSatz: 0,
+        belegDatei,
         direkt: {
           konto: e.konto ?? standardAufwand,
           gegenkonto: e.gegenkonto ?? kreditor,
@@ -204,11 +232,26 @@ export async function baueDatevStapel(von: string, bis: string) {
       buchungen,
     );
 
+    // ── Beleg-ZIP (Belegbilder): PDFs/Scans, benannt nach Belegfeld 1 ────────
+    let belegeZipBase64: string | undefined;
+    let belegeDateiname: string | undefined;
+    if (belegDateien.length > 0) {
+      // Duplikate zusammenführen (mehrere Buchungszeilen teilen denselben Beleg)
+      const einzigartig = new Map(belegDateien.map((d) => [d.name, d.inhalt]));
+      const zip = baueZip([...einzigartig.entries()].map(([name, inhalt]) => ({ name, inhalt })));
+      belegeZipBase64 = zip.toString("base64");
+      belegeDateiname = `EXTF_Belege_${von}_${bis}.zip`;
+      hinweise.push(`${einzigartig.size} Belegdatei(en) im Beleg-ZIP (Referenz: Belegfeld 1 / Beleginfo „Datei").`);
+    }
+
     return {
       dateiname: `EXTF_Buchungsstapel_${von}_${bis}.csv`,
       csv,
       anzahlBuchungen: buchungen.length,
       hinweise,
+      belegeZipBase64,
+      belegeDateiname,
+      anzahlBelege: new Set(belegDateien.map((d) => d.name)).size,
     };
 
 }

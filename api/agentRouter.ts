@@ -2317,13 +2317,16 @@ app.post("/datev-export", async (c) => {
   }
   const { baueDatevStapel } = await import("./exportRouter");
   const r = await baueDatevStapel(von, bis);
-  await audit("datev_export", { von, bis, anzahl: r.anzahlBuchungen });
+  await audit("datev_export", { von, bis, anzahl: r.anzahlBuchungen, belege: r.anzahlBelege });
   return c.json({
     ok: true,
     dateiname: r.dateiname,
     anzahlBuchungen: r.anzahlBuchungen,
     hinweise: r.hinweise,
     csvBase64: Buffer.from(r.csv, "utf8").toString("base64"),
+    anzahlBelege: r.anzahlBelege,
+    belegeDateiname: r.belegeDateiname ?? null,
+    belegeZipBase64: r.belegeZipBase64 ?? null,
   });
 });
 

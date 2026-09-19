@@ -1,7 +1,7 @@
 {
   "name": "wawipros",
   "private": true,
-  "version": "1.17.5",
+  "version": "1.17.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
