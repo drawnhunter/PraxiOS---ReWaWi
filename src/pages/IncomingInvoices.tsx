@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { useAuth } from "@/hooks/useAuth";
 import { CsvButton } from "@/components/CsvButton";
 import { deZahl } from "@/lib/downloads";
 import { trpc } from "@/providers/trpc";
@@ -25,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Upload, CheckCircle2, AlertTriangle, XCircle, FileDown, Eye, FileText, ArchiveRestore, Search } from "lucide-react";
+import { Upload, CheckCircle2, AlertTriangle, XCircle, FileDown, Eye, FileText, ArchiveRestore, Search, MessageCircleQuestion } from "lucide-react";
 
 type Analyse = {
   ok: boolean;
@@ -50,6 +51,8 @@ export default function IncomingInvoices() {
   const [bezahlen, setBezahlen] = useState<number | null>(null);
 
   const liste = trpc.einrechnung.list.useQuery();
+  const { user } = useAuth();
+  const istNichtKanzlei = user?.role !== "kanzlei";
   const sort = useSortierung<NonNullable<typeof liste.data>[number]>("datum");
   const [q, setQ] = useState("");
   const gefiltert = (liste.data ?? []).filter(
@@ -97,6 +100,18 @@ export default function IncomingInvoices() {
   const unmarkPaid = trpc.einrechnung.unmarkPaid.useMutation({
     onSuccess: () => utils.einrechnung.list.invalidate(),
   });
+
+  // Beleg-Freigabe + Klärungen (Kanzlei-Arbeitsplatz)
+  const freigabeSetzen = trpc.einrechnung.freigabeSetzen.useMutation({
+    onSuccess: () => utils.einrechnung.list.invalidate(),
+  });
+  const klaerungenListe = trpc.klaerungen.liste.useQuery({ status: "aktiv" });
+  const klaerungMap = new Map((klaerungenListe.data ?? []).map((k) => [k.incomingInvoiceId, k]));
+  const klaerungErstellen = trpc.klaerungen.erstellen.useMutation({
+    onSuccess: () => { setKlaerDialog(null); setKlaerText(""); utils.klaerungen.liste.invalidate(); },
+  });
+  const [klaerDialog, setKlaerDialog] = useState<number | null>(null);
+  const [klaerText, setKlaerText] = useState("");
 
   const dateiLesen = (datei: File) => {
     const r = new FileReader();
@@ -340,14 +355,41 @@ export default function IncomingInvoices() {
                 <td className="px-4 py-2.5 text-neutral-600">{fmtDatum(r.rechnungsdatum)}</td>
                 <td className="px-4 py-2.5 text-right tabular-nums">{geld(r.brutto)}</td>
                 <td className="px-4 py-2.5">
-                  {r.bezahltAm ? (
-                    <Badge>bezahlt {fmtDatum(r.bezahltAm)}</Badge>
-                  ) : (
-                    <Badge variant="outline">offen</Badge>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {r.bezahltAm ? (
+                      <Badge>bezahlt {fmtDatum(r.bezahltAm)}</Badge>
+                    ) : (
+                      <Badge variant="outline">offen</Badge>
+                    )}
+                    <Badge
+                      variant={r.freigabe === "freigegeben" ? "default" : "outline"}
+                      className={r.freigabe === "neu" ? "text-amber-700 border-amber-300" : r.freigabe === "geprueft" ? "text-teal-700 border-teal-300" : "bg-teal-600"}
+                      title={r.freigegebenVon ? `von ${r.freigegebenVon}` : "Freigabe-Status"}
+                    >
+                      {r.freigabe === "freigegeben" ? "✓ freigegeben" : r.freigabe === "geprueft" ? "geprüft" : "neu"}
+                    </Badge>
+                  </div>
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex items-center justify-end gap-1">
+                    {istNichtKanzlei && r.freigabe === "neu" && (
+                      <Button variant="outline" size="sm" onClick={() => freigabeSetzen.mutate({ id: r.id, zustand: "geprueft" })}>
+                        Prüfen
+                      </Button>
+                    )}
+                    {istNichtKanzlei && r.freigabe === "geprueft" && (
+                      <Button variant="outline" size="sm" className="border-teal-300 text-teal-700" onClick={() => freigabeSetzen.mutate({ id: r.id, zustand: "freigegeben" })}>
+                        Freigeben
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost" size="sm"
+                      className={klaerungMap.has(r.id) ? "text-amber-600" : "text-neutral-400"}
+                      title={klaerungMap.has(r.id) ? `Klärung (${klaerungMap.get(r.id)!.status})` : "Rückfrage/Klärung"}
+                      onClick={() => { setKlaerDialog(r.id); setKlaerText(klaerungMap.get(r.id)?.frage ?? ""); }}
+                    >
+                      <MessageCircleQuestion className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => setDetail(r.id)}>
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -427,6 +469,43 @@ export default function IncomingInvoices() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Klärungs-Dialog (Rückfrage am Beleg) ── */}
+      {klaerDialog !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setKlaerDialog(null)}>
+          <div className="w-96 rounded-xl border border-neutral-200 bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-sm font-semibold">Klärung zu Beleg #{klaerDialog}</span>
+              <button onClick={() => setKlaerDialog(null)} className="rounded p-1 text-neutral-400 hover:bg-neutral-100"><XCircle className="h-4 w-4" /></button>
+            </div>
+            {klaerungMap.get(klaerDialog)?.antwort && (
+              <p className="mb-2 rounded-md bg-teal-50 px-3 py-2 text-xs">
+                <b>Antwort ({klaerungMap.get(klaerDialog)!.antwortVon}):</b> {klaerungMap.get(klaerDialog)!.antwort}
+              </p>
+            )}
+            <p className="mb-2 text-xs text-neutral-500">
+              Rückfrage an diesen Beleg — sichtbar für beide Seiten unter „Klärungsfälle".
+            </p>
+            <textarea
+              className="mb-2 w-full rounded-md border border-neutral-200 p-2 text-sm"
+              rows={3}
+              value={klaerText}
+              onChange={(e) => setKlaerText(e.target.value)}
+              placeholder="Frage zur Klärung … (z. B. Konto? Kostenstelle? Belegart?)"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setKlaerDialog(null)}>Abbrechen</Button>
+              <Button
+                size="sm"
+                disabled={klaerText.trim().length < 2 || klaerungErstellen.isPending}
+                onClick={() => klaerungErstellen.mutate({ incomingInvoiceId: klaerDialog, frage: klaerText.trim() })}
+              >
+                Klärung speichern
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { akzentAnwenden } from "@/lib/design";
 import {
@@ -30,6 +30,7 @@ import {
   Import,
   LifeBuoy,
   FileBarChart2,
+  MessageCircleQuestion,
   type LucideIcon,
 } from "lucide-react";
 import { SupportDialog } from "./SupportDialog";
@@ -43,6 +44,7 @@ const OBEN: NavEintrag[] = [
   { to: "/", label: "Übersicht", icon: LayoutDashboard, end: true },
   { to: "/statistik", label: "Statistik", icon: ChartColumn },
   { to: "/berichte", label: "Berichte", icon: FileBarChart2 },
+  { to: "/klaerungen", label: "Klärungsfälle", icon: MessageCircleQuestion },
       { to: "/kalender", label: "Kalender", icon: CalendarDays },
       { to: "/zeit", label: "Zeiterfassung", icon: Clock },
 ];
@@ -121,10 +123,19 @@ export default function Layout() {
     const def = module.data?.find((d) => d.id === id);
     return def ? def.aktiv : true;
   };
+  // Kanzlei-Rolle: nur Buchhaltungs-Lesebereiche + Klärungsfälle
+  const istKanzlei = user?.role === "kanzlei";
+  const KANZLEI_PFADE = ["/berichte", "/rechnungen", "/e-rechnungen", "/bank", "/klaerungen"];
   const gruppen = GRUPPEN
-    .map((g) => ({ ...g, eintraege: g.eintraege.filter((e) => modulAktiv(e.to)) }))
+    .map((g) => ({
+      ...g,
+      eintraege: g.eintraege.filter((e) => modulAktiv(e.to) && (!istKanzlei || KANZLEI_PFADE.includes(e.to))),
+    }))
     .filter((g) => g.eintraege.length > 0);
-  const oben = OBEN.filter((e) => modulAktiv(e.to));
+  const oben = OBEN.filter((e) =>
+    modulAktiv(e.to) &&
+    (!istKanzlei || KANZLEI_PFADE.includes(e.to)),
+  );
   const [navOffen, setNavOffen] = useState(false);
   const [zugeklappt, setZugeklappt] = useState<Record<string, boolean>>(ladeZugeklappt);
   const [supportOffen, setSupportOffen] = useState(false);
@@ -150,6 +161,11 @@ export default function Layout() {
         <p className="text-sm text-neutral-500">Anmeldung wird geprüft …</p>
       </div>
     );
+  }
+
+  // Kanzlei landet nach dem Login direkt in den Berichten
+  if (user.role === "kanzlei" && location.pathname === "/") {
+    return <Navigate to="/berichte" replace />;
   }
 
   const eintrag = (item: NavEintrag) => (

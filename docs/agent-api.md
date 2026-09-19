@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.18.0)
+# ReWaWi Agent-API — Leitfaden (Stand v1.19.0)
 
 REST-API für externe Agenten (Kimi Claw). Basis: `https://<host>/api/agent`
 Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Klartext nur einmalig).
@@ -47,7 +47,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 
 ## Belege (Eingangsrechnungen)
 - `POST /beleg` → `{lieferant*, datum*, brutto*, kategorieId?, konto?, nummer?, belegBase64?, belegMime?, bankbuchungId?}` (Alias: `/eingangsrechnung`)
-- `GET /belege` (Alias: `/eingangsrechnungen`) · `GET /beleg/:id/datei`
+- `GET /belege` (Alias: `/eingangsrechnungen`) · `GET /beleg/:id/datei` · **`DELETE /beleg/:id`** (nur unbezahlte; GoBD) · **`POST /beleg/:id/freigabe {zustand: neu|geprueft|freigegeben}`** — Beleg anlegen akzeptiert zusätzlich `typ: "gutschrift"`, `waehrung` (z. B. USD), `betragBank` (EUR-Ist)
 - `POST /beleg/:id/upload` → Datei nachträglich
 
 ## Import & Historie
@@ -63,7 +63,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `GET /mail-ordner` → alle Fächer je Konto mit Mail-Anzahl
 - **`POST /mail-ordner/erstellen {kontoId, name}`** (Unterordner mit `/`, z. B. `INBOX/Buchhaltung`) · **`POST /mail-ordner/umbenennen {kontoId, alt, neu}`** (hängt lokale Mails um) · **`POST /mail-ordner/loeschen {kontoId, name}`** — System-Ordner (INBOX, Gesendet, Papierkorb, Spam, Entwürfe, Archiv) sind geschützt
 - `GET /mail/:id` · `GET /mail/:id?kurz=1` (ohne textHtml, dafür `htmlVorhanden`/`htmlLaenge`) · `GET /mail/:id/anhang/:index` (base64)
-- `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, Scan-PDFs automatisch per OCR, Bilder via OCR)
+- `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, Scan-PDFs automatisch per OCR, Bilder via OCR) — mit `scanHinweis: true` bei < 150 Zeichen OCR-Ertrag; `POST /mail/:id/als-beleg` extrahiert Betrag/Datum jetzt automatisch vor
 - `POST /mails/datum-heilen` → Mails ohne Datum bekommen IMAP-Envelope-Datum (Fallback: created_at)
 - **`POST /mail/entwurf {empfaenger[], cc?, bcc?, kontoId?, betreff, text|html, anhaenge?[{dateiname,base64,mime}], inReplyTo?, references?}`** → Entwurf in der UI (Verfassen-Tab → Entwürfe-Liste, Badge „KI"). **Der Mensch-Review-Weg: du bereitest vor, der Mensch sendet ab.** Braucht KEINE vollautomatik.
 - `GET /mail-entwuerfe?kontoId=` → Liste · `DELETE /mail-entwurf/:id`
@@ -84,7 +84,8 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 ## Kalender & Fristen (ab 1.16.4/1.16.5, erweitert 1.17)
 - `GET /termine?von=&bis=&mailId=&kundenId=` · `POST /termin {titel*, datum* (JJJJ-MM-TT), startZeit?/endZeit? (SS:MM), beschreibung?, farbe?, mailId?, kundenId?, erinnereAm? ("JJJJ-MM-TT SS:MM" → ICS-Alarm), serie? ("woechentlich"|"14taegig"|"monatlich" → nächste 12 Vorkommen werden angelegt)}` · `PUT /termin/:id` · `DELETE /termin/:id` — **Idempotenz:** vor dem Anlegen `GET /termine?mailId=<id>` prüfen
 - `GET /zahlungsziele?von=&bis=` → **Quell-Einträge**: Mahnungen (Stufe+Frist), offene Ausgangsrechnungen, Eingangsrechnungen mit Fälligkeit, Wiedervorlagen/fällige Posts — je mit `ueberfaellig`-Flag
-- `GET /posteingang?status=neu|gebucht|abgelegt` → Postmanager-Eingänge (typ, Lieferant, Betreff)
+- `GET /posteingang?status=neu|gebucht|abgelegt` → Postmanager-Eingänge · **`POST /posteingang/:id/status {status}`** — abhaken
+- `GET /klaerungen` → offene Klärungsfälle (Rückfragen der Kanzlei an Belege)
 
 ## Autonomie-Stufen (Einstellungen → Agent-API)
 - `vorschlag` (Standard): Lesen + Entwürfe/Aufgaben/Kategorien/Belege — **Mail-Entwürfe gehen immer** (der Mensch sendet)

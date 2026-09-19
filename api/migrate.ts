@@ -100,6 +100,13 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "mail_entwuerfe", spalte: "versand_versuch_am", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN versand_versuch_am DATETIME NULL AFTER status" },
   { tabelle: "mail_entwuerfe", spalte: "versand_fehler", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN versand_fehler TEXT NULL AFTER versand_versuch_am" },
   { tabelle: "company_settings", spalte: "steuerberater_email", ddl: "ALTER TABLE company_settings ADD COLUMN steuerberater_email VARCHAR(320) NULL AFTER signatur" },
+  // ── v1.19.0: Kanzlei-Arbeitsplatz + Eingangsseite ──
+  { tabelle: "incoming_invoices", spalte: "freigabe", ddl: "ALTER TABLE incoming_invoices ADD COLUMN freigabe VARCHAR(20) NOT NULL DEFAULT 'neu' AFTER beleg_mime" },
+  { tabelle: "incoming_invoices", spalte: "freigegeben_am", ddl: "ALTER TABLE incoming_invoices ADD COLUMN freigegeben_am DATETIME NULL AFTER freigabe" },
+  { tabelle: "incoming_invoices", spalte: "freigegeben_von", ddl: "ALTER TABLE incoming_invoices ADD COLUMN freigegeben_von VARCHAR(100) NULL AFTER freigegeben_am" },
+  { tabelle: "mail_mails", spalte: "markiert", ddl: "ALTER TABLE mail_mails ADD COLUMN markiert TINYINT(1) NOT NULL DEFAULT 0 AFTER gelesen" },
+  { tabelle: "incoming_invoices", spalte: "typ", ddl: "ALTER TABLE incoming_invoices ADD COLUMN typ VARCHAR(20) NOT NULL DEFAULT 'rechnung' AFTER waehrung" },
+  { tabelle: "incoming_invoices", spalte: "betrag_bank", ddl: "ALTER TABLE incoming_invoices ADD COLUMN betrag_bank DECIMAL(12,2) NULL AFTER waehrung" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -530,6 +537,34 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       INDEX webhooks_ereignis (ereignis, aktiv)
     )`,
   },
+  // ── v1.19.0: Kanzlei-Arbeitsplatz ──
+  {
+    tabelle: "beleg_klaerungen",
+    ddl: `CREATE TABLE IF NOT EXISTS beleg_klaerungen (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      incoming_invoice_id BIGINT UNSIGNED NOT NULL,
+      frage TEXT NOT NULL,
+      antwort TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'offen',
+      frage_von VARCHAR(100) NOT NULL,
+      antwort_von VARCHAR(100) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE INDEX klaerung_beleg (incoming_invoice_id),
+      INDEX klaerung_status (status)
+    )`,
+  },
+  {
+    tabelle: "kanzlei_log",
+    ddl: `CREATE TABLE IF NOT EXISTS kanzlei_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NULL,
+      benutzername VARCHAR(100) NULL,
+      pfad VARCHAR(255) NOT NULL,
+      erstellt_am TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX kanzlei_log_user (user_id, erstellt_am)
+    )`,
+  },
 ];
 
 // Struktur-Updates an BESTEHENDEN Tabellen (idempotent per Marker-Check).
@@ -556,6 +591,13 @@ const SCHEMA_UPDATES: { name: string; check: (db: string) => string; ddl: string
     check: (db) =>
       `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='offers' AND COLUMN_NAME='status' AND COLUMN_TYPE NOT LIKE '%finalisiert%'`,
     ddl: "UPDATE offers SET status='offen' WHERE status='finalisiert'",
+  },
+  {
+    // v1.19: users.role um 'kanzlei' erweitern (Kanzlei-Arbeitsplatz)
+    name: "users.role Enum + kanzlei",
+    check: (db) =>
+      `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='users' AND COLUMN_NAME='role' AND COLUMN_TYPE LIKE '%kanzlei%'`,
+    ddl: "ALTER TABLE users MODIFY role ENUM('user','admin','kanzlei') NOT NULL DEFAULT 'user'",
   },
   {
     // v1.13: Synonyme fuer bestehende Kunden/Lieferanten nachziehen (DSGVO-Pseudonymisierung)

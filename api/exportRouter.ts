@@ -11,7 +11,7 @@ import { computeTotals } from "@contracts/invoicing";
 
 /** DATEV-Buchungsstapel (Rechnungsausgang + Gutschriften + Eingangsbelege +
     kategorisierte Bank-Buchungen) für einen Zeitraum — geteilt mit der Agent-API. */
-export async function baueDatevStapel(von: string, bis: string) {
+export async function baueDatevStapel(von: string, bis: string, opt?: { nurFreigegebene?: boolean }) {
 
     const db = getDb();
     const s = await db.query.companySettings.findFirst({
@@ -61,11 +61,25 @@ export async function baueDatevStapel(von: string, bis: string) {
           and(
             gte(incomingInvoices.rechnungsdatum, von),
             lte(incomingInvoices.rechnungsdatum, bis),
+            ...(opt?.nurFreigegebene ? [eq(incomingInvoices.freigabe, "freigegeben")] : []),
           ),
         ),
     ]);
 
     const hinweise: string[] = [];
+    if (opt?.nurFreigegebene) {
+      const [{ n }] = await db
+        .select({ n: sql<number>`COUNT(*)` })
+        .from(incomingInvoices)
+        .where(
+          and(
+            gte(incomingInvoices.rechnungsdatum, von),
+            lte(incomingInvoices.rechnungsdatum, bis),
+            sql`${incomingInvoices.freigabe} <> 'freigegeben'`,
+          ),
+        );
+      if (Number(n) > 0) hinweise.push(`${Number(n)} Eingangsrechnung(en) NICHT exportiert (noch nicht freigegeben).`);
+    }
 
 
     // ── Debitornummern vergeben (einmalig, persistent) ──────────────────
@@ -354,9 +368,10 @@ export const exportRouter = createRouter({
       z.object({
         von: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         bis: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        nurFreigegebene: z.boolean().optional(),
       }),
     )
-    .query(({ input }) => baueDatevStapel(input.von, input.bis)),
+    .query(({ input }) => baueDatevStapel(input.von, input.bis, { nurFreigegebene: input.nurFreigegebene })),
 
   /** Monatspaket für die Kanzlei: Stapel + Beleg-ZIP + EÜR + OP-Listen als Anhang-Satz. */
   stbPaket: authedQuery

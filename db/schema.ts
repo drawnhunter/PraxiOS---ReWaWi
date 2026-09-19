@@ -452,7 +452,7 @@ export const users = mysqlTable("users", {
   name: varchar("name", { length: 255 }),
   email: varchar("email", { length: 320 }),
   avatar: text("avatar"),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "kanzlei"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt")
     .defaultNow()
@@ -572,6 +572,8 @@ export const incomingInvoices = mysqlTable(
     ust: decimal("ust", { precision: 12, scale: 2 }).notNull(),
     brutto: decimal("brutto", { precision: 12, scale: 2 }).notNull(),
     waehrung: varchar("waehrung", { length: 10 }).notNull().default("EUR"),
+    typ: varchar("typ", { length: 20 }).notNull().default("rechnung"), // rechnung / gutschrift (v1.19)
+    betragBank: decimal("betrag_bank", { precision: 12, scale: 2 }), // EUR-Ist bei Fremdwährung (v1.19)
     bezahltAm: date("bezahlt_am", { mode: "string" }),
     positionenJson: text("positionen_json"),
     originalXml: text("original_xml"),
@@ -582,10 +584,37 @@ export const incomingInvoices = mysqlTable(
     kategorieId: bigint("kategorie_id", { mode: "number", unsigned: true }),
     belegBase64: text("beleg_base64"), // Beleg-Datei (PDF/JPG) als base64 — GoBD-Archiv in der DB
     belegMime: varchar("beleg_mime", { length: 60 }),
+    // Beleg-Freigabe light (v1.19): neu → geprueft → freigegeben
+    freigabe: varchar("freigabe", { length: 20 }).notNull().default("neu"),
+    freigegebenAm: timestamp("freigegeben_am"),
+    freigegebenVon: varchar("freigegeben_von", { length: 100 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("incoming_eindeutig").on(t.lieferantName, t.nummer)],
 );
+
+// ── Klaerungen am Beleg (Kanzlei-Arbeitsplatz, v1.19): Rückfrage der Kanzlei,
+// Antwort des Mandanten, Status offen → beantwortet → geklaert ─────────────
+export const belegKlaerungen = mysqlTable("beleg_klaerungen", {
+  id: serial("id").primaryKey(),
+  incomingInvoiceId: bigint("incoming_invoice_id", { mode: "number", unsigned: true }).notNull(),
+  frage: text("frage").notNull(),
+  antwort: text("antwort"),
+  status: varchar("status", { length: 20 }).notNull().default("offen"), // offen / beantwortet / geklaert
+  frageVon: varchar("frage_von", { length: 100 }).notNull(), // Benutzername der Kanzlei
+  antwortVon: varchar("antwort_von", { length: 100 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});
+
+// ── Kanzlei-Zugriffsprotokoll (GoBD): jeder lesende Zugriff der Rolle kanzlei ─
+export const kanzleiLog = mysqlTable("kanzlei_log", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number", unsigned: true }),
+  benutzername: varchar("benutzername", { length: 100 }),
+  pfad: varchar("pfad", { length: 255 }).notNull(), // tRPC-Prozedur (z. B. invoices.get)
+  erstelltAm: timestamp("erstellt_am").notNull().defaultNow(),
+});
 
 // Lagerbewegungen: Bestand = Summe aller Bewegungen je Produkt (auditfest)
 export const lagerBewegungen = mysqlTable("lager_bewegungen", {

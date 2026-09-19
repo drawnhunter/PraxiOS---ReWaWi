@@ -73,11 +73,35 @@ export const einrechnungRouter = createRouter({
         konto: incomingInvoices.konto,
         gegenkonto: incomingInvoices.gegenkonto,
         bezahltAm: incomingInvoices.bezahltAm,
+        freigabe: incomingInvoices.freigabe,
+        freigegebenVon: incomingInvoices.freigegebenVon,
         createdAt: incomingInvoices.createdAt,
       })
       .from(incomingInvoices)
       .orderBy(desc(incomingInvoices.rechnungsdatum), desc(incomingInvoices.id));
   }),
+
+  /** Beleg-Freigabe light: neu → geprueft → freigegeben (Mandant). */
+  freigabeSetzen: authedQuery
+    .input(z.object({
+      id: z.number(),
+      zustand: z.enum(["neu", "geprueft", "freigegeben"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, input.id) });
+      if (!r) throw new Error("Eingangsrechnung nicht gefunden.");
+      const von = ctx.user?.username ?? ctx.user?.name ?? "unbekannt";
+      await db
+        .update(incomingInvoices)
+        .set({
+          freigabe: input.zustand,
+          freigegebenAm: input.zustand === "freigegeben" ? new Date() : null,
+          freigegebenVon: input.zustand === "neu" ? null : von,
+        })
+        .where(eq(incomingInvoices.id, input.id));
+      return { ok: true, zustand: input.zustand };
+    }),
 
   get: authedQuery.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const r = await getDb().query.incomingInvoices.findFirst({

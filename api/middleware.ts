@@ -42,6 +42,26 @@ const t = initTRPC.context<TrpcContext>().create({
 export const createRouter = t.router;
 export const publicQuery = t.procedure;
 
+/** Read-Only-Allowlist der Rolle „kanzlei" (Prozedur-Pfade, Präfix-Abgleich).
+ *  Alles andere (jede Mutation außer Klärungen) → 403. GoBD: lesende Zugriffe
+ *  werden in kanzlei_log protokolliert. */
+const KANZLEI_ERLAUBT: string[] = [
+  "ping",
+  "auth.me", "auth.logout",
+  "invoices.list", "invoices.get", "invoices.aktivitaeten",
+  "einrechnung.list", "einrechnung.get", "einrechnung.xml",
+  "bankTrans.liste", "bankTrans.kontenUebersicht", "bankTrans.offeneZiele",
+  "stats.uebersicht", "stats.verlauf", "stats.top", "stats.liquiditaet", "stats.ustva",
+  "berichte.katalog", "berichte.bericht", "berichte.pdf", "berichte.konten",
+  "export.datevBuchungsstapel",
+  "customers.list", "customers.get",
+  "klaerungen.", // der Schreibbereich der Kanzlei (Rückfragen-Workflow)
+];
+
+function kanzleiErlaubt(pfad: string): boolean {
+  return KANZLEI_ERLAUBT.some((p) => pfad === p || pfad.startsWith(p));
+}
+
 const requireAuth = t.middleware(async (opts) => {
   const { ctx, next } = opts;
 
@@ -50,6 +70,27 @@ const requireAuth = t.middleware(async (opts) => {
       code: "UNAUTHORIZED",
       message: ErrorMessages.unauthenticated,
     });
+  }
+
+  // Kanzlei-Gate: read-only auf die Allowlist, alles andere 403 + Zugriffsprotokoll
+  if (ctx.user.role === "kanzlei") {
+    if (!kanzleiErlaubt(opts.path)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Kanzlei-Zugang: nur Lesezugriff auf Buchhaltung und Klärungen.",
+      });
+    }
+    // GoBD-Zugriffsprotokoll (fire-and-forget, darf nie blockieren)
+    import("@db/schema")
+      .then(({ kanzleiLog }) =>
+        import("./queries/connection").then(({ getDb }) =>
+          getDb()
+            .insert(kanzleiLog)
+            .values({ userId: ctx.user!.id, benutzername: ctx.user!.username, pfad: opts.path })
+            .catch(() => undefined),
+        ),
+      )
+      .catch(() => undefined);
   }
 
   return next({ ctx: { ...ctx, user: ctx.user } });

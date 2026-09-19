@@ -172,7 +172,7 @@ export const authRouter = createRouter({
         username: benutzernameInput,
         password: passwortInput,
         name: z.string().trim().max(255).optional(),
-        role: z.enum(["user", "admin"]).default("user"),
+        role: z.enum(["user", "admin", "kanzlei"]).default("user"),
       }),
     )
     .mutation(async ({ input }) => {

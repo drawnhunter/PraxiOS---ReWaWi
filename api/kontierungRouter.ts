@@ -36,6 +36,27 @@ const KATEGORIE_SEED: Record<string, [string, string][]> = {
   ],
 };
 
+// Top-up (v1.19): erweitertes Standard-Set — wird IDEMPOTENT nachgezogen
+// (nur, was nach Name fehlt; Konten sind je Kategorie editierbar)
+const KATEGORIE_TOPUP: Record<string, [string, string][]> = {
+  SKR03: [
+    ["Rechts-/Notarkosten", "4957"],
+    ["Steuerberater", "4951"],
+    ["Software & KI-Abos", "4964"],
+    ["Fortbildung", "4904"],
+    ["Fahrzeug & Leasing", "4530"],
+    ["Intercompany/Gesellschafterverrechnung", "1360"],
+  ],
+  SKR04: [
+    ["Rechts-/Notarkosten", "6860"],
+    ["Steuerberater", "6863"],
+    ["Software & KI-Abos", "6826"],
+    ["Fortbildung", "6835"],
+    ["Fahrzeug & Leasing", "6520"],
+    ["Intercompany/Gesellschafterverrechnung", "1226"],
+  ],
+};
+
 /** Einmalig beim Start: Kontenrahmen + Kategorien vorbefuellen (idempotent). */
 export async function seedKontierung(): Promise<void> {
   const db = getDb();
@@ -74,6 +95,16 @@ export async function seedKontierung(): Promise<void> {
       .set({ aufwandskontoDefault: sonstige })
       .where(eq(companySettings.id, 1));
     console.log(`[seed] Kategorien (${rahmen}) vorbefüllt`);
+  }
+
+  // Top-up: erweitertes Standard-Set idempotent nachziehen (auch Bestandsinstallationen)
+  const einst2 = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+  const rahmen2 = einst2?.datevKontenrahmen === "SKR04" ? "SKR04" : "SKR03";
+  for (const [name, konto] of KATEGORIE_TOPUP[rahmen2]) {
+    const vorhanden = await db.query.kategorien.findFirst({ where: eq(kategorien.name, name) });
+    if (!vorhanden) {
+      await db.insert(kategorien).values({ name, konto, sortierung: 100 });
+    }
   }
 }
 

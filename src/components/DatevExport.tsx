@@ -14,6 +14,7 @@ export function DatevExport() {
   const [bis, setBis] = useState(`${jahr}-01-31`);
   const [laedt, setLaedt] = useState(false);
   const [ergebnis, setErgebnis] = useState<{ anzahl: number; belege: number; hinweise: string[] } | null>(null);
+  const [nurFreigegebene, setNurFreigegebene] = useState(false);
   const [fehler, setFehler] = useState("");
 
   const klick = async () => {
@@ -21,7 +22,7 @@ export function DatevExport() {
     setFehler("");
     setErgebnis(null);
     try {
-      const antwort = await utils.client.export.datevBuchungsstapel.query({ von, bis });
+      const antwort = await utils.client.export.datevBuchungsstapel.query({ von, bis, nurFreigegebene });
       textHerunterladen(antwort.dateiname, "﻿" + antwort.csv, "text/csv");
       // Belegbilder-ZIP direkt mit ausliefern (falls Belege vorhanden)
       if (antwort.belegeZipBase64 && antwort.belegeDateiname) {
@@ -51,6 +52,10 @@ export function DatevExport() {
           <Label>bis</Label>
           <Input type="date" value={bis} onChange={(e) => setBis(e.target.value)} />
         </div>
+        <label className="flex cursor-pointer items-center gap-1.5 pb-1 text-xs text-neutral-600" title="Nur Eingangsrechnungen mit Freigabe-Status „freigegeben“ exportieren">
+          <input type="checkbox" checked={nurFreigegebene} onChange={(e) => setNurFreigegebene(e.target.checked)} />
+          nur freigegebene Belege
+        </label>
         <Button variant="outline" onClick={klick} disabled={laedt || !von || !bis}>
           {laedt ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />

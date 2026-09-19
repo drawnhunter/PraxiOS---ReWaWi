@@ -1052,6 +1052,10 @@ app.post("/beleg", async (c) => {
   const ustSatz = Number(body.ustSatz ?? 19);
   const netto = body.netto !== undefined ? Number(body.netto) : Math.round((brutto / (1 + ustSatz / 100)) * 100) / 100;
   const ust = Math.round((brutto - netto) * 100) / 100;
+  // v1.19: Typ (Gutschrift) + Fremdwährung
+  const typ = body.typ === "gutschrift" ? "gutschrift" : "rechnung";
+  const waehrung = body.waehrung ? String(body.waehrung).toUpperCase().slice(0, 3) : "EUR";
+  const betragBank = body.betragBank !== undefined && Number.isFinite(Number(body.betragBank)) ? Number(body.betragBank).toFixed(2) : null;
 
   const db = getDb();
   const { incomingInvoices, kategorien, companySettings } = await import("@db/schema");
@@ -1082,6 +1086,9 @@ app.post("/beleg", async (c) => {
       netto: netto.toFixed(2),
       ust: ust.toFixed(2),
       brutto: brutto.toFixed(2),
+      typ,
+      waehrung,
+      betragBank,
       konto,
       gegenkonto: null,
       kategorieId,
@@ -2156,12 +2163,15 @@ app.get("/mail/:id/anhang/:index/text", async (c) => {
   const { extrahiereAnhangText } = await import("./lib/anhangText");
   const ergebnis = await extrahiereAnhangText(puffer, mime);
   if (!ergebnis.ok) return c.json({ ok: false, methode: ergebnis.methode, fehler: ergebnis.fehler }, 422);
+  const text = ergebnis.text ?? "";
   return c.json({
     ok: true,
     methode: ergebnis.methode,
     dateiname,
     mime,
-    text: ergebnis.text,
+    text,
+    // Heuristik: sehr wenig verwertbarer Text → manueller Blick nötig (schlechter Scan)
+    scanHinweis: text.trim().length < 150,
   });
 });
 
@@ -2316,7 +2326,7 @@ app.post("/datev-export", async (c) => {
     return c.json({ ok: false, fehler: "von/bis im Format JJJJ-MM-TT nötig." }, 400);
   }
   const { baueDatevStapel } = await import("./exportRouter");
-  const r = await baueDatevStapel(von, bis);
+  const r = await baueDatevStapel(von, bis, { nurFreigegebene: body.nurFreigegebene === true || body.nurFreigegebene === 1 });
   await audit("datev_export", { von, bis, anzahl: r.anzahlBuchungen, belege: r.anzahlBelege });
   return c.json({
     ok: true,
@@ -2327,6 +2337,85 @@ app.post("/datev-export", async (c) => {
     anzahlBelege: r.anzahlBelege,
     belegeDateiname: r.belegeDateiname ?? null,
     belegeZipBase64: r.belegeZipBase64 ?? null,
+  });
+});
+
+/** Beleg löschen — nur unbezahlte (Test-/Fehlerfassungen). GoBD: Gebuchtes bleibt. */
+app.delete("/beleg/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { incomingInvoices } = await import("@db/schema");
+  const db = getDb();
+  const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Eingangsrechnung nicht gefunden." }, 404);
+  if (r.bezahltAm) return c.json({ ok: false, fehler: "Bereits bezahlt/gebucht — Löschen wäre GoBD-brüchig. Korrektur per Gegenbeleg (typ: gutschrift)." }, 409);
+  await db.delete(incomingInvoices).where(eq(incomingInvoices.id, id));
+  await audit("beleg_geloescht", { id, lieferant: r.lieferantName, nummer: r.nummer, brutto: r.brutto });
+  return c.json({ ok: true, geloescht: id });
+});
+
+/** Postmanager-Eintrag abhaken (gebucht/abgelegt) — der fehlende Bearbeitungsweg per API. */
+app.post("/posteingang/:id/status", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const status = String(body.status ?? "");
+  if (!["neu", "gebucht", "abgelegt"].includes(status)) {
+    return c.json({ ok: false, fehler: "status muss neu|gebucht|abgelegt sein." }, 400);
+  }
+  const { postEingang } = await import("@db/schema");
+  const db = getDb();
+  const r = await db.query.postEingang.findFirst({ where: eq(postEingang.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Eintrag nicht gefunden." }, 404);
+  await db.update(postEingang).set({ status: status as "neu" | "gebucht" | "abgelegt" }).where(eq(postEingang.id, id));
+  await audit("posteingang_status", { id, status });
+  return c.json({ ok: true, id, status });
+});
+
+/** Beleg-Freigabe setzen (neu/geprueft/freigegeben) — audit-logged, GoBD-nachvollziehbar. */
+app.post("/beleg/:id/freigabe", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const zustand = String(body.zustand ?? "");
+  if (!["neu", "geprueft", "freigegeben"].includes(zustand)) {
+    return c.json({ ok: false, fehler: "zustand muss neu|geprueft|freigegeben sein." }, 400);
+  }
+  const { incomingInvoices } = await import("@db/schema");
+  const db = getDb();
+  const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Eingangsrechnung nicht gefunden." }, 404);
+  await db
+    .update(incomingInvoices)
+    .set({
+      freigabe: zustand as "neu" | "geprueft" | "freigegeben",
+      freigegebenAm: zustand === "freigegeben" ? new Date() : null,
+      freigegebenVon: zustand === "neu" ? null : "agent",
+    })
+    .where(eq(incomingInvoices.id, id));
+  await audit("beleg_freigabe", { id, zustand });
+  return c.json({ ok: true, id, zustand });
+});
+
+/** Klärungen lesen (offene Rückfragen der Kanzlei an Belege). */
+app.get("/klaerungen", async (c) => {
+  const { belegKlaerungen, incomingInvoices } = await import("@db/schema");
+  const { desc, ne, eq: eqD } = await import("drizzle-orm");
+  const nurAktive = c.req.query("aktiv") !== "0";
+  const rows = await getDb()
+    .select({ k: belegKlaerungen, lieferant: incomingInvoices.lieferantName, nummer: incomingInvoices.nummer })
+    .from(belegKlaerungen)
+    .leftJoin(incomingInvoices, eqD(belegKlaerungen.incomingInvoiceId, incomingInvoices.id))
+    .where(nurAktive ? ne(belegKlaerungen.status, "geklaert") : undefined)
+    .orderBy(desc(belegKlaerungen.updatedAt))
+    .limit(200);
+  return c.json({
+    anzahl: rows.length,
+    klaerungen: rows.map((r) => ({
+      incomingInvoiceId: r.k.incomingInvoiceId,
+      frage: r.k.frage,
+      antwort: r.k.antwort,
+      status: r.k.status,
+      lieferant: r.lieferant,
+      nummer: r.nummer,
+    })),
   });
 });
 

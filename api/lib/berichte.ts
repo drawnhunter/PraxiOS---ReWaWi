@@ -257,20 +257,29 @@ async function berichtKreditoren(_p: BerichtParams): Promise<Bericht> {
   const db = getDb();
   const rows = await db.select().from(incomingInvoices).where(isNull(incomingInvoices.bezahltAm)).orderBy(asc(incomingInvoices.faelligkeitsdatum));
   const heuteS = heute();
-  const zeilen: BerichtZeile[] = rows.map((r) => {
+  const istGutschrift = (r: (typeof rows)[number]) => r.typ === "gutschrift" || Number(r.brutto) < 0;
+  const rechnungen = rows.filter((r) => !istGutschrift(r));
+  const gutschriften = rows.filter(istGutschrift);
+  const zeile = (r: (typeof rows)[number], faktor: 1 | -1 = 1): BerichtZeile => {
     const tage = r.faelligkeitsdatum ? Math.floor((new Date(heuteS).getTime() - new Date(r.faelligkeitsdatum).getTime()) / TAGE_MS) : 0;
     return {
-      zellen: [r.lieferantName, r.nummer, r.rechnungsdatum, r.faelligkeitsdatum ?? "—", Math.max(0, tage), euro(Number(r.brutto))],
+      zellen: [r.lieferantName, r.nummer, r.rechnungsdatum, r.faelligkeitsdatum ?? "—", Math.max(0, tage), euro(faktor * Number(r.brutto))],
       stark: tage > 0,
     };
-  });
-  const gesamt = rows.reduce((s, r) => s + Number(r.brutto), 0);
+  };
+  const zeilen: BerichtZeile[] = rechnungen.map((r) => zeile(r));
+  if (gutschriften.length > 0) {
+    zeilen.push({ zellen: ["", null, null, null, null, null] });
+    zeilen.push({ zellen: [`GUTSCHRIFTEN / VERRECHNUNGEN (${gutschriften.length})`, null, null, null, null, euro(-gutschriften.reduce((s, r) => s + Math.abs(Number(r.brutto)), 0))], stark: true });
+    for (const r of gutschriften) zeilen.push({ ...zeile(r, -1), ebene: 1 });
+  }
+  const gesamt = rechnungen.reduce((s, r) => s + Number(r.brutto), 0) - gutschriften.reduce((s, r) => s + Math.abs(Number(r.brutto)), 0);
   return {
     id: "kreditoren", titel: "Offene Posten — Kreditoren", zeitraum: { von: "—", bis: heuteS },
     spalten: [{ titel: "Lieferant" }, { titel: "Nummer" }, { titel: "Datum" }, { titel: "Fällig" }, { titel: "Tage überfällig", rechts: true }, { titel: "Offen (€)", rechts: true }],
     zeilen,
-    summenZeile: ["Verbindlichkeiten gesamt", null, null, null, null, euro(gesamt)],
-    hinweise: ["Fett = bereits fällig/überfällig."],
+    summenZeile: ["Verbindlichkeiten gesamt (nach Verrechnung)", null, null, null, null, euro(gesamt)],
+    hinweise: ["Fett = bereits fällig/überfällig. Gutschriften werden negativ verrechnet (eigene Sektion)."],
   };
 }
 

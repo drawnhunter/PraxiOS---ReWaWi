@@ -2,6 +2,30 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.19.0] — 2026-09-19
+
+### Neu (Kanzlei-Arbeitsplatz + Eingangsseite & Mail-Härtung)
+
+**Kanzlei-Arbeitsplatz**
+- **Steuerberater-Login:** neue Rolle „kanzlei" (Benutzerverwaltung) — read-only auf Rechnungen, Eingangsbelege, Banking, Berichte, DATEV-Export (selbst ziehen) + Klärungen. Alles andere: 403. **Jeder lesende Zugriff wird GoBD-konform in `kanzlei_log` protokolliert.** Kanzlei landet nach dem Login direkt in den Berichten.
+- **Klärungen am Beleg (Rückfragen-Workflow):** Rückfrage der Kanzlei direkt an der Eingangsrechnung (💬), Antwort des Mandanten, „geklärt" durch die Kanzlei — neue Seite **Klärungsfälle** für beide Seiten. E-Mail-Ping-Pong ade.
+- **Beleg-Freigabe light:** Eingangsrechnungen bekommen `neu → geprüft → freigegeben` (Chips + Buttons); DATEV-Export optional „nur freigegebene Belege" (Checkbox, Hinweis auf ausgelassene). Agent: `POST /beleg/:id/freigabe`.
+
+**Eingangsseite & Agenten-Painpoints**
+- `DELETE /beleg/:id` (nur unbezahlte — Test-/Fehlerfassungen entfernbar; Gebuchtes bleibt GoBD-fest)
+- `POST /posteingang/:id/status {neu|gebucht|abgelegt}` — Postmanager per API abhakbar
+- **Fremdwährung:** `waehrung` + `betragBank` (EUR-Ist) am Beleg anlegbar
+- **Gutschriften (Eingangsseite):** `typ: gutschrift` am Beleg; Kreditoren-Bericht verrechnet sie negativ in eigener Sektion
+- **Kategorien-Top-up** idempotent: Rechts-/Notarkosten, Steuerberater, Software & KI-Abos, Fortbildung, Fahrzeug & Leasing, Intercompany/Gesellschafterverrechnung (SKR03/04)
+- **Mail → Beleg mit Auto-Extraktion:** Betrag/Datum/Lieferant/Nummer werden per OCR vorbefüllt (Konfidenz-Schwellen, Hinweis im Beleg)
+
+**Mail-Härtung**
+- **Doppelversand-Schutz:** identische Mail (Empfänger + Betreff, erfolgreich versendet < 120 s) wird zentral in `versendeMail` blockiert
+- Fix: `GET /mail/:id` (kurz=1) 500er auf Alt-Installationen — fehlende Spalte `mail_mails.markiert` wird per Migration nachgezogen
+- **scanHinweis** im Anhang-Text-Endpunkt: < 150 Zeichen OCR-Ertrag → manueller Blick empfohlen
+
+Hinweis: `POST /rechnung/:id/zahlung` akzeptiert `datum` (JJJJ-MM-TT) — korrekt seit v1.16.x (Feed bezog sich auf älteren Stand).
+
 ## [1.18.0] — 2026-09-19
 
 ### Neu (Kanzlei-Release + Ausgang-Zwischenpforte + Ordner-Verwaltung)

@@ -3,6 +3,7 @@ import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Statistics from "@/pages/Statistics";
 import Berichte from "@/pages/Berichte";
+import Klaerungen from "@/pages/Klaerungen";
 import MailPostfach from "@/pages/Mail";
 import Kontakte from "@/pages/Kontakte";
 import Kalender from "@/pages/Kalender";
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/statistik" element={<Statistics />} />
         <Route path="/berichte" element={<Berichte />} />
+        <Route path="/klaerungen" element={<Klaerungen />} />
         <Route path="/import" element={<Import />} />
         <Route path="/posteingang" element={<Posteingang />} />
         <Route path="/mail" element={<MailPostfach />} />

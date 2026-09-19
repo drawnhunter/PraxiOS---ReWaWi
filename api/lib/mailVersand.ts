@@ -1,6 +1,7 @@
 // ── Geteilter Mail-Versand (Postfach + Agent-API) ──────────────────────────
 import { getDb } from "../queries/connection";
 import { mailLog } from "@db/schema";
+import { sql } from "drizzle-orm";
 import { ladeFirmaLive } from "../pdfBelege";
 
 /** Wandelt Text ohne Block-Tags in saubere <p>-Absätze (Doppel-Newline = Absatz, einfache = <br>). */
@@ -44,6 +45,25 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
 
   const empfaengerListe = e.empfaenger.map((x) => x.trim()).filter(Boolean);
   if (empfaengerListe.length === 0) return { ok: false, fehler: "Kein Empfänger angegeben." };
+
+  // Doppelversand-Schutz: identische Mail (Empfänger + Betreff) wurde in den
+  // letzten 120 s erfolgreich versendet → blockieren (Race/Sync-Verzögerung).
+  try {
+    const { gte, and, eq: eqD } = await import("drizzle-orm");
+    const seit = new Date(Date.now() - 120_000);
+    const [{ n }] = await getDb()
+      .select({ n: sql`COUNT(*)` })
+      .from(mailLog)
+      .where(and(
+        eqD(mailLog.betreff, e.betreff),
+        gte(mailLog.gesendetAm, seit),
+        eqD(mailLog.erfolg, true),
+        sql`${mailLog.empfaenger} LIKE ${"%" + empfaengerListe[0] + "%"}`,
+      ));
+    if (Number(n) > 0) {
+      return { ok: false, fehler: `Doppelversand-Schutz: identische Mail (an ${empfaengerListe[0]}, gleicher Betreff) wurde vor weniger als 2 Minuten erfolgreich versendet.` };
+    }
+  } catch { /* Schutz darf den Versand nicht blockieren */ }
 
   const mailDaten = {
     from: `"${absender}" <${firma.email ?? absender}>`,
