@@ -316,6 +316,8 @@ export default function IncomingInvoices() {
         </span>
       </div>
 
+      <BelegDropzone onFertig={() => utils.einrechnung.list.invalidate()} />
+
       <div className="relative mb-3 max-w-xs">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-400" />
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Lieferant / Nummer suchen …" className="pl-8" />
@@ -510,6 +512,74 @@ export default function IncomingInvoices() {
   );
 }
 
+
+/* ═══ Bulk-Upload: Belege ohne Mail direkt hochladen (Drag & Drop) ═══ */
+function BelegDropzone({ onFertig }: { onFertig: () => void }) {
+  const utils = trpc.useUtils();
+  const [drag, setDrag] = useState(false);
+  const [laeuft, setLaeuft] = useState(false);
+  const [ergebnisse, setErgebnisse] = useState<{ name: string; zeile: string; ok: boolean }[]>([]);
+
+  const verarbeiten = async (dateien: FileList | null) => {
+    if (!dateien || dateien.length === 0) return;
+    setLaeuft(true);
+    const ausgaben: { name: string; zeile: string; ok: boolean }[] = [];
+    for (const d of Array.from(dateien).slice(0, 25)) {
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve((r.result as string).split(",")[1]);
+          r.onerror = reject;
+          r.readAsDataURL(d);
+        });
+        const r = await utils.client.einrechnung.hochladen.mutate({
+          dateiname: d.name,
+          base64,
+          mime: d.type || "application/octet-stream",
+        });
+        if (r.ok) {
+          ausgaben.push({ name: d.name, ok: true, zeile: `#${r.id} · ${r.lieferant} · ${Number(r.brutto) > 0 ? `${r.brutto} €` : "Betrag offen"} ${r.auto ? `· ${r.auto}` : ""}` });
+        } else {
+          ausgaben.push({ name: d.name, ok: false, zeile: r.fehler ?? "Fehler" });
+        }
+      } catch (e) {
+        ausgaben.push({ name: d.name, ok: false, zeile: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    setErgebnisse((alt) => [...ausgaben, ...alt].slice(0, 30));
+    setLaeuft(false);
+    onFertig();
+  };
+
+  return (
+    <div
+      className={`mb-3 rounded-lg border-2 border-dashed p-3 transition-colors ${drag ? "border-teal-400 bg-teal-50" : "border-neutral-200 bg-white"}`}
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => { e.preventDefault(); setDrag(false); verarbeiten(e.dataTransfer.files); }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Upload className={`h-4 w-4 ${drag ? "text-teal-600" : "text-neutral-400"}`} />
+        <span className="text-sm text-neutral-600">
+          {laeuft ? "Verarbeite Belege …" : "Belege hierher ziehen (PDF/JPG/PNG, auch mehrere) — OCR füllt Betrag/Datum/Nummer vor"}
+        </span>
+        <label className="ml-auto cursor-pointer rounded-md border border-neutral-200 px-2.5 py-1 text-xs text-neutral-600 hover:border-teal-400 hover:text-teal-700">
+          Dateien wählen
+          <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => verarbeiten(e.target.files)} />
+        </label>
+      </div>
+      {ergebnisse.length > 0 && (
+        <div className="mt-2 max-h-36 space-y-0.5 overflow-y-auto border-t border-neutral-100 pt-2">
+          {ergebnisse.map((r, i) => (
+            <p key={i} className={`text-xs ${r.ok ? "text-teal-800" : "text-amber-700"}`}>
+              {r.ok ? "✓" : "⚠"} {r.name} — {r.zeile}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ═══ v1.5: Ablage-Tabs — Lieferscheine/Gutschriften/Archiv aus dem Post Manager ═══ */
 const ABL_TYP_LABEL: Record<string, string> = {

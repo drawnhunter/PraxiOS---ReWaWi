@@ -2,6 +2,16 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.19.1] — 2026-09-19
+
+### Behoben
+
+- **`/beleg/extrahieren` 500er auf Scans:** der OCR-Fallback (pdftoppm→tesseract) läuft jetzt komplett fehlersicher — jede Fehllage (defekte Datei, fehlendes Binary, OCR-Leerlauf) liefert sauber **422 mit Diagnose** statt 500. Zusätzlich `scanHinweis: true` im Response (auch < 150 Zeichen OCR-Ertrag).
+
+### Neu
+
+- **Bulk-Upload für Belege ohne Mail:** Drag-&-Drop-Zone auf der Eingangsrechnungen-Seite — mehrere PDFs/JPGs/PNGs auf einmal, jede Datei wird zur Eingangsrechnung mit **OCR-Auto-Extraktion** (Betrag/Datum/Lieferant/Nummer vorbefüllt, Duplikat-Schutz, Ergebnisliste pro Datei). Agent-Seite: `einrechnung.hochladen {dateiname, base64, mime}`.
+
 ## [1.19.0] — 2026-09-19
 
 ### Neu (Kanzlei-Arbeitsplatz + Eingangsseite & Mail-Härtung)

@@ -81,6 +81,81 @@ export const einrechnungRouter = createRouter({
       .orderBy(desc(incomingInvoices.rechnungsdatum), desc(incomingInvoices.id));
   }),
 
+  /**
+   * Beleg hochladen (Bulk-UI): Datei → Eingangsrechnung mit OCR-Auto-Extraktion
+   * (Betrag/Datum/Lieferant/Nummer vorbefüllt, Konfidenz-Schwellen). Jede Datei
+   * einzeln aufrufen — die UI batcht und zeigt Fortschritt.
+   */
+  hochladen: authedQuery
+    .input(z.object({
+      dateiname: z.string().min(1).max(255),
+      base64: z.string().min(1),
+      mime: z.string().min(1).max(60),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const { incomingInvoices, companySettings } = await import("@db/schema");
+      const dezimal = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
+      let lieferant = input.dateiname.replace(/\.(pdf|jpe?g|png)$/i, "").slice(0, 255);
+      let datum = new Date().toISOString().slice(0, 10);
+      let nummer: string | null = null;
+      let nettoS = "0.00", ustS = "0.00", bruttoS = "0.00";
+      let auto = "";
+
+      try {
+        const { extrahiereAnhangText } = await import("./lib/anhangText");
+        const { extrahiereBelegFelder } = await import("./lib/belegExtraktion");
+        const text = await extrahiereAnhangText(Buffer.from(input.base64, "base64"), input.mime);
+        if (text.ok && text.text) {
+          const f = extrahiereBelegFelder(text.text);
+          if (f.brutto && f.brutto.konfidenz >= 0.7) {
+            const brutto = dezimal(f.brutto.wert);
+            bruttoS = brutto.toFixed(2);
+            if (f.mwst) {
+              ustS = dezimal(f.mwst.wert).toFixed(2);
+              nettoS = (brutto - dezimal(f.mwst.wert)).toFixed(2);
+            } else {
+              nettoS = (brutto / 1.19).toFixed(2);
+              ustS = (brutto - brutto / 1.19).toFixed(2);
+            }
+            auto += `Betrag ${f.brutto.wert} € erkannt. `;
+          }
+          if (f.datum && f.datum.konfidenz >= 0.8) datum = f.datum.wert;
+          if (f.lieferant && f.lieferant.konfidenz >= 0.6) lieferant = f.lieferant.wert.slice(0, 255);
+          if (f.nummer && f.nummer.konfidenz >= 0.8) { nummer = f.nummer.wert.slice(0, 100); auto += `Nr. ${f.nummer.wert} erkannt. `; }
+          if (!auto) auto = "Keine Felder sicher erkannt (manuell prüfen). ";
+        } else {
+          auto = "Kein lesbarer Text (schlechter Scan) — manuell ausfüllen. ";
+        }
+      } catch { auto = "Extraktion fehlgeschlagen — manuell ausfüllen. "; }
+
+      if (!nummer) nummer = `HOCH-${datum.replaceAll("-", "")}-${Math.random().toString(36).slice(2, 8)}`;
+      const duplikat = await db.query.incomingInvoices.findFirst({
+        where: (t, { and: a, eq: e }) => a(e(t.lieferantName, lieferant), e(t.nummer, nummer!)),
+      });
+      if (duplikat) {
+        return { ok: false, fehler: `Bereits vorhanden (Beleg #${duplikat.id}, ${lieferant} ${nummer}).`, duplikatId: duplikat.id };
+      }
+
+      const s = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+      const [{ id }] = await db
+        .insert(incomingInvoices)
+        .values({
+          lieferantName: lieferant,
+          nummer,
+          rechnungsdatum: datum,
+          netto: nettoS,
+          ust: ustS,
+          brutto: bruttoS,
+          konto: s?.aufwandskontoDefault ?? "4900",
+          belegBase64: input.base64,
+          belegMime: input.mime,
+          bemerkung: `Hochgeladen (${input.dateiname}). ${auto}`.trim(),
+        })
+        .$returningId();
+      return { ok: true, id, lieferant, nummer, datum, brutto: bruttoS, auto: auto.trim() };
+    }),
+
   /** Beleg-Freigabe light: neu → geprueft → freigegeben (Mandant). */
   freigabeSetzen: authedQuery
     .input(z.object({

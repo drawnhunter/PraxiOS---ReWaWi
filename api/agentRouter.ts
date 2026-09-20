@@ -2530,12 +2530,29 @@ app.post("/beleg/extrahieren", async (c) => {
   const base64 = String(body.base64 ?? "");
   const mime = String(body.mime ?? "application/pdf");
   if (!base64) return c.json({ ok: false, fehler: "base64 fehlt." }, 400);
-  const { extrahiereAnhangText } = await import("./lib/anhangText");
-  const { extrahiereBelegFelder } = await import("./lib/belegExtraktion");
-  const text = await extrahiereAnhangText(Buffer.from(base64, "base64"), mime);
-  if (!text.ok || !text.text) return c.json({ ok: false, fehler: text.fehler ?? "Kein Text lesbar.", methode: text.methode }, 422);
-  const felder = extrahiereBelegFelder(text.text);
-  return c.json({ ok: true, methode: text.methode, felder, textVorschau: text.text.slice(0, 500) });
+  try {
+    const { extrahiereAnhangText } = await import("./lib/anhangText");
+    const { extrahiereBelegFelder } = await import("./lib/belegExtraktion");
+    const text = await extrahiereAnhangText(Buffer.from(base64, "base64"), mime);
+    if (!text.ok || !text.text) {
+      return c.json({ ok: false, fehler: text.fehler ?? "Kein Text lesbar.", methode: text.methode, scanHinweis: true }, 422);
+    }
+    const felder = extrahiereBelegFelder(text.text);
+    return c.json({
+      ok: true,
+      methode: text.methode,
+      felder,
+      textVorschau: text.text.slice(0, 500),
+      scanHinweis: text.text.trim().length < 150,
+    });
+  } catch (e) {
+    // Nie 500: bei jedem Fehler sauber 422 mit Diagnose (z. B. defekte Datei, fehlende OCR-Tools)
+    return c.json({
+      ok: false,
+      fehler: `Extraktion fehlgeschlagen: ${e instanceof Error ? e.message.slice(0, 300) : String(e)}`,
+      scanHinweis: true,
+    }, 422);
+  }
 });
 
 /** Mail-Status: gelesen/ungelesen (lokal; IMAP-Flag wird beim nächsten Sync nicht überschrieben). */

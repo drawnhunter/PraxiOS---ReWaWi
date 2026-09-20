@@ -39,10 +39,21 @@ async function ocrBild(bildPfad: string): Promise<string> {
 /** Scan-PDF ohne Textebene: Seiten rendern (pdftoppm) und per OCR lesen. */
 async function ocrPdf(pdfPfad: string): Promise<string> {
   const praefix = pdfPfad.replace(/\.pdf$/, "");
-  await execAsync("pdftoppm", ["-f", "1", "-l", String(OCR_MAX_SEITEN), "-r", "200", "-png", pdfPfad, praefix]);
-  const seiten = (await readdir(tmpdir()))
-    .filter((f) => f.startsWith(basename(praefix)) && f.endsWith(".png"))
-    .sort();
+  try {
+    await execAsync("pdftoppm", ["-f", "1", "-l", String(OCR_MAX_SEITEN), "-r", "200", "-png", pdfPfad, praefix]);
+  } catch (e) {
+    // pdftoppm fehlt (altes Image) oder PDF unlesbar → sauberer Leerstring statt 500
+    console.warn(`[anhangText] pdftoppm fehlgeschlagen: ${e instanceof Error ? e.message.slice(0, 200) : e}`);
+    return "";
+  }
+  let seiten: string[] = [];
+  try {
+    seiten = (await readdir(tmpdir()))
+      .filter((f) => f.startsWith(basename(praefix)) && f.endsWith(".png"))
+      .sort();
+  } catch {
+    return "";
+  }
   const teile: string[] = [];
   for (const s of seiten) {
     const bild = join(tmpdir(), s);
@@ -72,10 +83,14 @@ export async function extrahiereAnhangText(
       } catch { /* kaputtes PDF → OCR versuchen */ }
       const gekuerzt = text.slice(0, TEXT_MAX).trim();
       if (gekuerzt) return { ok: true, methode: "pdftotext", text: gekuerzt };
-      // 2) OCR-Fallback: Scan ohne Textebene (Notar-/Steuer-Post etc.)
-      const ocr = (await ocrPdf(pfad)).slice(0, TEXT_MAX).trim();
-      if (ocr) return { ok: true, methode: "pdftoppm+tesseract", text: ocr };
-      return { ok: false, methode: "pdftotext+ocr", fehler: "PDF enthält auch per OCR keinen lesbaren Text." };
+      // 2) OCR-Fallback: Scan ohne Textebene (Notar-/Steuer-Post etc.) — darf nie 500ern
+      try {
+        const ocr = (await ocrPdf(pfad)).slice(0, TEXT_MAX).trim();
+        if (ocr) return { ok: true, methode: "pdftoppm+tesseract", text: ocr };
+        return { ok: false, methode: "pdftotext+ocr", fehler: "PDF enthält auch per OCR keinen lesbaren Text (schlechter Scan oder OCR-Werkzeuge fehlen im Image)." };
+      } catch (e) {
+        return { ok: false, methode: "pdftotext+ocr", fehler: `OCR fehlgeschlagen: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}` };
+      }
     } finally {
       await unlink(pfad).catch(() => {});
     }
