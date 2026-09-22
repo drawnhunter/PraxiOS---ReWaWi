@@ -2,6 +2,13 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.19.2] — 2026-09-20
+
+### Neu (Agent-API)
+
+- **`POST /rechnung/:id/gutschrift`** — Gutschrift als **Entwurf** aus einer finalisierten Rechnung, mit freien Positionen (`{positionen: [{bezeichnung, menge?, einzelpreis, ustSatz?}], grund?, pdfNotiz?}`). Totals serverseitig exakt gerechnet, Kunden-Snapshot von der Rechnung; der Mensch finalisiert in der UI (Nummernkreis + PDF automatisch). Teil- und Vollgutschriften, GoBD-sicher (kein Auto-Finalisieren durch den Agenten).
+- **`GET /gutschriften`** — alle Gutschriften mit Rechnungsbezug, Status, Beträgen (Kundennamen pseudonymisiert).
+
 ## [1.19.1] — 2026-09-19
 
 ### Behoben

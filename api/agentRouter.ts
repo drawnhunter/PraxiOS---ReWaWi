@@ -1299,6 +1299,113 @@ app.post("/rechnung/:id/zahlung", async (c) => {
   return c.json({ ok: true, id, zugebucht: betrag, datum });
 });
 
+/**
+ * Gutschrift als ENTWURF aus einer finalisierten Rechnung (Teil oder komplett,
+ * freie Positionen). Der Mensch finalisiert in der UI (Nummernkreis + PDF).
+ * GoBD-sicher: kein automatisches Finalisieren durch den Agenten.
+ */
+app.post("/rechnung/:id/gutschrift", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status === "entwurf") return c.json({ ok: false, fehler: "Rechnung ist noch Entwurf — erst finalisieren." }, 409);
+
+  const positionen: { bezeichnung: string; menge: number; einzelpreis: number; ustSatz: number }[] = [];
+  for (const p of (Array.isArray(body.positionen) ? body.positionen : []) as Record<string, unknown>[]) {
+    const bez = String(p.bezeichnung ?? "").trim();
+    const preis = Number(p.einzelpreis);
+    if (!bez || !Number.isFinite(preis)) {
+      return c.json({ ok: false, fehler: "Jede Position braucht bezeichnung + einzelpreis (Zahl)." }, 400);
+    }
+    positionen.push({
+      bezeichnung: bez.slice(0, 500),
+      menge: Number.isFinite(Number(p.menge)) && Number(p.menge) > 0 ? Number(p.menge) : 1,
+      einzelpreis: preis,
+      ustSatz: [0, 7, 19].includes(Number(p.ustSatz)) ? Number(p.ustSatz) : 19,
+    });
+  }
+  if (positionen.length === 0) {
+    return c.json({ ok: false, fehler: "positionen fehlt: [{bezeichnung, menge?, einzelpreis, ustSatz?}]." }, 400);
+  }
+
+  const { computeTotals, centToDecimal } = await import("@contracts/invoicing");
+  const totals = computeTotals(positionen);
+  const { creditNotes, creditNoteItems } = await import("@db/schema");
+  const grund = [body.grund ? String(body.grund) : "", body.pdfNotiz ? String(body.pdfNotiz) : ""]
+    .filter(Boolean).join(" — ").slice(0, 500) || null;
+  const [{ id: gid }] = await db
+    .insert(creditNotes)
+    .values({
+      invoiceId: r.id,
+      datum: heute(),
+      grund,
+      bankAccountId: r.bankAccountId,
+      kundeName: r.kundeName,
+      kundeZusatz: r.kundeZusatz,
+      kundeStrasse: r.kundeStrasse,
+      kundePlz: r.kundePlz,
+      kundeOrt: r.kundeOrt,
+      kundeLand: r.kundeLand,
+      netto: centToDecimal(totals.nettoCent),
+      ust: centToDecimal(totals.ustCent),
+      brutto: centToDecimal(totals.bruttoCent),
+    })
+    .$returningId();
+  await db.insert(creditNoteItems).values(
+    positionen.map((p, i) => ({
+      creditNoteId: gid,
+      position: i + 1,
+      bezeichnung: p.bezeichnung,
+      menge: p.menge.toFixed(3),
+      einzelpreis: p.einzelpreis.toFixed(2),
+      ustSatz: p.ustSatz,
+    })),
+  );
+  await audit("gutschrift_entwurf", { gutschriftId: gid, rechnungId: id, positionen: positionen.length, brutto: centToDecimal(totals.bruttoCent) });
+  return c.json({
+    ok: true,
+    id: gid,
+    status: "entwurf",
+    netto: centToDecimal(totals.nettoCent),
+    ust: centToDecimal(totals.ustCent),
+    brutto: centToDecimal(totals.bruttoCent),
+    hinweis: "Entwurf liegt in der UI (Gutschriften) bereit — der Mensch finalisiert; Nummernkreis + PDF entstehen dann automatisch.",
+  });
+});
+
+/** Alle Gutschriften (mit Rechnungsbezug; Kundennamen pseudonymisiert). */
+app.get("/gutschriften", async (c) => {
+  const { creditNotes, invoices } = await import("@db/schema");
+  const { desc } = await import("drizzle-orm");
+  const { ladeSynonymKarte, agentName } = await import("./lib/pseudonym");
+  const karte = await ladeSynonymKarte();
+  const rows = await getDb()
+    .select({ g: creditNotes, rechnungNummer: invoices.nummer })
+    .from(creditNotes)
+    .leftJoin(invoices, eq(creditNotes.invoiceId, invoices.id))
+    .orderBy(desc(creditNotes.datum), desc(creditNotes.id))
+    .limit(200);
+  const kunden = await getDb().query.customers.findMany();
+  return c.json({
+    anzahl: rows.length,
+    gutschriften: rows.map((x) => ({
+      id: x.g.id,
+      nummer: x.g.nummer,
+      status: x.g.status,
+      datum: x.g.datum,
+      rechnung: x.rechnungNummer,
+      rechnungId: x.g.invoiceId,
+      kunde: agentName(karte, kunden.find((k) => k.name === x.g.kundeName)?.id ?? 0, x.g.kundeName),
+      netto: Number(x.g.netto),
+      ust: Number(x.g.ust),
+      brutto: Number(x.g.brutto),
+      grund: x.g.grund,
+    })),
+  });
+});
+
 app.post("/rechnung/:id/stornieren", async (c) => {
   const id = Number(c.req.param("id"));
   const body = await bodyLesen(c);
