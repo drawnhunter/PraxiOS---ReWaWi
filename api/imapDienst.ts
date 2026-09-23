@@ -73,6 +73,10 @@ async function speichereMail(
       datum: (geparst.date ?? umschlagDatum ?? new Date()).toISOString(),
     }),
   ).catch(() => undefined);
+  // Abwesenheitsnotiz (v1.20): serverseitig, Frequenz-Limit 1×/4 Tage je Absender
+  import("./lib/abwesenheit")
+    .then(({ vielleichtAbwesenheitSenden }) => vielleichtAbwesenheitSenden(konto, geparst))
+    .catch(() => undefined);
   return { id, istNeu: true };
 }
 

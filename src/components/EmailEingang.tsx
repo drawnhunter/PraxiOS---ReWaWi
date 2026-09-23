@@ -17,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle2, Loader2, MailPlus, Pencil, PlugZap, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, MailPlus, Pencil, PlugZap, Plus, Settings2, Trash2, XCircle } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
 interface KontoForm {
   id?: number;
@@ -57,6 +58,7 @@ const LEER: KontoForm = {
 };
 
 export function EmailEingang() {
+  const [optionenOffen, setOptionenOffen] = useState<number | null>(null);
   const utils = trpc.useUtils();
   const konten = trpc.emailKonten.liste.useQuery();
   const [dialog, setDialog] = useState(false);
@@ -136,6 +138,13 @@ export function EmailEingang() {
                 );
               })()}
             </div>
+            <Button
+              size="sm" variant="ghost"
+              title="Signatur & Abwesenheitsnotiz"
+              onClick={() => setOptionenOffen(optionenOffen === k.id ? null : k.id)}
+            >
+              <Settings2 className={`h-4 w-4 ${optionenOffen === k.id ? "text-teal-600" : ""}`} />
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => testStarten(k.id)} disabled={test[k.id] === "laeuft"}>
               {test[k.id] === "laeuft" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
             </Button>
@@ -182,6 +191,13 @@ export function EmailEingang() {
           <p className="py-4 text-center text-sm text-neutral-400">Noch keine Postfächer eingerichtet.</p>
         )}
       </div>
+
+      {/* Optionen-Panel je Konto (Signatur + Abwesenheitsnotiz) */}
+      {(konten.data ?? []).map((k) => optionenOffen === k.id && (
+        <KontoOptionen key={`opt-${k.id}`} konto={k} onZu={() => setOptionenOffen(null)} />
+      ))}
+
+      <BausteineVerwaltung />
 
       <Dialog open={dialog} onOpenChange={setDialog}>
         <DialogContent className="max-w-lg">
@@ -286,5 +302,138 @@ export function EmailEingang() {
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+
+/* ═══ Pro-Konto-Optionen: Signaturen (neu/Antwort) + Abwesenheitsnotiz ═══ */
+function KontoOptionen({ konto, onZu }: { konto: KontoOptionenDaten; onZu: () => void }) {
+  const utils = trpc.useUtils();
+  const [sigNeu, setSigNeu] = useState(konto.signaturNeu ?? "");
+  const [sigAntwort, setSigAntwort] = useState(konto.signaturAntwort ?? "");
+  const [abwAktiv, setAbwAktiv] = useState(konto.abwesenheitAktiv ?? false);
+  const [abwVon, setAbwVon] = useState(konto.abwesenheitVon ?? "");
+  const [abwBis, setAbwBis] = useState(konto.abwesenheitBis ?? "");
+  const [abwText, setAbwText] = useState(konto.abwesenheitText ?? "");
+  const [nurKontakte, setNurKontakte] = useState(konto.abwesenheitNurKontakte ?? false);
+  const [ok, setOk] = useState(false);
+  const speichern = trpc.postfach.kontoOptionen.useMutation({
+    onSuccess: () => { setOk(true); setTimeout(() => setOk(false), 2000); utils.postfach.postfaecher.invalidate(); utils.emailKonten.liste.invalidate(); },
+  });
+
+  return (
+    <div className="mt-2 space-y-3 rounded-lg border border-teal-200 bg-teal-50/40 p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-teal-900">Optionen: {konto.name}</h3>
+        <Button size="sm" variant="ghost" onClick={onZu}><XCircle className="h-4 w-4" /></Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label>Signatur — neue Mails</Label>
+          <Textarea rows={3} value={sigNeu} onChange={(e) => setSigNeu(e.target.value)} placeholder={"Mit freundlichen Grüßen\n…"} />
+        </div>
+        <div>
+          <Label>Signatur — Antworten/Weiterleitungen</Label>
+          <Textarea rows={3} value={sigAntwort} onChange={(e) => setSigAntwort(e.target.value)} placeholder="(leer = wie neue Mails / global)" />
+        </div>
+      </div>
+      <div className="rounded-md border border-neutral-200 bg-white p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input type="checkbox" checked={abwAktiv} onChange={(e) => setAbwAktiv(e.target.checked)} />
+          Abwesenheitsnotiz aktiv (serverseitig — läuft auch bei ausgeschaltetem Rechner)
+        </label>
+        {abwAktiv && (
+          <div className="mt-2 space-y-2">
+            <div className="flex gap-2">
+              <div className="flex-1"><Label>von</Label><Input type="date" value={abwVon} onChange={(e) => setAbwVon(e.target.value)} /></div>
+              <div className="flex-1"><Label>bis</Label><Input type="date" value={abwBis} onChange={(e) => setAbwBis(e.target.value)} /></div>
+            </div>
+            <Textarea rows={3} value={abwText} onChange={(e) => setAbwText(e.target.value)} placeholder="Vielen Dank für Ihre Nachricht. Ich bin bis … abwesend …" />
+            <label className="flex items-center gap-2 text-xs text-neutral-600">
+              <input type="checkbox" checked={nurKontakte} onChange={(e) => setNurKontakte(e.target.checked)} />
+              nur an bekannte Kontakte (Kartei) senden
+            </label>
+            <p className="text-[11px] text-neutral-400">Fest eingebaut: max. 1× je Absender in 4 Tagen; Newsletter/noreply/Listen werden nie beantwortet.</p>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          disabled={speichern.isPending}
+          onClick={() =>
+            speichern.mutate({
+              kontoId: konto.id,
+              signaturNeu: sigNeu,
+              signaturAntwort: sigAntwort,
+              abwesenheitAktiv: abwAktiv,
+              abwesenheitVon: abwVon || null,
+              abwesenheitBis: abwBis || null,
+              abwesenheitText: abwText,
+              abwesenheitNurKontakte: nurKontakte,
+            })
+          }
+        >
+          Speichern
+        </Button>
+        {ok && <span className="text-xs text-green-600">✓ gespeichert</span>}
+      </div>
+    </div>
+  );
+}
+
+type KontoOptionenDaten = {
+  id: number; name: string;
+  signaturNeu?: string | null; signaturAntwort?: string | null;
+  abwesenheitAktiv?: boolean; abwesenheitVon?: string | null; abwesenheitBis?: string | null;
+  abwesenheitText?: string | null; abwesenheitNurKontakte?: boolean;
+};
+
+/* ═══ Textbausteine (Kürzel + TAB im Editor) ═══ */
+function BausteineVerwaltung() {
+  const liste = trpc.postfach.bausteine.useQuery();
+  const anlegen = trpc.postfach.bausteinAnlegen.useMutation({ onSuccess: () => { liste.refetch(); setForm({ kuerzel: "", titel: "", inhalt: "" }); } });
+  const loeschen = trpc.postfach.bausteinLoeschen.useMutation({ onSuccess: () => liste.refetch() });
+  const [form, setForm] = useState({ kuerzel: "", titel: "", inhalt: "" });
+  const [offen, setOffen] = useState(false);
+
+  return (
+    <div className="mt-4 rounded-lg border border-neutral-200 p-4">
+      <button className="flex w-full items-center justify-between text-left" onClick={() => setOffen(!offen)}>
+        <h3 className="text-sm font-medium text-neutral-700">Textbausteine (Schnellantworten)</h3>
+        <span className="text-xs text-neutral-400">{offen ? "einklappen" : "ausklappen"}</span>
+      </button>
+      {offen && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-neutral-400">
+            Im Editor: Kürzel tippen + <b>TAB</b> → Baustein wird eingefügt. HTML erlaubt.
+          </p>
+          {(liste.data ?? []).map((b) => (
+            <div key={b.id} className="flex items-center gap-2 rounded-md border border-neutral-100 px-2 py-1.5 text-sm">
+              <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs">{b.kuerzel}</code>
+              <span className="min-w-0 flex-1 truncate">{b.titel}</span>
+              <Button size="sm" variant="ghost" className="text-red-600" onClick={() => loeschen.mutate({ id: b.id })}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+          {(liste.data ?? []).length === 0 && <p className="text-xs text-neutral-400">Noch keine Bausteine.</p>}
+          <div className="grid gap-2 border-t border-neutral-100 pt-2 sm:grid-cols-[140px_1fr]">
+            <Input placeholder="Kürzel (z. B. mfg)" value={form.kuerzel} onChange={(e) => setForm({ ...form, kuerzel: e.target.value })} />
+            <Input placeholder="Titel" value={form.titel} onChange={(e) => setForm({ ...form, titel: e.target.value })} />
+            <div className="sm:col-span-2">
+              <Textarea rows={2} placeholder="Inhalt (HTML erlaubt)" value={form.inhalt} onChange={(e) => setForm({ ...form, inhalt: e.target.value })} />
+            </div>
+          </div>
+          <Button
+            size="sm" variant="outline"
+            disabled={!form.kuerzel.trim() || !form.titel.trim() || !form.inhalt.trim() || anlegen.isPending}
+            onClick={() => anlegen.mutate(form)}
+          >
+            <Plus className="mr-1.5 h-4 w-4" /> Baustein anlegen
+          </Button>
+          {anlegen.error && <p className="text-xs text-red-600">{anlegen.error.message}</p>}
+        </div>
+      )}
+    </div>
   );
 }

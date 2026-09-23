@@ -107,6 +107,17 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "mail_mails", spalte: "markiert", ddl: "ALTER TABLE mail_mails ADD COLUMN markiert TINYINT(1) NOT NULL DEFAULT 0 AFTER gelesen" },
   { tabelle: "incoming_invoices", spalte: "typ", ddl: "ALTER TABLE incoming_invoices ADD COLUMN typ VARCHAR(20) NOT NULL DEFAULT 'rechnung' AFTER waehrung" },
   { tabelle: "incoming_invoices", spalte: "betrag_bank", ddl: "ALTER TABLE incoming_invoices ADD COLUMN betrag_bank DECIMAL(12,2) NULL AFTER waehrung" },
+  // ── v1.20.0: Mail-Pro + Editor ──
+  { tabelle: "email_konten", spalte: "signatur_neu", ddl: "ALTER TABLE email_konten ADD COLUMN signatur_neu TEXT NULL AFTER smtp_absender" },
+  { tabelle: "email_konten", spalte: "signatur_antwort", ddl: "ALTER TABLE email_konten ADD COLUMN signatur_antwort TEXT NULL AFTER signatur_neu" },
+  { tabelle: "email_konten", spalte: "abwesenheit_aktiv", ddl: "ALTER TABLE email_konten ADD COLUMN abwesenheit_aktiv TINYINT(1) NOT NULL DEFAULT 0 AFTER signatur_antwort" },
+  { tabelle: "email_konten", spalte: "abwesenheit_von", ddl: "ALTER TABLE email_konten ADD COLUMN abwesenheit_von VARCHAR(10) NULL AFTER abwesenheit_aktiv" },
+  { tabelle: "email_konten", spalte: "abwesenheit_bis", ddl: "ALTER TABLE email_konten ADD COLUMN abwesenheit_bis VARCHAR(10) NULL AFTER abwesenheit_von" },
+  { tabelle: "email_konten", spalte: "abwesenheit_text", ddl: "ALTER TABLE email_konten ADD COLUMN abwesenheit_text TEXT NULL AFTER abwesenheit_bis" },
+  { tabelle: "email_konten", spalte: "abwesenheit_nur_kontakte", ddl: "ALTER TABLE email_konten ADD COLUMN abwesenheit_nur_kontakte TINYINT(1) NOT NULL DEFAULT 0 AFTER abwesenheit_text" },
+  { tabelle: "mail_entwuerfe", spalte: "geplantes_senden_am", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN geplantes_senden_am DATETIME NULL AFTER versand_fehler" },
+  { tabelle: "company_settings", spalte: "typo_korrektur", ddl: "ALTER TABLE company_settings ADD COLUMN typo_korrektur TINYINT(1) NOT NULL DEFAULT 1 AFTER steuerberater_email" },
+  { tabelle: "company_settings", spalte: "undo_sende_sekunden", ddl: "ALTER TABLE company_settings ADD COLUMN undo_sende_sekunden INT NOT NULL DEFAULT 0 AFTER typo_korrektur" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -563,6 +574,28 @@ const NEUE_TABELLEN: { tabelle: string; ddl: string }[] = [
       pfad VARCHAR(255) NOT NULL,
       erstellt_am TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX kanzlei_log_user (user_id, erstellt_am)
+    )`,
+  },
+  // ── v1.20.0 ──
+  {
+    tabelle: "mail_bausteine",
+    ddl: `CREATE TABLE IF NOT EXISTS mail_bausteine (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      kuerzel VARCHAR(40) NOT NULL,
+      titel VARCHAR(120) NOT NULL,
+      inhalt MEDIUMTEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE INDEX baustein_kuerzel (kuerzel)
+    )`,
+  },
+  {
+    tabelle: "mail_autoreply_log",
+    ddl: `CREATE TABLE IF NOT EXISTS mail_autoreply_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      konto_id BIGINT UNSIGNED NOT NULL,
+      absender VARCHAR(320) NOT NULL,
+      gesendet_am TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX autoreply_dedup (konto_id, absender, gesendet_am)
     )`,
   },
 ];

@@ -116,6 +116,9 @@ if (env.isProduction) {
   try {
     const { starteImapDienst } = await import("./imapDienst");
     starteImapDienst();
+    // Sende-Queue (Undo-Send + Senden-Später): fällige Ausgang-Entwürfe versenden
+    const { starteEntwurfQueue } = await import("./lib/entwurfQueue");
+    starteEntwurfQueue();
   } catch (e) {
     console.error("[imap] Dienst-Start fehlgeschlagen:", e);
   }

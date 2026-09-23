@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
+import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 
 function datumFmt(d: string | Date | null): string {
   if (!d) return "—";
@@ -185,7 +186,8 @@ export default function MailPostfach() {
               </div>
             );
           })}
-          <div className="ml-auto shrink-0">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <SeitenEinstellung bereich="mailkonten" titel="Mail-Konten" />
             <Button size="sm" onClick={() => oeffneVerfassen({ kontoId })}>
               <Pencil className="mr-1.5 h-4 w-4" /> Verfassen
             </Button>
@@ -748,7 +750,7 @@ function AusgangSektion() {
   const entwurfSenden = trpc.postfach.entwurfSenden.useMutation({ onSettled: () => entwuerfe.refetch() });
   const ausgangZurueck = trpc.postfach.ausgangZurueck.useMutation({ onSettled: () => entwuerfe.refetch() });
   void utils;
-  const liste = ((entwuerfe.data ?? []) as { id: number; betreff: string | null; empfaenger: string | null; status?: string; versandFehler?: string | null }[])
+  const liste = ((entwuerfe.data ?? []) as { id: number; betreff: string | null; empfaenger: string | null; status?: string; versandFehler?: string | null; geplantesSendenAm?: string | Date | null }[])
     .filter((e) => e.status === "ausgang");
   if (liste.length === 0) return null;
   return (
@@ -777,6 +779,18 @@ function AusgangSektion() {
                     → Entwürfe
                   </button>
                 </span>
+              </>
+            ) : e.geplantesSendenAm ? (
+              <>
+                <span className="mt-0.5 block text-amber-700">
+                  geplant: {new Date(e.geplantesSendenAm).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <button
+                  className="mt-0.5 text-teal-700 hover:underline"
+                  onClick={() => ausgangZurueck.mutate({ id: e.id })}
+                >
+                  Rückgängig (zurück zu Entwürfen)
+                </button>
               </>
             ) : (
               <span className="mt-0.5 flex items-center gap-1.5 text-amber-700">

@@ -34,7 +34,16 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   const { transporter, absender, kontoName } = await ladeSmtpKonto(e.kontoId);
   const firma = await ladeFirmaLive();
   const settings = await getDb().query.companySettings.findFirst();
-  const signatur = e.mitSignatur !== false && settings?.signatur ? `\n\n${settings.signatur}` : "";
+  // Signatur: Pro-Konto (neu vs. Antwort) schlägt die globale Firmen-Signatur
+  let signaturQuelle = settings?.signatur ?? null;
+  if (e.kontoId) {
+    const { emailKonten } = await import("@db/schema");
+    const { eq } = await import("drizzle-orm");
+    const konto = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, e.kontoId) });
+    const kontoSignatur = e.inReplyTo ? konto?.signaturAntwort : konto?.signaturNeu;
+    if (kontoSignatur?.trim()) signaturQuelle = kontoSignatur;
+  }
+  const signatur = e.mitSignatur !== false && signaturQuelle ? `\n\n${signaturQuelle}` : "";
   const text = `${e.text}${signatur}`;
   // Plain-Text-„HTML" (KI-Entwürfe ohne Block-Tags) in saubere Absätze wandeln,
   // Tabs/Leerzeichen-Layout bricht sonst in der Anzeige aus (s. Screenshot-Feedback)

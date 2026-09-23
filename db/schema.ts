@@ -71,6 +71,9 @@ export const companySettings = mysqlTable("company_settings", {
   signatur: text("signatur"),
   // Kanzlei-Adresse fuer das Monatspaket (v1.18.0)
   steuerberaterEmail: varchar("steuerberater_email", { length: 320 }),
+  // Editor/Mail-Komfort (v1.20): typografische Autokorrektur + Undo-Send-Verzoegerung
+  typoKorrektur: boolean("typo_korrektur").notNull().default(true),
+  undoSendeSekunden: int("undo_sende_sekunden").notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
 
@@ -785,7 +788,33 @@ export const emailKonten = mysqlTable("email_konten", {
   aktiv: boolean("aktiv").notNull().default(true),
   letzterAbruf: timestamp("letzter_abruf"),
   letzterFehler: varchar("letzter_fehler", { length: 500 }),
+  // Pro-Konto-Signaturen (v1.20): schlagen die globale Signatur
+  signaturNeu: text("signatur_neu"),
+  signaturAntwort: text("signatur_antwort"),
+  // Abwesenheitsnotiz (v1.20): serverseitig, Frequenz-Limit 1×/4 Tage je Absender
+  abwesenheitAktiv: boolean("abwesenheit_aktiv").notNull().default(false),
+  abwesenheitVon: varchar("abwesenheit_von", { length: 10 }),
+  abwesenheitBis: varchar("abwesenheit_bis", { length: 10 }),
+  abwesenheitText: text("abwesenheit_text"),
+  abwesenheitNurKontakte: boolean("abwesenheit_nur_kontakte").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ── Textbausteine (v1.20): Kuerzel + TAB im Editor expandiert ───────────────
+export const mailBausteine = mysqlTable("mail_bausteine", {
+  id: serial("id").primaryKey(),
+  kuerzel: varchar("kuerzel", { length: 40 }).notNull().unique(),
+  titel: varchar("titel", { length: 120 }).notNull(),
+  inhalt: text("inhalt").notNull(), // HTML
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ── Auto-Reply-Log (v1.20): Frequenz-Limit der Abwesenheitsnotiz ────────────
+export const mailAutoreplyLog = mysqlTable("mail_autoreply_log", {
+  id: serial("id").primaryKey(),
+  kontoId: bigint("konto_id", { mode: "number", unsigned: true }).notNull(),
+  absender: varchar("absender", { length: 320 }).notNull(),
+  gesendetAm: timestamp("gesendet_am").notNull().defaultNow(),
 });
 
 // ── Mail-Postfach: empfangene Mails (IMAP-Abruf legt sie hier ab) ──────────
@@ -846,6 +875,8 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   status: varchar("status", { length: 20 }).notNull().default("entwurf"),
   versandVersuchAm: timestamp("versand_versuch_am"),
   versandFehler: text("versand_fehler"),
+  // Geplante Zustellung (v1.20): Undo-Send (Sekunden) + Senden-Später (Datum/Zeit)
+  geplantesSendenAm: timestamp("geplantes_senden_am"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

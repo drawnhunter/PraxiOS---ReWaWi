@@ -383,52 +383,48 @@ export const mailPostfachRouter = createRouter({
   entwurfSenden: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
+      const { mailEntwuerfe, companySettings } = await import("@db/schema");
+      const db = getDb();
+      const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, input.id) });
+      if (!e) throw new Error("Entwurf nicht gefunden.");
+      // Undo-Send: konfigurierte Verzögerung → die Queue versendet erst danach
+      const einst = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+      const undoSek = einst?.undoSendeSekunden ?? 0;
+      const sendenAm = undoSek > 0 ? new Date(Date.now() + undoSek * 1000) : null;
+      await db
+        .update(mailEntwuerfe)
+        .set({ status: "ausgang", versandVersuchAm: new Date(), versandFehler: null, geplantesSendenAm: sendenAm })
+        .where(eq(mailEntwuerfe.id, input.id));
+      if (sendenAm) return { ok: true, verzoegert: true, sendenAm };
+      const { sendeEntwurf } = await import("./lib/entwurfQueue");
+      return sendeEntwurf(input.id);
+    }),
+
+  /** Senden-Später: Entwurf in den Ausgang mit Wunsch-Zeitpunkt (Queue holt ihn ab). */
+  entwurfPlanen: authedQuery
+    .input(z.object({ id: z.number(), sendenAm: z.string().datetime({ local: true }) }))
+    .mutation(async ({ input }) => {
       const { mailEntwuerfe } = await import("@db/schema");
       const db = getDb();
       const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, input.id) });
       if (!e) throw new Error("Entwurf nicht gefunden.");
-      // 1) Sofort in den Ausgang (atomar vor dem Versand)
+      const wann = new Date(input.sendenAm);
+      if (Number.isNaN(wann.getTime())) throw new Error("Ungültige Zeit.");
       await db
         .update(mailEntwuerfe)
-        .set({ status: "ausgang", versandVersuchAm: new Date(), versandFehler: null })
+        .set({ status: "ausgang", versandVersuchAm: new Date(), versandFehler: null, geplantesSendenAm: wann })
         .where(eq(mailEntwuerfe.id, input.id));
-      // 2) Versand versuchen
-      const empfaenger = (e.empfaenger ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-      if (empfaenger.length === 0) {
-        await db.update(mailEntwuerfe).set({ versandFehler: "Kein Empfänger angegeben." }).where(eq(mailEntwuerfe.id, input.id));
-        return { ok: false, fehler: "Kein Empfänger angegeben." };
-      }
-      const { versendeMail } = await import("./lib/mailVersand");
-      const text = e.text ?? "";
-      const r = await versendeMail({
-        kontoId: e.kontoId ?? undefined,
-        empfaenger,
-        cc: e.cc ? e.cc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
-        bcc: e.bcc ? e.bcc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
-        betreff: e.betreff ?? "(kein Betreff)",
-        text: text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || text,
-        html: text.startsWith("<") ? text : undefined,
-        anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
-        inReplyTo: e.inReplyTo ?? null,
-        mitSignatur: true,
-      });
-      if (!r.ok) {
-        await db.update(mailEntwuerfe).set({ versandFehler: r.fehler ?? "Unbekannter Fehler" }).where(eq(mailEntwuerfe.id, input.id));
-        return { ok: false, fehler: r.fehler };
-      }
-      // 3) Erfolg: Ausgang-Zeile entfernen (Gesendet-Ablage läuft über mailVersand)
-      await db.delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, input.id));
-      return { ok: true };
+      return { ok: true, sendenAm: wann };
     }),
 
-  /** Ausgang → zurück in die Entwürfe (z. B. nach Fehler korrigieren). */
+  /** Ausgang → zurück in die Entwürfe (Fehler korrigieren ODER Undo-Send/Planung stornieren). */
   ausgangZurueck: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const { mailEntwuerfe } = await import("@db/schema");
       await getDb()
         .update(mailEntwuerfe)
-        .set({ status: "entwurf", versandFehler: null })
+        .set({ status: "entwurf", versandFehler: null, geplantesSendenAm: null })
         .where(eq(mailEntwuerfe.id, input.id));
       return { ok: true };
     }),
@@ -462,5 +458,64 @@ export const mailPostfachRouter = createRouter({
       const r = await loescheOrdner(input.kontoId, input.name);
       if (!r.ok) throw new Error(r.fehler);
       return r;
+    }),
+
+  // ── Textbausteine (Kürzel + TAB im Editor) ─────────────────────────────────
+  bausteine: authedQuery.query(async () => {
+    const { mailBausteine } = await import("@db/schema");
+    const { asc } = await import("drizzle-orm");
+    return getDb().select().from(mailBausteine).orderBy(asc(mailBausteine.kuerzel));
+  }),
+
+  bausteinAnlegen: authedQuery
+    .input(z.object({
+      kuerzel: z.string().trim().min(1).max(40).regex(/^[\w-]+$/, "Nur Buchstaben/Zahlen/-/_"),
+      titel: z.string().trim().min(1).max(120),
+      inhalt: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const { mailBausteine } = await import("@db/schema");
+      const vorhanden = await getDb().query.mailBausteine.findFirst({ where: eq(mailBausteine.kuerzel, input.kuerzel) });
+      if (vorhanden) throw new Error(`Kürzel „${input.kuerzel}" existiert bereits.`);
+      const [{ id }] = await getDb().insert(mailBausteine).values(input).$returningId();
+      return { ok: true, id };
+    }),
+
+  bausteinLoeschen: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { mailBausteine } = await import("@db/schema");
+      await getDb().delete(mailBausteine).where(eq(mailBausteine.id, input.id));
+      return { ok: true };
+    }),
+
+  /** Pro-Konto-Einstellungen: Signaturen (neu/Antwort) + Abwesenheitsnotiz. */
+  kontoOptionen: authedQuery
+    .input(z.object({
+      kontoId: z.number(),
+      signaturNeu: z.string().optional(),
+      signaturAntwort: z.string().optional(),
+      abwesenheitAktiv: z.boolean(),
+      abwesenheitVon: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+      abwesenheitBis: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+      abwesenheitText: z.string().optional(),
+      abwesenheitNurKontakte: z.boolean().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      await pruefeSichtbarkeit(ctx.user, input.kontoId);
+      const { emailKonten } = await import("@db/schema");
+      await getDb()
+        .update(emailKonten)
+        .set({
+          signaturNeu: input.signaturNeu ?? null,
+          signaturAntwort: input.signaturAntwort ?? null,
+          abwesenheitAktiv: input.abwesenheitAktiv,
+          abwesenheitVon: input.abwesenheitVon ?? null,
+          abwesenheitBis: input.abwesenheitBis ?? null,
+          abwesenheitText: input.abwesenheitText ?? null,
+          abwesenheitNurKontakte: input.abwesenheitNurKontakte ?? false,
+        })
+        .where(eq(emailKonten.id, input.kontoId));
+      return { ok: true };
     }),
 });

@@ -53,6 +53,8 @@ interface FirmenForm {
   steuerberaterEmail: string;
   akzentfarbe: string;
   pdfLayout: string;
+  typoKorrektur: boolean;
+  undoSendeSekunden: number;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
@@ -90,6 +92,20 @@ export default function SettingsPage() {
   const [meldung, setMeldung] = useState("");
   const [seqWerte, setSeqWerte] = useState<Record<string, string>>({});
 
+  // Direkt-Anker: /einstellungen#bereich → zur Sektion scrollen + kurz aufleuchten
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "");
+    if (!hash) return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(hash);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("anker-aufleuchten");
+      setTimeout(() => el.classList.remove("anker-aufleuchten"), 1800);
+    }, 350);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     if (!settings.data || firma) return;
     const s = settings.data;
@@ -120,6 +136,8 @@ export default function SettingsPage() {
       steuerberaterEmail: s.steuerberaterEmail ?? "",
       akzentfarbe: s.akzentfarbe,
       pdfLayout: s.pdfLayout,
+      typoKorrektur: s.typoKorrektur ?? true,
+      undoSendeSekunden: s.undoSendeSekunden ?? 0,
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
       smtpUser: s.smtpUser ?? "",
@@ -184,7 +202,7 @@ export default function SettingsPage() {
       <h1 className="text-xl font-semibold tracking-tight">Einstellungen</h1>
 
       {/* ── Firmendaten ── */}
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section id="firma" className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-4 text-sm font-medium text-neutral-700">
           Firmendaten (erscheinen auf allen Belegen)
         </h2>
@@ -318,6 +336,8 @@ export default function SettingsPage() {
                 datevKontenrahmen: firma.datevKontenrahmen as "SKR03" | "SKR04",
                 akzentfarbe: firma.akzentfarbe as "neutral" | "blau" | "gruen" | "bernstein" | "violett" | "rot",
                 pdfLayout: firma.pdfLayout as "klassisch" | "modern" | "kompakt",
+                typoKorrektur: firma.typoKorrektur,
+                undoSendeSekunden: firma.undoSendeSekunden,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
                 smtpUser: firma.smtpUser || null,
@@ -342,7 +362,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Design ── */}
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section id="design" className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-1 text-sm font-medium text-neutral-700">Design</h2>
         <p className="mb-4 text-xs text-neutral-400">
           Die Akzentfarbe färbt Buttons und Auswahlen im Programm; das Layout
@@ -400,7 +420,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── E-Mail (SMTP) ── */}
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section id="smtp" className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-1 text-sm font-medium text-neutral-700">E-Mail-Versand (SMTP)</h2>
         <p className="mb-4 text-xs text-neutral-400">
           Für den direkten Versand von Rechnungen, Angeboten und Gutschriften.
@@ -453,7 +473,7 @@ export default function SettingsPage() {
             />
           </div>
               <div className="sm:col-span-2">
-                <Label>Signatur (wird an Mails angehängt)</Label>
+                <Label>Signatur (wird an Mails angehängt — globale; Konto-Signaturen in den Mail-Konten schlagen sie)</Label>
                 <Textarea
                   value={firma.signatur}
                   onChange={(e) => setFirma({ ...firma, signatur: e.target.value })}
@@ -470,6 +490,31 @@ export default function SettingsPage() {
             >
               {smtpTest.isPending ? "Prüfe …" : "Verbindung testen"}
             </Button>
+          </div>
+          <div className="flex items-center gap-4 sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-600">
+              <input
+                type="checkbox"
+                checked={firma.typoKorrektur}
+                onChange={(e) => setFirma({ ...firma, typoKorrektur: e.target.checked })}
+              />
+              Typografische Autokorrektur im Editor (-- → —, … → …, (c) → ©)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-600">
+              Undo-Send:
+              <select
+                className="h-8 rounded-md border border-neutral-200 bg-white px-2 text-xs"
+                value={String(firma.undoSendeSekunden)}
+                onChange={(e) => setFirma({ ...firma, undoSendeSekunden: Number(e.target.value) })}
+              >
+                <option value="0">aus</option>
+                <option value="5">5 s</option>
+                <option value="10">10 s</option>
+                <option value="20">20 s</option>
+                <option value="30">30 s</option>
+              </select>
+              <span className="text-xs text-neutral-400">(Mail liegt X s im Ausgang — „Rückgängig" holt sie zurück)</span>
+            </label>
           </div>
         </div>
         {smtpTest.isSuccess && (
@@ -488,7 +533,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── DATEV-Export ── */}
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section id="datev" className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-1 text-sm font-medium text-neutral-700">DATEV-Export (Buchungsstapel)</h2>
         <p className="mb-4 text-xs text-neutral-400">
           Die Werte erfragst du am besten kurz bei deinem Steuerberater (Berater-/Mandantennummer,
@@ -591,13 +636,13 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Kategorien (Kontierung) ── */}
-      <KategorienVerwaltung />
+      <div id="kategorien"><KategorienVerwaltung /></div>
 
       {/* ── E-Mail-Eingang ── */}
-      <EmailEingang />
+      <div id="mailkonten"><EmailEingang /></div>
 
       {/* ── Bankkonten ── */}
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section id="bankkonten" className="rounded-lg border border-neutral-200 bg-white p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-medium text-neutral-700">Bankkonten</h2>
           <Button
@@ -681,7 +726,7 @@ export default function SettingsPage() {
       <AgentApiSection />
 
       {/* ── Nummernkreise ── */}
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section id="nummernkreise" className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-2 text-sm font-medium text-neutral-700">Nummernkreise</h2>
         <p className="mb-4 text-xs text-neutral-500">
           Zeigt die jeweils nächste vergebene Nummer. Korrektur nur aufwärts möglich
@@ -757,6 +802,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Benutzerverwaltung (nur Admin sichtbar) ── */}
+      <span id="benutzer" />
       <Benutzerverwaltung />
 
       {/* ── Bank-Dialog ── */}
@@ -855,7 +901,7 @@ function AgentApiSection() {
   const host = typeof window !== "undefined" ? window.location.origin : "";
 
   return (
-    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+    <section id="agent" className="rounded-lg border border-neutral-200 bg-white p-5">
       <h2 className="mb-2 text-sm font-medium text-neutral-700">Agent-API (Kimi Claw)</h2>
       <p className="mb-4 text-xs text-neutral-500">
         REST-Endpunkte unter <code>/api/agent/*</code> für externe Agenten. Token nur per
@@ -1012,7 +1058,7 @@ function ModulSection() {
   });
 
   return (
-    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+    <section id="module" className="rounded-lg border border-neutral-200 bg-white p-5">
       <h2 className="mb-2 text-sm font-medium text-neutral-700">Module</h2>
       <p className="mb-4 text-xs text-neutral-500">
         Features pro Instanz ein-/ausschalten — Sidebar und API folgen sofort.

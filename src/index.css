@@ -73,3 +73,13 @@
     @apply bg-background text-foreground;
   }
 }
+/* Direkt-Anker in den Einstellungen: Sektion leuchtet kurz auf */
+.anker-aufleuchten {
+  animation: anker-puls 1.8s ease-out;
+  border-color: rgb(15 118 110 / 0.5) !important;
+}
+@keyframes anker-puls {
+  0% { box-shadow: 0 0 0 0 rgb(15 118 110 / 0.45); }
+  70% { box-shadow: 0 0 0 10px rgb(15 118 110 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(15 118 110 / 0); }
+}

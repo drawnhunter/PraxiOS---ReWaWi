@@ -5,6 +5,7 @@ import { geld, datum } from "@/lib/format";
 import { STATUS_LABELS, type InvoiceStatus } from "@contracts/invoicing";
 import { Link, useNavigate } from "react-router";
 import { Badge } from "@/components/ui/badge";
+import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 import { CsvButton } from "@/components/CsvButton";
 import { useSortierung } from "@/lib/sortierung";
 import { SerienDialog } from "@/components/SerienDialog";
@@ -138,6 +139,7 @@ export default function Invoices() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold tracking-tight">Rechnungen</h1>
+        <SeitenEinstellung bereich="nummernkreise" titel="Nummernkreise" />
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" asChild>
             <Link to="/e-rechnungen">Eingangsbelege →</Link>

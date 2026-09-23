@@ -3,31 +3,35 @@ import { Button } from "@/components/ui/button";
 import {
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Eraser, Undo2, Redo2, List, ListOrdered, Link2, Link2Off, IndentIncrease, IndentDecrease,
-  Highlighter, Type, Minus, Quote, Baseline,
+  Highlighter, Type, Minus, Quote, Baseline, CircleHelp,
 } from "lucide-react";
 
 /**
  * Rich-Text-Editor für Mails (contentEditable + execCommand, mail-sicheres HTML).
- * - Toolbar bleibt fest (scrollt nicht mit)
- * - Schriftgröße in 1px-Schritten (8–32)
- * - Aktiv-Zustände der Buttons folgen der Markierung
- * - Bubble-Menü bei Maus-Markierung
- * - Undo/Redo, Rechtschreibprüfung (Browser, de)
+ * Schlank-Philosophie (Recherche v1.20): feste Toolbar + Bubble + Markdown-Input-Rules
+ * (`**fett**`, `1. `, `- `, `> `, `---`, Backticks) + Textbausteine per Kürzel+TAB +
+ * typografische Autokorrektur (abschaltbar) + Emoji per `:` + Smart Paste.
  */
 export function MailEditor({
   value,
   onChange,
   minHeight = 260,
+  typoKorrektur = true,
+  bausteine = [],
 }: {
   value: string;
   onChange: (html: string) => void;
   minHeight?: number;
+  typoKorrektur?: boolean;
+  bausteine?: { kuerzel: string; titel: string; inhalt: string }[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const initialRef = useRef(false);
   const [aktiv, setAktiv] = useState<Record<string, boolean>>({});
   const [groesse, setGroesse] = useState<number | null>(null);
   const [bubble, setBubble] = useState<{ x: number; y: number } | null>(null);
+  const [hilfe, setHilfe] = useState(false);
+  const [emoji, setEmoji] = useState<{ x: number; y: number; filter: string } | null>(null);
 
   useEffect(() => {
     if (ref.current && !initialRef.current) {
@@ -113,6 +117,165 @@ export function MailEditor({
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     setBubble({ x: Math.min(rect.right, window.innerWidth - 320), y: rect.bottom + 8 });
   };
+
+  // ── v1.20: Eingabe-Intelligenz (Markdown-Rules, Bausteine, Typo, Emoji) ────
+
+  /** Text vor dem Caret im aktuellen Textknoten lesen. */
+  const wortVorCaret = (): { knoten: Text; offset: number; text: string } | null => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const knoten = sel.anchorNode;
+    if (!(knoten instanceof Text) || !ref.current?.contains(knoten)) return null;
+    return { knoten, offset: sel.anchorOffset, text: knoten.data.slice(0, sel.anchorOffset) };
+  };
+
+  /** Ersetze die letzten n Zeichen vor dem Caret durch HTML. */
+  const ersetzeVorCaret = (n: number, html: string) => {
+    const sel = window.getSelection();
+    const info = wortVorCaret();
+    if (!sel || !info) return;
+    const range = document.createRange();
+    range.setStart(info.knoten, info.offset - n);
+    range.setEnd(info.knoten, info.offset);
+    range.deleteContents();
+    const frag = range.createContextualFragment(html);
+    const letzter = frag.lastChild;
+    range.insertNode(frag);
+    if (letzter) {
+      const r = document.createRange();
+      r.setStartAfter(letzter);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  };
+
+  const TYPO_MAP: [RegExp, string][] = [
+    [/\.\.\.$/, "…"],
+    [/--$/, "—"],
+    [/\(c\)$/i, "©"],
+    [/\(r\)$/i, "®"],
+    [/->>$/, "»"],
+    [/<<$/, "«"],
+    [/->$/, "→"],
+  ];
+
+  /** Wird bei jeder Eingabe aufgerufen: Typo-Korrektur + Markdown-Inline beim Leerzeichen. */
+  const beiEingabe = () => {
+    melden();
+    const info = wortVorCaret();
+    if (!info) return;
+    // Typografische Autokorrektur (abschaltbar)
+    if (typoKorrektur) {
+      for (const [muster, ersatz] of TYPO_MAP) {
+        const m = info.text.match(muster);
+        if (m) {
+          ersetzeVorCaret(m[0].length, ersatz);
+          melden();
+          return;
+        }
+      }
+    }
+    // Emoji-Trigger: „:xx" filtert
+    const emojiM = info.text.match(/:([\w+-]{2,})$/);
+    if (emojiM) {
+      const rect = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+      setEmoji({ x: rect.left, y: rect.bottom + 6, filter: emojiM[1].toLowerCase() });
+      return;
+    }
+    setEmoji(null);
+  };
+
+  /** Markdown-Inline beim Leerzeichen: **fett**, *kursiv*, `code`, ~~durch~~ */
+  const beiLeerzeichen = (): boolean => {
+    const info = wortVorCaret();
+    if (!info) return false;
+    const regeln: [RegExp, string][] = [
+      [/\*\*([^*]+)\*\*$/, "<b>$1</b>&nbsp;"],
+      [/\*([^*\n]+)\*$/, "<i>$1</i>&nbsp;"],
+      [/~~([^~]+)~~$/, "<s>$1</s>&nbsp;"],
+      [/`([^`]+)`$/, "<code style=\"font-family:monospace;background:#f4f4f5;padding:0 4px;border-radius:3px\">$1</code>&nbsp;"],
+    ];
+    for (const [muster, html] of regeln) {
+      const m = info.text.match(muster);
+      if (m) {
+        ersetzeVorCaret(m[0].length, html);
+        melden();
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** Zeilen-Trigger beim Leerzeichen: „- " Liste, „1. " nummeriert, „> " Zitat. */
+  const beiZeilenTrigger = (): boolean => {
+    const info = wortVorCaret();
+    if (!info) return false;
+    if (info.text === "-") { ersetzeVorCaret(1, ""); befehl("insertUnorderedList"); return true; }
+    if (info.text === "1.") { ersetzeVorCaret(2, ""); befehl("insertOrderedList"); return true; }
+    if (info.text === ">") { ersetzeVorCaret(1, ""); befehl("formatBlock", "blockquote"); return true; }
+    return false;
+  };
+
+  /** Baustein per Kürzel + TAB. */
+  const beiTab = (e: React.KeyboardEvent): boolean => {
+    const info = wortVorCaret();
+    if (!info) return false;
+    const wort = info.text.match(/[\w-]+$/)?.[0];
+    if (!wort) return false;
+    const b = bausteine.find((x) => x.kuerzel.toLowerCase() === wort.toLowerCase());
+    if (!b) return false;
+    e.preventDefault();
+    ersetzeVorCaret(wort.length, b.inhalt);
+    melden();
+    return true;
+  };
+
+  /** --- + Enter → horizontale Linie. */
+  const beiEnter = (e: React.KeyboardEvent): boolean => {
+    const info = wortVorCaret();
+    if (!info) return false;
+    if (info.text.endsWith("---") && info.text.trim() === "---") {
+      e.preventDefault();
+      ersetzeVorCaret(3, "");
+      befehl("insertHorizontalRule");
+      document.execCommand("insertHTML", false, "<p><br></p>");
+      melden();
+      return true;
+    }
+    return false;
+  };
+
+  /** Smart Paste: auf sicheres Subset normalisieren (Word-CSS/Skripte raus). */
+  const beiPaste = (e: React.ClipboardEvent) => {
+    const htmlRoh = e.clipboardData.getData("text/html");
+    if (!htmlRoh) return; // Plaintext: Browser-Default
+    e.preventDefault();
+    const div = document.createElement("div");
+    div.innerHTML = htmlRoh;
+    div.querySelectorAll("script, style, meta, link, title").forEach((n) => n.remove());
+    div.querySelectorAll("*").forEach((el) => {
+      // Alle Attribute raus außer href bei Links + src bei Bildern
+      for (const attr of Array.from(el.attributes)) {
+        const erlaubt = (el.tagName === "A" && attr.name === "href") || (el.tagName === "IMG" && (attr.name === "src" || attr.name === "alt"));
+        if (!erlaubt) el.removeAttribute(attr.name);
+      }
+    });
+    document.execCommand("insertHTML", false, div.innerHTML);
+    melden();
+  };
+
+  const EMOJIS = ["😀","😊","😉","👍","🙏","🎉","❤️","💪","🤝","✅","⭐","🔥","💡","📌","📅","📎","✉️","📞","🏥","💊","🧾","📊","⚠️","🚀","😅","🙌","👏","🍀","☀️","🌙"];
+  const emojiEinfuegen = (zeichen: string) => {
+    const info = wortVorCaret();
+    if (info) {
+      const m = info.text.match(/:([\w+-]{2,})$/);
+      if (m) ersetzeVorCaret(m[0].length, zeichen);
+    }
+    setEmoji(null);
+    melden();
+  };
+  const emojiGefiltert = emoji ? EMOJIS.filter((e) => e.includes(emoji.filter)) : EMOJIS;
 
   const Werkzeug = ({
     onClick, title, children, an = false, deaktiviert = false,
@@ -206,6 +369,8 @@ export function MailEditor({
         <Werkzeug onClick={setzeLink} title="Link einfügen"><Link2 className="h-4 w-4" /></Werkzeug>
         <Werkzeug onClick={() => befehl("unlink")} title="Link entfernen"><Link2Off className="h-4 w-4" /></Werkzeug>
         <Werkzeug onClick={() => befehl("removeFormat")} title="Formatierung entfernen"><Eraser className="h-4 w-4" /></Werkzeug>
+        <span className="mx-1 h-5 w-px bg-neutral-300" />
+        <Werkzeug onClick={() => setHilfe((h) => !h)} title="Editor-Kürzel & Bausteine (Hilfe)"><CircleHelp className="h-4 w-4" /></Werkzeug>
       </div>
 
       {/* ── Editierbereich (scrollbar, Rechtschreibprüfung de) ── */}
@@ -215,13 +380,53 @@ export function MailEditor({
         suppressContentEditableWarning
         spellCheck
         lang="de"
-        onInput={melden}
+        onInput={beiEingabe}
         onMouseUp={beiMouseUp}
+        onKeyDown={(e) => {
+          if (e.key === " " && (beiZeilenTrigger() || beiLeerzeichen())) { e.preventDefault(); return; }
+          if (e.key === "Tab" && beiTab(e)) return;
+          if (e.key === "Enter" && beiEnter(e)) return;
+          if (e.key === "Escape") { setEmoji(null); setHilfe(false); }
+        }}
         onKeyUp={(e) => { zustandLesen(); if (e.key === "Escape") setBubble(null); }}
-        onBlur={() => setBubble(null)}
+        onPaste={beiPaste}
+        onBlur={() => { setBubble(null); setEmoji(null); }}
         className="min-h-0 w-full flex-1 overflow-y-auto px-3 py-2 text-sm outline-none"
         style={{ minHeight }}
       />
+
+      {/* ── Emoji-Popup („:" + Suche) ── */}
+      {emoji && (
+        <div
+          className="fixed z-50 grid max-w-56 grid-cols-8 gap-0.5 rounded-lg border border-neutral-200 bg-white p-1.5 shadow-xl"
+          style={{ left: emoji.x, top: emoji.y }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {emojiGefiltert.slice(0, 24).map((e) => (
+            <button key={e} type="button" className="rounded p-1 text-lg hover:bg-neutral-100" onMouseDown={(ev) => { ev.preventDefault(); emojiEinfuegen(e); }}>
+              {e}
+            </button>
+          ))}
+          {emojiGefiltert.length === 0 && <span className="col-span-8 px-2 py-1 text-xs text-neutral-400">kein Treffer</span>}
+        </div>
+      )}
+
+      {/* ── Shortcut-Hilfe (Shift+?-Vorbild) ── */}
+      {hilfe && (
+        <div className="absolute bottom-3 right-3 z-40 w-72 rounded-lg border border-neutral-200 bg-white p-3 text-xs shadow-xl">
+          <div className="mb-1.5 flex items-center justify-between">
+            <b>Editor-Kürzel</b>
+            <button onClick={() => setHilfe(false)} className="text-neutral-400 hover:text-neutral-700"><Eraser className="h-3.5 w-3.5 rotate-45" /></button>
+          </div>
+          <ul className="space-y-1 text-neutral-600">
+            <li><code>**fett**</code> Leertaste · <code>*kursiv*</code> · <code>~~durch~~</code> · <code>`code`</code></li>
+            <li><code>- </code> Liste · <code>1. </code> nummeriert · <code>&gt; </code> Zitat · <code>---</code>+Enter Linie</li>
+            <li><code>:lächel</code> Emoji · <code>kürzel</code>+Tab Textbaustein</li>
+            <li><code>Strg+Z/Y</code> rückgängig/wiederholen · <code>Strg+B/I/U</code> Format</li>
+            <li>Einfügen aus Word/Web wird automatisch gesäubert</li>
+          </ul>
+        </div>
+      )}
 
       {/* ── Bubble-Menü bei Maus-Markierung ── */}
       {bubble && (

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { CsvButton } from "@/components/CsvButton";
+import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 import { deZahl } from "@/lib/downloads";
 import { trpc } from "@/providers/trpc";
 import { useSortierung } from "@/lib/sortierung";
@@ -161,6 +162,7 @@ export default function IncomingInvoices() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Eingangsbelege</h1>
+        <SeitenEinstellung bereich="kategorien" titel="Kategorien (Kontierung)" />
           <p className="mt-1 text-sm text-neutral-500">
             Alle eingehenden Belege: gebuchte Eingangsrechnungen, Lieferscheine,
             Gutschriften und das Scan-Archiv — an einem Ort.

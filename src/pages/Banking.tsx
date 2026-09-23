@@ -5,6 +5,7 @@ import { geld, datum as fmtDatum } from "@/lib/format";
 import { pdfHerunterladen } from "@/lib/downloads";
 import { useSortierung } from "@/lib/sortierung";
 import { Button } from "@/components/ui/button";
+import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -62,6 +63,7 @@ export default function Banking() {
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-semibold tracking-tight">Banking</h1>
+        <SeitenEinstellung bereich="bankkonten" titel="Bankkonten" />
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           <p className="flex items-center gap-2 font-medium">
             <Landmark className="h-4 w-4" /> Noch kein aktives Bankkonto

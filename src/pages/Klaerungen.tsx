@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -30,6 +31,7 @@ export default function Klaerungen() {
       <div className="flex flex-wrap items-center gap-2">
         <MessageCircleQuestion className="h-5 w-5 text-teal-700" />
         <h1 className="text-lg font-semibold">Klärungsfälle</h1>
+        <SeitenEinstellung bereich="benutzer" titel="Benutzer & Rollen" />
         <span className="text-xs text-neutral-400">
           Rückfragen der Kanzlei an Belegen — hier beantworten statt per E-Mail.
         </span>

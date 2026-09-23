@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.19.0)
+# ReWaWi Agent-API — Leitfaden (Stand v1.19.2)
 
 REST-API für externe Agenten (Kimi Claw). Basis: `https://<host>/api/agent`
 Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Klartext nur einmalig).
@@ -25,7 +25,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `POST /rechnung-entwurf` → `{"kunde":"Name"|"kundenId":N|"id":N, "items":[{"bezeichnung","menge"?,"einzelpreis","ustSatz"?}], "pdfNotiz"?}` → Entwurf (Mensch gibt frei)
 - `DELETE /entwurf/:id` → nur Entwürfe (GoBD)
 - `POST /rechnung/:id/zahlung` → Zahlung registrieren `{betrag?, datum?}`
-- `POST /rechnung/:id/stornieren` → GoBD-Gutschrift
+- `POST /rechnung/:id/stornieren` → GoBD-Vollstorno · **`POST /rechnung/:id/gutschrift {positionen: [{bezeichnung, menge?, einzelpreis, ustSatz?}], grund?, pdfNotiz?}`** → Gutschrift als **Entwurf** mit freien Positionen (Teil möglich; Mensch finalisiert, Nummernkreis + PDF automatisch) · `GET /gutschriften` (mit Rechnungsbezug, pseudonymisiert)
 - `POST /rechnung/:id/versenden {empfaenger?, betreff?, text?}` → Mail mit PDF — **vollautomatik** ODER Token-Freigabeliste (s. Autonomie)
 - `GET /leistungskatalog` → aktive Produkte (Preise/USt)
 

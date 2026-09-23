@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
+import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -128,6 +129,7 @@ export default function Berichte() {
       <div className="flex flex-wrap items-center gap-2">
         <FileBarChart2 className="h-5 w-5 text-teal-700" />
         <h1 className="text-lg font-semibold">Berichtszentrale</h1>
+        <SeitenEinstellung bereich="datev" titel="DATEV & Steuerberater" />
         <span className="text-xs text-neutral-400">EÜR · Offene Posten · Kontenblatt · Steuer-Rücklage · Liquidität · Analysen — alles aus deinen Daten, lokal gerechnet</span>
       </div>
 

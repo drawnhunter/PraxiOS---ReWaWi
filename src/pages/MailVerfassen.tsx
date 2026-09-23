@@ -9,7 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { MailEditor } from "@/components/MailEditor";
-import { Paperclip, Send, Save, Trash2, X, UploadCloud } from "lucide-react";
+import { Paperclip, Send, Save, Trash2, X, UploadCloud, Clock } from "lucide-react";
 
 export interface VerfassenStart {
   empfaenger?: string;
@@ -65,8 +65,11 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [fehler, setFehler] = useState("");
 
   const postfaecher = trpc.postfach.postfaecher.useQuery();
+  const einstellungen = trpc.settings.get.useQuery();
+  const bausteine = trpc.postfach.bausteine.useQuery();
   const entwurfSpeichern = trpc.postfach.entwurfSpeichern.useMutation();
   const entwurfSenden = trpc.postfach.entwurfSenden.useMutation();
+  const entwurfPlanen = trpc.postfach.entwurfPlanen.useMutation();
   const entwurfLoeschen = trpc.postfach.entwurfLoeschen.useMutation();
   const utils = trpc.useUtils();
 
@@ -219,7 +222,14 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
 
       {/* Großer Schreibbereich — Editor füllt den Platz komplett */}
       <div className="flex min-h-0 flex-1 flex-col p-2">
-        <MailEditor key={editorKey} value={html} onChange={setHtml} minHeight={260} />
+        <MailEditor
+          key={editorKey}
+          value={html}
+          onChange={setHtml}
+          minHeight={260}
+          typoKorrektur={einstellungen.data?.typoKorrektur ?? true}
+          bausteine={bausteine.data ?? []}
+        />
       </div>
 
       {fehler && <p className="mx-3 mb-1.5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{fehler}</p>}
@@ -244,6 +254,30 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
             onClick={senden}
           >
             <Send className="mr-1.5 h-4 w-4" /> {entwurfSenden.isPending ? "Sende …" : "Senden"}
+          </Button>
+          <Button
+            size="sm" variant="outline"
+            title="Senden später (serverseitige Queue — Gerät darf aus sein)"
+            disabled={!empfaenger.trim() || !betreff.trim() || entwurfPlanen.isPending}
+            onClick={() => {
+              const wann = window.prompt("Senden am (JJJJ-MM-TT SS:MM):", "");
+              if (!wann) return;
+              const iso = wann.trim().replace(" ", "T");
+              entwurfSpeichern.mutate(
+                { id: entwurfId ?? undefined, empfaenger, cc, bcc, kontoId: kontoId ?? undefined, betreff, text: html, anhaenge: anhaenge.length ? anhaenge : undefined },
+                {
+                  onSuccess: (r) => {
+                    entwurfPlanen.mutate({ id: r.id, sendenAm: iso }, {
+                      onSuccess: () => { utils.postfach.entwuerfe.invalidate(); onAktionErledigt(); },
+                      onError: (e) => setFehler(e.message),
+                    });
+                  },
+                  onError: (e) => setFehler(e.message),
+                },
+              );
+            }}
+          >
+            <Clock className="mr-1.5 h-4 w-4" /> Später
           </Button>
         </div>
       </div>

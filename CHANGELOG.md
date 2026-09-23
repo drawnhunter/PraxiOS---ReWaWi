@@ -2,6 +2,33 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.20.0] — 2026-09-20
+
+### Neu (Editor-Upgrade + Mail-Pro + Einstellungen-Anker — research-gestützt: Gmail/Outlook/Apple Mail/Proton/Fastmail/Thunderbird + TipTap/Lexical/Squire)
+
+**Rich-Text-Editor (schlank statt Toolbar-Flut):**
+- **Markdown-Input-Rules:** `**fett**`, `*kursiv*`, `~~durch~~`, `` `code` `` beim Leerzeichen · `- ` Liste · `1. ` nummeriert · `> ` Zitatblock · `---`+Enter Linie — unsichtbar, null UI-Kosten (die Lücke, die kein Mainstream-Client hat)
+- **Textbausteine per Kürzel + TAB** (Verwaltung in Einstellungen → E-Mail-Eingang): die größte Produktlücke aller Referenz-Clients
+- **Typografische Autokorrektur** (`--`→—, `...`→…, `(c)`→©, `->`→→, `<<`/`>>`) — abschaltbar (Einstellungen → E-Mail)
+- **Emoji-Picker** per `:`-Trigger mit Live-Suche
+- **Smart Paste:** Einfügen aus Word/Web wird auf ein sicheres Subset normalisiert (Skripte/Font-Müll raus, Listen/Tabellen/Links bleiben)
+- **Shortcut-Hilfe-Overlay** (Fragezeichen-Button in der Toolbar)
+
+**Mail-Pro-Einstellungen (serverseitig, Gerät darf aus sein):**
+- **Signaturen pro Konto** (getrennt für neue Mails vs. Antworten) — schlagen die globale Signatur
+- **Abwesenheitsnotiz:** Zeitraum von–bis, „nur Kontakte"-Option, fest eingebautes Frequenz-Limit (1×/4 Tage je Absender), Newsletter/noreply/Listen werden nie beantwortet
+- **Undo-Send** (Einstellungen: 5/10/20/30 s): Mail liegt im Ausgang, „Rückgängig" holt sie zurück — dieselbe Queue wie …
+- **Senden-Später** („Später"-Button beim Verfassen, Zeitpunkt wählbar; läuft im Ausgang mit Datum)
+
+**Einstellungen-Anker:** Jede Seite hat jetzt ihren Einstellungs-Button oben rechts, der direkt zur passenden Sektion springt (kurzes Aufleuchten): Mail→Mail-Konten, Banking→Bankkonten, Berichte→DATEV, Eingangsbelege→Kategorien, Rechnungen→Nummernkreise, Kontakte→Mail-Konten, Klärungsfälle→Benutzer & Rollen.
+
+## [1.19.2] — 2026-09-20
+
+### Neu (Agent-API)
+
+- **`POST /rechnung/:id/gutschrift`** — Gutschrift als **Entwurf** aus einer finalisierten Rechnung, mit freien Positionen (`{positionen: [{bezeichnung, menge?, einzelpreis, ustSatz?}], grund?, pdfNotiz?}`). Totals serverseitig exakt gerechnet, Kunden-Snapshot von der Rechnung; der Mensch finalisiert in der UI (Nummernkreis + PDF automatisch). Teil- und Vollgutschriften, GoBD-sicher (kein Auto-Finalisieren durch den Agenten).
+- **`GET /gutschriften`** — alle Gutschriften mit Rechnungsbezug, Status, Beträgen (Kundennamen pseudonymisiert).
+
 ## [1.19.1] — 2026-09-19
 
 ### Behoben
