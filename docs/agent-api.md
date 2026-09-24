@@ -5,6 +5,9 @@ Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Kla
 Fehler: `{"ok": false, "fehler": "Klartext"}` mit HTTP-Status 400/401/403/404/409/502.
 DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskiert.
 
+## Unternehmen (ab 1.20.1)
+- `GET /unternehmen` → Stammdaten (USt-IdNr, Steuernummer, HRB, Adresse, EORI, IHK …) · `POST /unternehmen {feld: wert}` → Merge-Update (Whitelist), auditiert
+
 ## Status & Heartbeat
 - `GET /status` → `{produkt, version, zeit}`
 

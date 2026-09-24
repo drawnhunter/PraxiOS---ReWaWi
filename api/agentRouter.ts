@@ -2561,6 +2561,42 @@ app.post("/stb-paket", async (c) => {
   });
 });
 
+// ── Unternehmens-Stammdaten (Bus #85): lesen + mergen, schreib-auditiert ────
+const UNTERNEHMEN_FELDER = [
+  "name", "strasse", "plz", "ort", "land", "email", "telefon", "webseite",
+  "ustIdNr", "steuernummer", "handelsregister",
+  "eori", "betriebsnummer", "bgMitgliedsnummer", "ihk", "glaeubigerId",
+] as const;
+
+app.get("/unternehmen", async (c) => {
+  const s = await getDb().query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+  if (!s) return c.json({ ok: false, fehler: "Stammdaten nicht gefunden." }, 404);
+  const daten: Record<string, unknown> = {};
+  for (const f of UNTERNEHMEN_FELDER) daten[f] = (s as Record<string, unknown>)[f] ?? null;
+  return c.json(daten);
+});
+
+app.post("/unternehmen", async (c) => {
+  const body = await bodyLesen(c);
+  const patch: Record<string, unknown> = {};
+  for (const f of UNTERNEHMEN_FELDER) {
+    if (body[f] !== undefined) {
+      const v = String(body[f]).trim();
+      patch[f] = v === "" ? null : v.slice(0, 255);
+    }
+  }
+  if (Object.keys(patch).length === 0) {
+    return c.json({ ok: false, fehler: `Keine Felder zum Aktualisieren. Erlaubt: ${UNTERNEHMEN_FELDER.join(", ")}` }, 400);
+  }
+  const db = getDb();
+  await db
+    .insert(companySettings)
+    .values({ id: 1, ...patch } as never)
+    .onDuplicateKeyUpdate({ set: { id: 1, ...patch } as never });
+  await audit("unternehmen_aktualisiert", { felder: Object.keys(patch), werte: patch });
+  return c.json({ ok: true, aktualisiert: Object.keys(patch) });
+});
+
 // ── Berichte (Berichtszentrale; Kundennamen pseudonymisiert) ───────────────
 app.get("/berichte/katalog", async (c) => {
   const { BERICHT_KATALOG } = await import("./lib/berichte");

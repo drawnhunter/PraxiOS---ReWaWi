@@ -2,6 +2,13 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.20.1] — 2026-09-24
+
+### Neu (Agent-API, Bus #85)
+
+- **`GET /unternehmen`** — Unternehmens-Stammdaten (Name, Adresse, USt-IdNr, Steuernummer, Handelsregister, EORI, Betriebsnummer, BG, IHK, Gläubiger-ID, Webseite).
+- **`POST /unternehmen {feld: wert, …}`** — Merge-Update derselben Felder (Whitelist), schreib-auditiert in `agent_log`.
+
 ## [1.20.0] — 2026-09-20
 
 ### Neu (Editor-Upgrade + Mail-Pro + Einstellungen-Anker — research-gestützt: Gmail/Outlook/Apple Mail/Proton/Fastmail/Thunderbird + TipTap/Lexical/Squire)
