@@ -100,7 +100,9 @@ export default function Kalender() {
               variant="outline" size="sm"
               title="ICS-Link für Google Kalender: URL unter 'Kalender hinzufügen → Von URL' eintragen"
               onClick={() => {
-                const url = `${window.location.origin}/ics/kalender.ics?token=${icsToken}`;
+                // Öffentliche Basis-URL gewinnt (dynv6/LAN-IP-Falle); sonst aktueller Origin
+                const basis = (einstellungen.data?.oeffentlicheUrl ?? "").replace(/\/$/, "") || window.location.origin;
+                const url = `${basis}/ics/kalender.ics?token=${icsToken}`;
                 window.prompt("ICS-Link (Strg+C kopieren) — in Google Kalender unter „Kalender hinzufügen → Von URL“ einfügen:", url);
               }}
             >

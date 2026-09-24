@@ -55,6 +55,7 @@ interface FirmenForm {
   pdfLayout: string;
   typoKorrektur: boolean;
   undoSendeSekunden: number;
+  oeffentlicheUrl: string;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
@@ -138,6 +139,7 @@ export default function SettingsPage() {
       pdfLayout: s.pdfLayout,
       typoKorrektur: s.typoKorrektur ?? true,
       undoSendeSekunden: s.undoSendeSekunden ?? 0,
+      oeffentlicheUrl: s.oeffentlicheUrl ?? "",
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
       smtpUser: s.smtpUser ?? "",
@@ -338,6 +340,7 @@ export default function SettingsPage() {
                 pdfLayout: firma.pdfLayout as "klassisch" | "modern" | "kompakt",
                 typoKorrektur: firma.typoKorrektur,
                 undoSendeSekunden: firma.undoSendeSekunden,
+                oeffentlicheUrl: firma.oeffentlicheUrl || null,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
                 smtpUser: firma.smtpUser || null,
@@ -368,6 +371,20 @@ export default function SettingsPage() {
           Die Akzentfarbe färbt Buttons und Auswahlen im Programm; das Layout
           bestimmt das Aussehen der PDF-Belege (Rechnungen, Angebote …).
         </p>
+
+        <div className="mb-5">
+          <Label>Öffentliche URL der Instanz</Label>
+          <Input
+            value={firma.oeffentlicheUrl}
+            onChange={(e) => setFirma({ ...firma, oeffentlicheUrl: e.target.value })}
+            placeholder="https://rewawi.praxios.dynv6.net"
+          />
+          <p className="mt-1 text-xs text-neutral-400">
+            Wird für absolute Links genutzt (ICS-Kalender-Abo, künftige Portal-Links) —
+            wichtig hinter dynv6/LAN-IP, damit externe Links von überall erreichbar sind.
+            Leer = aktuelle Adresse im Browser.
+          </p>
+        </div>
 
         <Label className="mb-2 block">Akzentfarbe</Label>
         <div className="mb-5 flex flex-wrap gap-2.5">

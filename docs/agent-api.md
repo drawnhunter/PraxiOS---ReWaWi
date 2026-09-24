@@ -50,7 +50,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 
 ## Belege (Eingangsrechnungen)
 - `POST /beleg` → `{lieferant*, datum*, brutto*, kategorieId?, konto?, nummer?, belegBase64?, belegMime?, bankbuchungId?}` (Alias: `/eingangsrechnung`)
-- `GET /belege` (Alias: `/eingangsrechnungen`) · `GET /beleg/:id/datei` · **`DELETE /beleg/:id`** (nur unbezahlte; GoBD) · **`POST /beleg/:id/freigabe {zustand: neu|geprueft|freigegeben}`** — Beleg anlegen akzeptiert zusätzlich `typ: "gutschrift"`, `waehrung` (z. B. USD), `betragBank` (EUR-Ist)
+- `GET /belege?q=` (Alias: `/eingangsrechnungen`; q durchsucht Lieferant/Nummer/**OCR-Text**) · `GET /beleg/:id/datei` · **`GET /beleg/:id/text`** (persistenter OCR-Text; wird on-demand extrahiert + dauerhaft abgelegt, falls noch nicht vorhanden) · **`DELETE /beleg/:id`** (nur unbezahlte; GoBD) · **`POST /beleg/:id/freigabe {zustand: neu|geprueft|freigegeben}`** — Beleg anlegen akzeptiert zusätzlich `typ: "gutschrift"`, `waehrung` (z. B. USD), `betragBank` (EUR-Ist)
 - `POST /beleg/:id/upload` → Datei nachträglich
 
 ## Import & Historie

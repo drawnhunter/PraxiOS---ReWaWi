@@ -2,6 +2,13 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.20.2] — 2026-09-24
+
+### Neu (Runde 2 — Gegenprüfung mit PaWaWi)
+
+- **Persistenter OCR-Text am Beleg** (`ocr_text`, PaWaWis `dokument.text`-Modell): wird beim Upload (Bulk-Upload, Mail→Beleg) einmal extrahiert und dauerhaft gespeichert — **durchsuchbar** (`GET /belege?q=` findet jetzt auch Inhalt im Belegtext), kein Re-OCR pro Anfrage. Neu: `GET /beleg/:id/text` (gespeichert ODER on-demand extrahiert + abgelegt).
+- **Öffentliche URL** (Einstellungen → Design): Basis für absolute Links (ICS-Kalender-Abo, künftige Portal-Links) — die dynv6/LAN-IP-Falle ist damit auch bei uns gelöst (PaWaWi-Modell).
+
 ## [1.20.1] — 2026-09-24
 
 ### Neu (Agent-API, Bus #85)

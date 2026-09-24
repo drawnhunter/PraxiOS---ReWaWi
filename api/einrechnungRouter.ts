@@ -101,12 +101,14 @@ export const einrechnungRouter = createRouter({
       let nummer: string | null = null;
       let nettoS = "0.00", ustS = "0.00", bruttoS = "0.00";
       let auto = "";
+      let ocrText: string | null = null;
 
       try {
         const { extrahiereAnhangText } = await import("./lib/anhangText");
         const { extrahiereBelegFelder } = await import("./lib/belegExtraktion");
         const text = await extrahiereAnhangText(Buffer.from(input.base64, "base64"), input.mime);
         if (text.ok && text.text) {
+          ocrText = text.text.slice(0, 2_000_000);
           const f = extrahiereBelegFelder(text.text);
           if (f.brutto && f.brutto.konfidenz >= 0.7) {
             const brutto = dezimal(f.brutto.wert);
@@ -150,6 +152,7 @@ export const einrechnungRouter = createRouter({
           konto: s?.aufwandskontoDefault ?? "4900",
           belegBase64: input.base64,
           belegMime: input.mime,
+          ocrText,
           bemerkung: `Hochgeladen (${input.dateiname}). ${auto}`.trim(),
         })
         .$returningId();

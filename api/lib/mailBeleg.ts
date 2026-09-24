@@ -49,12 +49,14 @@ export async function alsBelegIntern(
   // Auto-Extraktion (v1.19): Anhang OCR'en → Beträge/Datum/Nummer vorbefüllen
   let nettoS = "0.00", ustS = "0.00", bruttoS = "0.00";
   let autoHinweis = "";
+  let ocrText: string | null = null;
   if (base64 && mime) {
     try {
       const { extrahiereAnhangText } = await import("./anhangText");
       const { extrahiereBelegFelder } = await import("./belegExtraktion");
       const text = await extrahiereAnhangText(Buffer.from(base64, "base64"), mime);
       if (text.ok && text.text) {
+        ocrText = text.text.slice(0, 2_000_000);
         const f = extrahiereBelegFelder(text.text);
         const dezimal = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
         if (f.brutto && f.brutto.konfidenz >= 0.7) {
@@ -93,6 +95,7 @@ export async function alsBelegIntern(
       kategorieId: null,
       belegBase64: base64,
       belegMime: mime,
+      ocrText,
       bemerkung: `Aus E-Mail „${(m.betreff ?? "").slice(0, 200)}" vom ${datum}.${autoHinweis || " Betrag bitte nachtragen (Eingangsbelege)."}`,
     })
     .$returningId();

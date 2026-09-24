@@ -1019,13 +1019,23 @@ app.post("/bankbuchungen/auto-kategorisieren", async (c) => {
 // ── Belegkette: Eingangsbelege anlegen/lesen, mit Bank-Verknüpfung ─────────
 app.get("/belege", async (c) => {
   const { incomingInvoices, kategorien } = await import("@db/schema");
-  const { desc } = await import("drizzle-orm");
+  const { desc, like, or } = await import("drizzle-orm");
   const { ladeSynonymKarte, agentLieferant } = await import("./lib/pseudonym");
   const karte = await ladeSynonymKarte();
+  // q durchsucht Lieferant, Nummer UND den persistenten OCR-Text (v1.20.2)
+  const q = c.req.query("q")?.trim();
+  const filter = q
+    ? or(
+        like(incomingInvoices.lieferantName, `%${q}%`),
+        like(incomingInvoices.nummer, `%${q}%`),
+        like(incomingInvoices.ocrText, `%${q}%`),
+      )
+    : undefined;
   const rows = await getDb()
     .select({ e: incomingInvoices, kategorieName: kategorien.name })
     .from(incomingInvoices)
     .leftJoin(kategorien, eq(incomingInvoices.kategorieId, kategorien.id))
+    .where(filter)
     .orderBy(desc(incomingInvoices.createdAt))
     .limit(200);
   return c.json({
@@ -2445,6 +2455,24 @@ app.post("/datev-export", async (c) => {
     belegeDateiname: r.belegeDateiname ?? null,
     belegeZipBase64: r.belegeZipBase64 ?? null,
   });
+});
+
+/** Persistenter OCR-Text eines Belegs (gespeichert oder on-demand extrahiert + abgelegt). */
+app.get("/beleg/:id/text", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { incomingInvoices } = await import("@db/schema");
+  const db = getDb();
+  const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Eingangsrechnung nicht gefunden." }, 404);
+  if (r.ocrText) return c.json({ ok: true, id, text: r.ocrText, quelle: "gespeichert" });
+  if (!r.belegBase64 || !r.belegMime) return c.json({ ok: false, fehler: "Kein Beleg-Dateiinhalt vorhanden." }, 404);
+  const { extrahiereAnhangText } = await import("./lib/anhangText");
+  const ergebnis = await extrahiereAnhangText(Buffer.from(r.belegBase64, "base64"), r.belegMime);
+  if (!ergebnis.ok || !ergebnis.text) {
+    return c.json({ ok: false, fehler: ergebnis.fehler ?? "Kein Text lesbar.", methode: ergebnis.methode, scanHinweis: true }, 422);
+  }
+  await db.update(incomingInvoices).set({ ocrText: ergebnis.text.slice(0, 2_000_000) }).where(eq(incomingInvoices.id, id));
+  return c.json({ ok: true, id, text: ergebnis.text, methode: ergebnis.methode, quelle: "on-demand+gespeichert", scanHinweis: ergebnis.text.trim().length < 150 });
 });
 
 /** Beleg löschen — nur unbezahlte (Test-/Fehlerfassungen). GoBD: Gebuchtes bleibt. */

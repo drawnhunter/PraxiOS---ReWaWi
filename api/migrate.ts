@@ -118,6 +118,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "mail_entwuerfe", spalte: "geplantes_senden_am", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN geplantes_senden_am DATETIME NULL AFTER versand_fehler" },
   { tabelle: "company_settings", spalte: "typo_korrektur", ddl: "ALTER TABLE company_settings ADD COLUMN typo_korrektur TINYINT(1) NOT NULL DEFAULT 1 AFTER steuerberater_email" },
   { tabelle: "company_settings", spalte: "undo_sende_sekunden", ddl: "ALTER TABLE company_settings ADD COLUMN undo_sende_sekunden INT NOT NULL DEFAULT 0 AFTER typo_korrektur" },
+  // ── v1.20.2: Runde 2 ──
+  { tabelle: "incoming_invoices", spalte: "ocr_text", ddl: "ALTER TABLE incoming_invoices ADD COLUMN ocr_text MEDIUMTEXT NULL AFTER beleg_mime" },
+  { tabelle: "company_settings", spalte: "oeffentliche_url", ddl: "ALTER TABLE company_settings ADD COLUMN oeffentliche_url VARCHAR(255) NULL AFTER undo_sende_sekunden" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

@@ -71,6 +71,9 @@ export const companySettings = mysqlTable("company_settings", {
   signatur: text("signatur"),
   // Kanzlei-Adresse fuer das Monatspaket (v1.18.0)
   steuerberaterEmail: varchar("steuerberater_email", { length: 320 }),
+  // Oeffentliche Basis-URL der Instanz (v1.20.2, PaWaWi-Modell) — fuer absolute
+  // Links (ICS-Abo, kuenftige Portal-Links), auch hinter dynv6/LAN-IP
+  oeffentlicheUrl: varchar("oeffentliche_url", { length: 255 }),
   // Editor/Mail-Komfort (v1.20): typografische Autokorrektur + Undo-Send-Verzoegerung
   typoKorrektur: boolean("typo_korrektur").notNull().default(true),
   undoSendeSekunden: int("undo_sende_sekunden").notNull().default(0),
@@ -587,6 +590,9 @@ export const incomingInvoices = mysqlTable(
     kategorieId: bigint("kategorie_id", { mode: "number", unsigned: true }),
     belegBase64: text("beleg_base64"), // Beleg-Datei (PDF/JPG) als base64 — GoBD-Archiv in der DB
     belegMime: varchar("beleg_mime", { length: 60 }),
+    // Persistenter OCR-Text (v1.20.2, PaWaWi-Modell dokument.text): einmal extrahiert,
+    // dauerhaft suchbar — kein Re-OCR pro Anfrage
+    ocrText: text("ocr_text"),
     // Beleg-Freigabe light (v1.19): neu → geprueft → freigegeben
     freigabe: varchar("freigabe", { length: 20 }).notNull().default("neu"),
     freigegebenAm: timestamp("freigegeben_am"),
