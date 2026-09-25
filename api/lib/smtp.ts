@@ -30,6 +30,10 @@ export async function ladeSmtp() {
       secure: s.smtpPort === 465,
       auth: passwort ? { user: s.smtpUser, pass: passwort } : undefined,
       requireTLS: s.smtpPort === 587,
+      // Hängende Server dürfen den Ausgang nicht ewig blockieren (#91)
+      connectionTimeout: 20_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 60_000,
     }),
     absender: s.smtpAbsender || s.smtpUser,
   };
@@ -59,6 +63,10 @@ export async function ladeSmtpKonto(kontoId?: number): Promise<{
       port: konto.smtpPort ?? 587,
       secure: (konto.smtpPort ?? 587) === 465,
       auth: { user: konto.smtpBenutzer, pass: passwort },
+      // Hängende Server dürfen den Ausgang nicht ewig blockieren (#91):
+      connectionTimeout: 20_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 60_000,
     }),
     absender: konto.smtpAbsender ?? konto.smtpBenutzer,
     kontoName: konto.name,

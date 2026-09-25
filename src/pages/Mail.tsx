@@ -48,6 +48,11 @@ function nutzeBreite(key: string, fallback: number, min: number, max: number) {
   return [breite, set] as const;
 }
 
+/** Stabiler Tab-Vergleich (Keep-alive macht Objekt-Identität fragil). */
+function gleicherTab(a: Tab, b: Tab): boolean {
+  return a.typ === "mail" && b.typ === "mail" ? a.id === b.id : a.typ === "verfassen" && b.typ === "verfassen" && a.schluessel === b.schluessel;
+}
+
 function Resizer({ onDrag }: { onDrag: (dx: number) => void }) {
   const start = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -115,8 +120,8 @@ export default function MailPostfach() {
       setSchliessenDialog(tab.schluessel);
       return;
     }
-    setTabs((t) => t.filter((x) => x !== tab));
-    if (aktiv === tab) setAktiv(null);
+    setTabs((t) => t.filter((x) => !gleicherTab(x, tab)));
+    if (aktiv && gleicherTab(aktiv, tab)) setAktiv(null);
   };
 
   // Konsistenz-Wache: aktiv darf nie auf einen nicht mehr existierenden Tab zeigen
@@ -287,7 +292,7 @@ export default function MailPostfach() {
                   start={t.start}
                   abschlussAktion={aktionZiel === t.schluessel ? abschlussAktion : null}
                   onAktionErledigt={() => {
-                    setTabs((alle) => alle.filter((x) => x !== t));
+                    setTabs((alle) => alle.filter((x) => !gleicherTab(x, t)));
                     if (istAktiv) setAktiv(null);
                     setAbschlussAktion(null);
                     setAktionZiel(null);
@@ -322,7 +327,7 @@ export default function MailPostfach() {
                 start={t.start}
                 abschlussAktion={aktionZiel === t.schluessel ? abschlussAktion : null}
                 onAktionErledigt={() => {
-                  setTabs((alle) => alle.filter((x) => x !== t));
+                  setTabs((alle) => alle.filter((x) => !gleicherTab(x, t)));
                   setAbschlussAktion(null);
                   setAktionZiel(null);
                 }}
@@ -793,8 +798,27 @@ function AusgangSektion() {
                 </button>
               </>
             ) : (
-              <span className="mt-0.5 flex items-center gap-1.5 text-amber-700">
-                <RefreshCw className="h-3 w-3 animate-spin" /> wird versendet …
+              <span className="mt-0.5 flex flex-col gap-1 text-amber-700">
+                <span className="flex items-center gap-1.5">
+                  <RefreshCw className="h-3 w-3 animate-spin" /> wird versendet …
+                </span>
+                <span className="flex gap-2">
+                  <button
+                    className="text-teal-700 hover:underline"
+                    disabled={entwurfSenden.isPending}
+                    onClick={() => entwurfSenden.mutate({ id: e.id })}
+                    title="Versand erneut anstoßen"
+                  >
+                    Erneut senden
+                  </button>
+                  <button
+                    className="text-neutral-500 hover:underline"
+                    onClick={() => ausgangZurueck.mutate({ id: e.id })}
+                    title="Zurück in die Entwürfe (bearbeitbar)"
+                  >
+                    Bearbeiten
+                  </button>
+                </span>
               </span>
             )}
           </div>

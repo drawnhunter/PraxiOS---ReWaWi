@@ -26,6 +26,74 @@ export interface VerfassenStart {
 
 interface Anhang { dateiname: string; base64: string; mime: string }
 
+/** Empfänger-Feld mit Chips: Enter/Komma/Semikolon/Tab trennt, Chips löschbar (v1.20.3). */
+function EmpfaengerFeld({ wert, onWert, placeholder }: {
+  wert: string; onWert: (v: string) => void; placeholder: string;
+}) {
+  const utils = trpc.useUtils();
+  const [frag, setFrag] = useState("");
+  const [vorschlaege, setVorschlaege] = useState<{ name: string; email: string }[]>([]);
+  const teile = wert.split(",").map((x) => x.trim()).filter(Boolean);
+
+  const hinzufuegen = (roh: string) => {
+    const v = roh.trim().replace(/[;,]+$/, "");
+    if (!v) return;
+    onWert([...teile.filter((t) => t !== v), v].join(", "));
+    setFrag("");
+    setVorschlaege([]);
+  };
+
+  return (
+    <div className="relative">
+      <div className="flex min-h-7 flex-wrap items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 focus-within:border-teal-400">
+        {teile.map((t) => (
+          <span key={t} className="flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-xs text-teal-800">
+            {t}
+            <button type="button" onClick={() => onWert(teile.filter((x) => x !== t).join(", "))} className="text-teal-500 hover:text-teal-800">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          className="min-w-24 flex-1 px-1 py-0.5 text-[13px] outline-none"
+          value={frag}
+          placeholder={teile.length === 0 ? placeholder : ""}
+          onChange={(e) => {
+            setFrag(e.target.value);
+            const q = e.target.value.trim();
+            if (q.length >= 2) {
+              utils.postfach.kontakte.fetch({ q }).then((r) => setVorschlaege(r)).catch(() => setVorschlaege([]));
+            } else setVorschlaege([]);
+          }}
+          onKeyDown={(e) => {
+            if ((e.key === "Enter" || e.key === "Tab" || e.key === "," || e.key === ";") && frag.trim()) {
+              e.preventDefault();
+              hinzufuegen(frag);
+            } else if (e.key === "Backspace" && !frag && teile.length > 0) {
+              onWert(teile.slice(0, -1).join(", "));
+            }
+          }}
+          onBlur={() => { if (frag.trim()) hinzufuegen(frag); setVorschlaege([]); }}
+        />
+      </div>
+      {vorschlaege.length > 0 && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-0.5 rounded-md border border-neutral-200 bg-white shadow-lg">
+          {vorschlaege.map((v) => (
+            <button
+              key={v.email} type="button"
+              className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
+              onMouseDown={(e) => { e.preventDefault(); hinzufuegen(v.email); }}
+            >
+              <span>{v.name}</span>
+              <span className="text-xs text-neutral-400">{v.email}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Der „Mail verfassen"-Tab: volles Paket (RTE, Von/An/CC/BCC, Anhänge, Entwurf). */
 export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   start: VerfassenStart;
@@ -61,7 +129,6 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [entwurfId, setEntwurfId] = useState<number | null>(start.entwurfId ?? null);
   const [editorKey, setEditorKey] = useState(0); // Remount für „Zurücksetzen"
   const [gespeichert, setGespeichert] = useState<string | null>(null);
-  const [vorschlaege, setVorschlaege] = useState<{ name: string; email: string; quelle: string }[]>([]);
   const [fehler, setFehler] = useState("");
 
   const postfaecher = trpc.postfach.postfaecher.useQuery();
@@ -72,12 +139,6 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const entwurfPlanen = trpc.postfach.entwurfPlanen.useMutation();
   const entwurfLoeschen = trpc.postfach.entwurfLoeschen.useMutation();
   const utils = trpc.useUtils();
-
-  const sucheKontakte = async (q: string) => {
-    if (q.trim().length < 2) { setVorschlaege([]); return; }
-    const r = await utils.postfach.kontakte.fetch({ q });
-    setVorschlaege(r);
-  };
 
   const dateiHinzufuegen = (dateien: FileList | null) => {
     if (!dateien) return;
@@ -165,41 +226,17 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
             </SelectContent>
           </Select>
         </div>
-        <div className="relative flex items-center gap-2">
-          <span className="w-20 shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-center text-[11px] font-medium text-teal-700">Empfänger *</span>
-          <Input
-            className="h-7 text-[13px]"
-            value={empfaenger}
-            onChange={(e) => { setEmpfaenger(e.target.value); sucheKontakte(e.target.value.split(",").pop() ?? ""); }}
-            placeholder="empfaenger@beispiel.de, zweite@adresse.de"
-          />
-          {vorschlaege.length > 0 && (
-            <div className="absolute left-[5.5rem] right-0 top-full z-20 mt-0.5 rounded-md border border-neutral-200 bg-white shadow-lg">
-              {vorschlaege.map((v) => (
-                <button
-                  key={v.email}
-                  className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-neutral-100"
-                  onClick={() => {
-                    const teile = empfaenger.split(",").map((x) => x.trim()).filter(Boolean);
-                    teile.pop();
-                    setEmpfaenger([...teile, v.email].join(", "));
-                    setVorschlaege([]);
-                  }}
-                >
-                  <span>{v.name}</span>
-                  <span className="text-xs text-neutral-400">{v.email}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex items-start gap-2">
+          <span className="mt-1 w-20 shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-center text-[11px] font-medium text-teal-700">Empfänger *</span>
+          <EmpfaengerFeld wert={empfaenger} onWert={setEmpfaenger} placeholder="empfaenger@beispiel.de — Enter trennt, mehrere möglich" />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-20 shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-center text-[11px] text-neutral-500">CC</span>
-          <Input className="h-7 text-[13px]" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="optional" />
+        <div className="flex items-start gap-2">
+          <span className="mt-1 w-20 shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-center text-[11px] text-neutral-500">CC</span>
+          <EmpfaengerFeld wert={cc} onWert={setCc} placeholder="optional" />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-20 shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-center text-[11px] text-neutral-500">BCC</span>
-          <Input className="h-7 text-[13px]" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="optional" />
+        <div className="flex items-start gap-2">
+          <span className="mt-1 w-20 shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-center text-[11px] text-neutral-500">BCC</span>
+          <EmpfaengerFeld wert={bcc} onWert={setBcc} placeholder="optional" />
         </div>
         <div className="flex items-center gap-2">
           <span className="w-20 shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-center text-[11px] text-neutral-500">Betreff *</span>

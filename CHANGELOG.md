@@ -2,6 +2,14 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.20.3] — 2026-09-25
+
+### Behoben (Feld-Bugs #91–#93 aus dem Bus)
+
+- **#91 Mail hängt ewig im Ausgang:** SMTP-Transporter hatten **keine Timeouts** — ein hängender Server blockierte den Eintrag endlos in „wird versendet". Jetzt: connectionTimeout 20 s / greeting 15 s / socket 60 s (Firmen- + Konto-SMTP) → Fehler landen sichtbar im Ausgang. Außerdem: Ausgang-Einträge sind jetzt **immer** bearbeitbar (Erneut senden / Bearbeiten → Entwürfe), nicht nur bei Fehlern.
+- **#92 Tab-Schließen mit „Als Entwurf speichern" schloss nicht zuverlässig:** der Keep-alive-Umbau machte Objekt-Identität fragil — Tab-Aktionen (schließen/lösen/anbinden/aufräumen) laufen jetzt über den stabilen Schlüssel (`gleicherTab`), nicht mehr über Objekt-Referenzen.
+- **#93 Mehrere Empfänger im Verfassen-Dialog:** Empfänger/CC/BCC sind jetzt **Chips** — Enter, Komma, Semikolon oder Tab trennen sauber; Backspace auf leerem Feld löscht den letzten Chip; Kontakt-Autocomplete bleibt (je Feld).
+
 ## [1.20.2] — 2026-09-24
 
 ### Neu (Runde 2 — Gegenprüfung mit PaWaWi)
