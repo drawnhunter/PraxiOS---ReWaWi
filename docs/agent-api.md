@@ -117,6 +117,21 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 ## Aufgabenliste (Wiedervorlage, erweitert 1.17)
 - `GET/POST /aufgaben {text*, faelligAm? (JJJJ-MM-TT), prioritaet? (niedrig|normal|hoch), referenz? {art: "mail"|"rechnung"|"beleg", id}}` · `POST /aufgaben/:id/erledigt`
 
+## Token-Sparsamkeit (Harness-Disziplin — NVIDIA SoL-Pi-Konsens)
+
+Die API ist darauf ausgelegt, Kontext klein zu halten. Nutze sie so:
+
+1. **Morgen-Briefing statt Dauerfeuer**: Starte Sessions mit `GET /uebersicht/heute` (1 Call) statt 8+ Einzelabfragen. Danach nur noch gezielt nachfassen.
+2. **Übersichten statt Pagination**: `GET /mail-ordner` (Zähler je Fach) + `von`/`bis`-Fenster statt blindem Durchblättern. `limit=100` + `offset` nur für echte Scans.
+3. **`kurz=1` als Standard**: `GET /mail/:id?kurz=1` (kein HTML-Blob) — `textHtml` nur holen, wenn du es wirklich brauchst (Newsletter sind 100–600 KB).
+4. **Anhang-Text statt Datei**: `GET /mail/:id/anhang/:index/text` (OCR-Text, wenige KB) statt `anhang/:index` (base64, oft MB). `scanHinweis: true` = manueller Blick, keine Retries.
+5. **Berichte statt Rohdaten**: `GET /berichte/:id` (fertig aggregiert) statt alle Rechnungen/Buchungen selbst zu summieren. PDF/CSV nur bei echtem Bedarf.
+6. **Pseudonym-Listen statt Detail-Kaskaden**: `/kunde/nach-email` (ID holen) → gezielte Folgeabfragen — nicht `/kunden` komplett + `/rechnung/:id` für alle.
+7. **Keine Re-Fetches**: `docs/agent-api.md` und `/berichte/katalog` ändern sich selten — cachen pro Session statt wiederholt ziehen.
+8. **Schreiben mit Idempotenz**: `Idempotenz-Key`-Header statt Retry-Schleifen — ein Timeout kostet sonst doppelt Tokens UND Aktionen.
+
+> Hintergrund (Studie „SoL-Pi", Nvidia 2026): Die größten Token-Einsparungen entstehen nicht am Modell, sondern am Harness — Kontext kompakt halten, lange Tool-Ausgaben archivieren statt wiederholen, Schritte bündeln. Diese Endpunkte sind genau dafür gebaut.
+
 ## Stolpersteine (FAQ)
 - **Windows-curl**: einfache Anführungszeichen um JSON funktionieren in cmd.exe **nicht** → Body kommt leer an (400/404 mit Echo der empfangenen Felder). Doppelte Anführungszeichen + Escape (`\"`) oder Body-Datei (`--data @body.json`) verwenden. **Auf Linux/Mac ist `'…'` korrekt.**
 - **id vs. nummer**: Endpunkte mit `:id` erwarten die numerische ID. Wo Nummern akzeptiert werden (zuordnen, rechnung-entwurf, mahnung), steht es explizit dabei.
