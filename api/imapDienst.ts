@@ -153,12 +153,35 @@ async function rufeOrdnerAb(
   let importiert = 0;
   const lock = await client.getMailboxLock(ordner);
   try {
+    const dbW = getDb();
+    const { and: andW, eq: eqW, sql: sqlW } = await import("drizzle-orm");
+
+    // UIDVALIDITY-Wache (#98): Hat der Server die UIDs des Fachs neu vergeben,
+    // sind unsere lokalen Zeilen (kontoId+ordner+uid) Kollisionen in spe — Cache
+    // dieses Fachs invalidieren und vollständig neu befüllen.
+    const mailbox = (await client.mailboxOpen(ordner)) as unknown as { uidValidity?: bigint | number } | undefined;
+    const aktuell = mailbox?.uidValidity !== undefined ? Number(mailbox.uidValidity) : null;
+    if (aktuell !== null) {
+      const karte = konto.uidvaliditaet ? (JSON.parse(konto.uidvaliditaet) as Record<string, number>) : {};
+      const bekannt = karte[ordner];
+      if (bekannt !== undefined && bekannt !== aktuell) {
+        const [geloescht] = await dbW.execute(
+          sqlW`DELETE FROM mail_mails WHERE konto_id = ${konto.id} AND ordner = ${ordner}`,
+        ) as unknown as [{ affectedRows?: number }, unknown];
+        console.warn(
+          `[imap] ${konto.name}: UIDVALIDITY ${bekannt} → ${aktuell} in ${ordner} — Cache invalidiert (${geloescht?.affectedRows ?? "?"} Zeilen), Backfill neu`,
+        );
+      }
+      if (bekannt !== aktuell) {
+        karte[ordner] = aktuell;
+        await dbW.update(emailKonten).set({ uidvaliditaet: JSON.stringify(karte) }).where(eqW(emailKonten.id, konto.id));
+      }
+    }
+
     // Lückenloser Backfill per Wasserzeichen: neue Mails (UID > max bekannt) zuerst,
     // dann wandert das Fenster Lauf für Lauf in die Vergangenheit (UID < min bekannt),
     // bis der Ordner komplett ist. Dedup macht Wiederholungen kostenlos.
     const uids: number[] = ((await client.search({}, { uid: true })) as number[] | false) || [];
-    const dbW = getDb();
-    const { and: andW, eq: eqW, sql: sqlW } = await import("drizzle-orm");
     const [wm] = await dbW
       .select({
         minUid: sqlW<number | null>`MIN(${mailMails.uid})`,
@@ -306,6 +329,32 @@ export async function synchronisiereKonto(id: number, nurOrdner: string | null =
 // ── Postfach-Ordner verwalten (Agent: Struktur aufbauen/sortieren) ─────────
 const SYSTEM_ORDNER = /^(inbox|gesendet|gesendete objekte|sent|entwürfe|drafts|papierkorb|trash|spam|junk|archiv|archive)$/i;
 
+/** Echte IMAP-Fehlermeldung extrahieren (imapflow: Server-Antwort steckt in response/responseText). */
+function besteFehlermeldung(e: unknown): string {
+  const x = e as { response?: string; responseText?: string; message?: string } | null;
+  const roh = x?.response || x?.responseText || x?.message || String(e);
+  return String(roh).replace(/\s+/g, " ").slice(0, 300);
+}
+
+/** Modified-UTF-7 (IMAP) → Unicode — für Ordnernamen wie 'Vertr&AOk-ge' → 'Verträge'. */
+export function utf7Dekodieren(s: string): string {
+  return s.replace(/&([A-Za-z0-9+,]*)-/g, (_m, p1: string) => {
+    try {
+      const b64 = p1.replace(/,/g, "/");
+      const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+      return Buffer.from(padded, "base64").toString("utf16le");
+    } catch {
+      return _m;
+    }
+  });
+}
+
+/** Name aus der Server-Ordnerliste finden — tolerant gegenüber Trailing-Spaces (Kasserver #94). */
+function findeOrdnerName(liste: string[], gesucht: string): string | null {
+  const g = gesucht.trim();
+  return liste.find((o) => o === gesucht) ?? liste.find((o) => o.trim() === g) ?? null;
+}
+
 async function mitKontoClient<T>(
   kontoId: number,
   aktion: (client: ImapFlow, konto: typeof emailKonten.$inferSelect) => Promise<T>,
@@ -326,20 +375,21 @@ async function mitKontoClient<T>(
     return { ok: true, daten };
   } catch (e) {
     try { await client.logout(); } catch { /* ok */ }
-    return { ok: false, fehler: e instanceof Error ? e.message.slice(0, 300) : String(e) };
+    return { ok: false, fehler: besteFehlermeldung(e) };
   }
 }
 
 async function ordnerListeAktualisieren(konto: typeof emailKonten.$inferSelect): Promise<string[]> {
   const r = await mitKontoClient(konto.id, async (client) => {
     const boxen = await client.list();
-    return boxen.map((b) => b.path).filter(Boolean);
+    // mUTF-7 dekodieren, damit Umlaut-Fächer in DB/UI sauber ankommen (#94)
+    return boxen.map((b) => (b.path ? utf7Dekodieren(b.path) : b.path)).filter(Boolean);
   });
   if (r.ok && r.daten) {
     await getDb().update(emailKonten).set({ ordnerListe: JSON.stringify(r.daten) }).where(eq(emailKonten.id, konto.id));
     return r.daten;
   }
-  return konto.ordnerListe ? (JSON.parse(konto.ordnerListe) as string[]) : [];
+  return konto.ordnerListe ? (JSON.parse(konto.ordnerListe) as string[]).map(utf7Dekodieren) : [];
 }
 
 export async function erstelleOrdner(kontoId: number, name: string): Promise<{ ok: boolean; fehler?: string }> {
@@ -355,12 +405,15 @@ export async function benenneOrdnerUm(kontoId: number, alt: string, neu: string)
   if (SYSTEM_ORDNER.test(alt)) return { ok: false, fehler: `System-Ordner „${alt}" kann nicht umbenannt werden.` };
   if (!neu.trim() || neu.length > 120) return { ok: false, fehler: "Ungültiger neuer Name." };
   const r = await mitKontoClient(kontoId, async (client, konto) => {
-    await client.mailboxRename(alt, neu.trim());
-    // Lokale Mails umhängen, damit nichts „verschwindet"
+    const boxen = (await client.list()).map((b) => (b.path ? utf7Dekodieren(b.path) : b.path)).filter(Boolean);
+    const echt = findeOrdnerName(boxen, alt);
+    if (!echt) throw new Error(`Ordner „${alt}" existiert auf dem Server nicht (vorhanden: ${boxen.join(", ")})`);
+    await client.mailboxRename(echt, neu.trim());
+    // Lokale Mails umhängen (auch trailing-space-Varianten), damit nichts „verschwindet"
     const { mailMails } = await import("@db/schema");
-    const { and } = await import("drizzle-orm");
+    const { and, like } = await import("drizzle-orm");
     await getDb().update(mailMails).set({ ordner: neu.trim() })
-      .where(and(eq(mailMails.kontoId, kontoId), eq(mailMails.ordner, alt)));
+      .where(and(eq(mailMails.kontoId, kontoId), like(mailMails.ordner, `${alt.trim()}%`)));
     await ordnerListeAktualisieren(konto);
   });
   return { ok: r.ok, fehler: r.fehler };
@@ -369,7 +422,19 @@ export async function benenneOrdnerUm(kontoId: number, alt: string, neu: string)
 export async function loescheOrdner(kontoId: number, name: string): Promise<{ ok: boolean; fehler?: string }> {
   if (SYSTEM_ORDNER.test(name)) return { ok: false, fehler: `System-Ordner „${name}" kann nicht gelöscht werden.` };
   const r = await mitKontoClient(kontoId, async (client, konto) => {
-    await client.mailboxDelete(name);
+    const boxen = (await client.list()).map((b) => (b.path ? utf7Dekodieren(b.path) : b.path)).filter(Boolean);
+    const echt = findeOrdnerName(boxen, name);
+    if (!echt) throw new Error(`Ordner „${name}" existiert auf dem Server nicht.`);
+    // Erst expunge (gelöschte Mails endgültig entfernen), dann löschen (#94: 409 nach Move)
+    try {
+      const lock = await client.getMailboxLock(echt);
+      try { await (client as unknown as { run: (cmd: string) => Promise<unknown> }).run("EXPUNGE"); } finally { lock.release(); }
+    } catch { /* nicht jedes Fach erlaubt Expunge — Löschen trotzdem versuchen */ }
+    await client.mailboxDelete(echt);
+    // Lokale Zeilen des Ordners aufräumen (Mails waren vorher verschoben worden)
+    const { mailMails } = await import("@db/schema");
+    const { and, like } = await import("drizzle-orm");
+    await getDb().delete(mailMails).where(and(eq(mailMails.kontoId, kontoId), like(mailMails.ordner, `${name.trim()}%`)));
     await ordnerListeAktualisieren(konto);
   });
   return { ok: r.ok, fehler: r.fehler };

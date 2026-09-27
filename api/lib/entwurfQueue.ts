@@ -5,7 +5,7 @@ import { eq, and, lte } from "drizzle-orm";
 import { getDb } from "../queries/connection";
 import { mailEntwuerfe } from "@db/schema";
 
-/** Entwurf versenden (geteilt von API + Queue). Erfolg → Zeile weg, Fehler → versandFehler. */
+/** Entwurf versenden (geteilt von API + Queue). Erfolg → Zeile weg, Fehler → versandFehler + Retry-Backoff. */
 export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: string }> {
   const db = getDb();
   const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, id) });
@@ -15,26 +15,50 @@ export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: 
     await db.update(mailEntwuerfe).set({ versandFehler: "Kein Empfänger angegeben." }).where(eq(mailEntwuerfe.id, id));
     return { ok: false, fehler: "Kein Empfänger angegeben." };
   }
-  const { versendeMail } = await import("./mailVersand");
-  const text = e.text ?? "";
-  const r = await versendeMail({
-    kontoId: e.kontoId ?? undefined,
-    empfaenger,
-    cc: e.cc ? e.cc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
-    bcc: e.bcc ? e.bcc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
-    betreff: e.betreff ?? "(kein Betreff)",
-    text: text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || text,
-    html: text.startsWith("<") ? text : undefined,
-    anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
-    inReplyTo: e.inReplyTo ?? null,
-    mitSignatur: true,
-  });
-  if (!r.ok) {
-    await db.update(mailEntwuerfe).set({ versandFehler: r.fehler ?? "Unbekannter Fehler" }).where(eq(mailEntwuerfe.id, id));
-    return { ok: false, fehler: r.fehler };
+  try {
+    const { versendeMail } = await import("./mailVersand");
+    const text = e.text ?? "";
+    const r = await versendeMail({
+      kontoId: e.kontoId ?? undefined,
+      empfaenger,
+      cc: e.cc ? e.cc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
+      bcc: e.bcc ? e.bcc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
+      betreff: e.betreff ?? "(kein Betreff)",
+      text: text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || text,
+      html: text.startsWith("<") ? text : undefined,
+      anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
+      inReplyTo: e.inReplyTo ?? null,
+      mitSignatur: true,
+    });
+    if (!r.ok) {
+      await fehlerMitBackoff(id, r.fehler ?? "Unbekannter Fehler");
+      return { ok: false, fehler: r.fehler };
+    }
+    await db.delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, id));
+    return { ok: true };
+  } catch (err) {
+    // Exceptions (z. B. fehlende SMTP-Zugangsdaten, Netz down) dürfen nie versanden —
+    // sie gehören als versandFehler in den Ausgang (#96).
+    const fehler = err instanceof Error ? err.message.slice(0, 400) : String(err);
+    await fehlerMitBackoff(id, fehler);
+    return { ok: false, fehler };
   }
-  await db.delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, id));
-  return { ok: true };
+}
+
+/** Fehler speichern + Retry-Termin setzen (max 3 Versuche, dann liegt es beim Menschen). */
+async function fehlerMitBackoff(id: number, fehler: string): Promise<void> {
+  const db = getDb();
+  const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, id) });
+  const versuche = (e?.versandVersuche ?? 0) + 1;
+  await db
+    .update(mailEntwuerfe)
+    .set({
+      versandFehler: fehler,
+      versandVersuche: versuche,
+      // nächster Auto-Versuch in 15 min — nur, wenn das Maximum nicht erreicht ist
+      geplantesSendenAm: versuche < 3 ? new Date(Date.now() + 15 * 60_000) : null,
+    })
+    .where(eq(mailEntwuerfe.id, id));
 }
 
 /** 15s-Job: fällige Ausgang-Einträge (geplantesSendenAm <= jetzt) versenden. */

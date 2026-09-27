@@ -2,6 +2,15 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.20.4] — 2026-09-27
+
+### Behoben & Neu (Feldhärtung, Bus #94–#98)
+
+- **#96 Ausgang-Härtung:** Exceptions aus `ladeSmtpKonto` (fehlende SMTP-Zugangsdaten) werden jetzt als `versand_fehler` sichtbar gespeichert statt unsichtbar zu versanden; fehlgeschlagene Entwürfe bekommen **Retry-Backoff** (Auto-Versuch in 15 min, max. 3 Versuche) statt für immer in der Queue zu hängen.
+- **#98 UIDVALIDITY-Wache:** der Sync prüft je Ordner die IMAP-UIDVALIDITY — hat der Server die UIDs neu vergeben (Neuindizierung), wird der lokale Ordner-Cache invalidiert und sauber neu befüllt (keine UID-Kollisionen/`mail_eindeutig`-Fehler mehr beim Verschieben).
+- **#94 Ordner-Verwaltung gehärtet:** Rename/Delete finden Ordner jetzt **tolerant gegen Trailing-Spaces** (Kasserver!), **mUTF-7-Umlaute** werden beim Lesen/Aktualisieren der Ordnerliste sauber dekodiert, Delete führt vorher **Expunge** aus (409 nach Move-Entleerung gelöst), und IMAP-Fehlermeldungen werden aus der Server-Antwort statt generisch durchgereicht.
+- **#95 Agent-API Mail-Konten:** `GET /mail-konten` (ohne Secrets: SMTP-/Signatur-/Abwesenheits-Flags, letzterFehler), `GET`/`PUT /mail-konto/:id/signatur`, `POST /mail-konto/:id/smtp-test` (nodemailer verify — macht Defekte sofort sichtbar).
+
 ## [1.20.3] — 2026-09-25
 
 ### Behoben (Feld-Bugs #91–#93 aus dem Bus)

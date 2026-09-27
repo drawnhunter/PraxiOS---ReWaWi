@@ -2589,6 +2589,61 @@ app.post("/stb-paket", async (c) => {
   });
 });
 
+// ── Mail-Konten (Bus #95): Liste ohne Secrets, Signaturen, SMTP-Test ───────
+app.get("/mail-konten", async (c) => {
+  const { emailKonten } = await import("@db/schema");
+  const rows = await getDb().select().from(emailKonten);
+  return c.json({
+    konten: rows.map((k) => ({
+      id: k.id, name: k.name, benutzer: k.benutzer, host: k.host,
+      smtpGesetzt: Boolean(k.smtpHost && k.smtpBenutzer),
+      smtpHost: k.smtpHost ?? null, smtpPort: k.smtpPort ?? null,
+      signaturGesetzt: Boolean(k.signaturNeu?.trim()),
+      signaturAntwortGesetzt: Boolean(k.signaturAntwort?.trim()),
+      abwesenheitAktiv: k.abwesenheitAktiv,
+      letzterFehler: k.letzterFehler,
+    })),
+  });
+});
+
+app.get("/mail-konto/:id/signatur", async (c) => {
+  const { emailKonten } = await import("@db/schema");
+  const k = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, Number(c.req.param("id"))) });
+  if (!k) return c.json({ ok: false, fehler: "Konto nicht gefunden." }, 404);
+  return c.json({ ok: true, kontoId: k.id, signaturNeu: k.signaturNeu ?? "", signaturAntwort: k.signaturAntwort ?? "" });
+});
+
+app.put("/mail-konto/:id/signatur", async (c) => {
+  const body = await bodyLesen(c);
+  const { emailKonten } = await import("@db/schema");
+  const db = getDb();
+  const k = await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, Number(c.req.param("id"))) });
+  if (!k) return c.json({ ok: false, fehler: "Konto nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  if (body.signaturNeu !== undefined) patch.signaturNeu = String(body.signaturNeu);
+  if (body.signaturAntwort !== undefined) patch.signaturAntwort = String(body.signaturAntwort);
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "signaturNeu und/oder signaturAntwort angeben." }, 400);
+  await db.update(emailKonten).set(patch).where(eq(emailKonten.id, k.id));
+  await audit("mail_konto_signatur", { kontoId: k.id, felder: Object.keys(patch) });
+  return c.json({ ok: true, kontoId: k.id });
+});
+
+/** SMTP-Verbindungstest (nodemailer verify) — macht fehlende/falsche Zugangsdaten sofort sichtbar. */
+app.post("/mail-konto/:id/smtp-test", async (c) => {
+  const { ladeSmtpKonto } = await import("./lib/smtp");
+  const id = Number(c.req.param("id"));
+  try {
+    const { transporter, kontoName } = await ladeSmtpKonto(id);
+    await transporter.verify();
+    await audit("smtp_test", { kontoId: id, ok: true });
+    return c.json({ ok: true, konto: kontoName });
+  } catch (e) {
+    const fehler = e instanceof Error ? e.message.slice(0, 300) : String(e);
+    await audit("smtp_test", { kontoId: id, ok: false, fehler });
+    return c.json({ ok: false, fehler }, 502);
+  }
+});
+
 // ── Unternehmens-Stammdaten (Bus #85): lesen + mergen, schreib-auditiert ────
 const UNTERNEHMEN_FELDER = [
   "name", "strasse", "plz", "ort", "land", "email", "telefon", "webseite",

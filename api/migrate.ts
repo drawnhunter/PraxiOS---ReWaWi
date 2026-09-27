@@ -121,6 +121,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   // ── v1.20.2: Runde 2 ──
   { tabelle: "incoming_invoices", spalte: "ocr_text", ddl: "ALTER TABLE incoming_invoices ADD COLUMN ocr_text MEDIUMTEXT NULL AFTER beleg_mime" },
   { tabelle: "company_settings", spalte: "oeffentliche_url", ddl: "ALTER TABLE company_settings ADD COLUMN oeffentliche_url VARCHAR(255) NULL AFTER undo_sende_sekunden" },
+  // ── v1.20.4: Feldhärtung ──
+  { tabelle: "mail_entwuerfe", spalte: "versand_versuche", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN versand_versuche INT NOT NULL DEFAULT 0 AFTER geplantes_senden_am" },
+  { tabelle: "email_konten", spalte: "uidvaliditaet", ddl: "ALTER TABLE email_konten ADD COLUMN uidvaliditaet TEXT NULL AFTER ordner_liste" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

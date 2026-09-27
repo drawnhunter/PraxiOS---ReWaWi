@@ -60,6 +60,9 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 ## Beleg-Extraktion (OCR → strukturierte Felder)
 - `POST /beleg/extrahieren {base64, mime}` → `{methode, felder: {lieferant?, datum?, brutto?, mwst?, nummer?, iban?}, textVorschau}` — jedes Feld mit Konfidenz 0–1; danach direkt `POST /beleg` mit den erkannten Werten
 
+## Mail-Konten (ab 1.20.4)
+- `GET /mail-konten` → Konten ohne Secrets (SMTP-/Signatur-/Abwesenheits-Flags, letzterFehler) · `GET`/`PUT /mail-konto/:id/signatur {signaturNeu, signaturAntwort}` · `POST /mail-konto/:id/smtp-test` (verify → ok/Fehler)
+
 ## Mail (ab 1.16, erweitert 1.17)
 - `GET /mails?q=&ordner=&nurUngelesene=&nurMitAnhang=&limit=&offset=&von=&bis=` (pseudonymisiert) — **q durchsucht: betreff, absenderName, absenderAdresse, textPlain (Volltext)** · `limit` max 100, `offset` für Pagination, `von`/`bis` JJJJ-MM-TT, `nurMitAnhang=1` Beleg-Kandidaten
 - `POST /mails/sync {kontoId?, ordner?}` → sofort-Sync (gezielt pro Konto/Ordner möglich). Wasserzeichen-Backfill: lückenlos rückwärts, 50/Lauf/Ordner — mehrfach aufrufen, bis `GET /mail-ordner` vollständig zeigt

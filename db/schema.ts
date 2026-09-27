@@ -784,6 +784,7 @@ export const emailKonten = mysqlTable("email_konten", {
   passwortEnc: varchar("passwort_enc", { length: 500 }).notNull(),
   ordner: varchar("ordner", { length: 100 }).notNull().default("INBOX"),
   ordnerListe: text("ordner_liste"), // JSON: entdeckte Fächer (auto beim ersten Sync)
+  uidvaliditaet: text("uidvaliditaet"), // JSON {ordner: uidValidity} — bei Server-Wechsel Cache-Invalidierung (v1.20.4)
   smtpHost: varchar("smtp_host", { length: 255 }),
   smtpPort: int("smtp_port"),
   smtpBenutzer: varchar("smtp_benutzer", { length: 255 }),
@@ -883,6 +884,7 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   versandFehler: text("versand_fehler"),
   // Geplante Zustellung (v1.20): Undo-Send (Sekunden) + Senden-Später (Datum/Zeit)
   geplantesSendenAm: timestamp("geplantes_senden_am"),
+  versandVersuche: int("versand_versuche").notNull().default(0), // Retry-Zaehler (v1.20.4)
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
