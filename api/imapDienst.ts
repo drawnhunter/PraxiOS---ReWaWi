@@ -3,7 +3,7 @@
 // als Dokumente im Post Manager an. Laeuft nur in Produktion (Start in boot.ts).
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "./queries/connection";
 import { emailKonten, mailMails, postEingang } from "@db/schema";
 import { entschluesseln } from "./lib/secrets";
@@ -438,6 +438,72 @@ export async function loescheOrdner(kontoId: number, name: string): Promise<{ ok
     await ordnerListeAktualisieren(konto);
   });
   return { ok: r.ok, fehler: r.fehler };
+}
+
+export const NOTFALL_ORDNER = "Notfall-Loeschung";
+
+/** Notfall-Loeschordner (Bus #104): Mail verschieben statt loeschen; Bereinigung nach X h. */
+export async function loescheMailNotfall(mailId: number): Promise<{ ok: boolean; fehler?: string; modus: string }> {
+  const db = getDb();
+  const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+  if (!m) return { ok: false, fehler: "Mail nicht gefunden.", modus: "—" };
+  const einst = await db.query.companySettings.findFirst();
+  const aktiv = einst?.notfallOrdnerAktiv ?? true;
+  if (!aktiv) {
+    // Deaktiviert: hartes Loeschen (Server + lokal)
+    const r = await mitKontoClient(m.kontoId, async (client) => {
+      const lock = await client.getMailboxLock(m.ordner);
+      try {
+        await client.messageDelete(String(m.uid), { uid: true });
+        await (client as unknown as { run: (cmd: string) => Promise<unknown> }).run("EXPUNGE");
+      } finally { lock.release(); }
+    });
+    if (!r.ok) return { ...r, modus: "hart" };
+    await db.delete(mailMails).where(eq(mailMails.id, mailId));
+    return { ok: true, modus: "hart (Notfall-Ordner aus)" };
+  }
+  // Aktiv: Verschieben in den Notfall-Ordner (Ordner bei Bedarf anlegen)
+  const r = await mitKontoClient(m.kontoId, async (client, konto) => {
+    try { await client.mailboxCreate(NOTFALL_ORDNER); } catch { /* existiert schon */ }
+    const lock = await client.getMailboxLock(m.ordner);
+    try {
+      await client.messageMove(String(m.uid), NOTFALL_ORDNER, { uid: true });
+    } finally { lock.release(); }
+    await ordnerListeAktualisieren(konto);
+  });
+  if (!r.ok) return { ...r, modus: "notfall" };
+  await db.update(mailMails).set({ ordner: NOTFALL_ORDNER }).where(eq(mailMails.id, mailId));
+  return { ok: true, modus: "notfall" };
+}
+
+/** Bereinigung: Mails im Notfall-Ordner, aelter als notfallStunden → endgueltig loeschen. */
+export async function notfallBereinigen(): Promise<number> {
+  const db = getDb();
+  const einst = await db.query.companySettings.findFirst();
+  if (!einst?.notfallOrdnerAktiv) return 0;
+  const stunden = einst.notfallStunden ?? 24;
+  const schwelle = new Date(Date.now() - stunden * 3600_000);
+  const { lt } = await import("drizzle-orm");
+  const alte = await db
+    .select()
+    .from(mailMails)
+    .where(and(eq(mailMails.ordner, NOTFALL_ORDNER), lt(mailMails.createdAt, schwelle)));
+  let geloescht = 0;
+  for (const m of alte) {
+    const r = await mitKontoClient(m.kontoId, async (client) => {
+      const lock = await client.getMailboxLock(NOTFALL_ORDNER);
+      try {
+        await client.messageDelete(String(m.uid), { uid: true });
+        await (client as unknown as { run: (cmd: string) => Promise<unknown> }).run("EXPUNGE");
+      } finally { lock.release(); }
+    });
+    if (r.ok) {
+      await db.delete(mailMails).where(eq(mailMails.id, m.id));
+      geloescht++;
+    }
+  }
+  if (geloescht > 0) console.log(`[notfall] ${geloescht} Mail(s) endgueltig geloescht (aelter als ${stunden} h)`);
+  return geloescht;
 }
 
 /** Mail per IMAP-MOVE in einen anderen Ordner verschieben (Server bleibt Wahrheit). */

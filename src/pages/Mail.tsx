@@ -1158,6 +1158,19 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
             <FileCheck2 className="mr-1.5 h-4 w-4" /> Als Beleg
           </Button>
           <Button
+            size="sm" variant="ghost"
+            className="text-red-600"
+            title="Löschen — wandert in den Notfall-Löschordner (24 h), nicht endgültig"
+            onClick={() => {
+              if (!window.confirm("Mail löschen? Sie wandert in den Notfall-Löschordner (Aufbewahrung konfigurierbar).")) return;
+              utils.client.postfach.mailLoeschen.mutate({ mailId: id })
+                .then(() => { utils.postfach.liste.invalidate(); utils.postfach.postfaecher.invalidate(); onSchliessen?.(); onZurueck?.(); })
+                .catch((e) => alert(`Löschen fehlgeschlagen: ${e.message}`));
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button
             size="sm" variant="outline"
             title="Drucken bzw. als PDF speichern (im Druckdialog „Als PDF speichern“ wählen)"
             onClick={() => {

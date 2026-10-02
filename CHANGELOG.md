@@ -2,6 +2,15 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.20.5] — 2026-10-02
+
+### Behoben & Neu (Mail-Sicherheit, Bus #104/#118/#119)
+
+- **#119 Absender-Identität:** Die From/Envelope-Adresse ist jetzt die **Konto-Adresse** (smtpAbsender/Benutzer) — nicht mehr pauschal die Firmen-Adresse. Antworten landen im richtigen Postfach, SPF/DKIM/DMARC-Alignment stimmt kontobezogen. Firmen-SMTP-Pfad (Belege/Support) behält die Firmen-Adresse.
+- **#118 Signatur pro Konto sichtbar & editierbar:** Die aktive Signatur (Konto neu/Antwort > global) wird beim Verfassen **in den Editor eingefügt** (editierbar, kein Doppeln; Konto-Wechsel ersetzt sie). Server hängt sie nur noch an, wenn sie im Text fehlt (Agent-Entwürfe). Felder/Agent-API existierten seit v1.20.0/1.20.1.
+- **#104a Compose-Autosave:** alle 8 s nach Änderung wird der Entwurf still gesichert — kein Verfassen-Tab kann mehr spurlos verschwinden (der Rundumschutz gegen den Verlust vom 30.09.).
+- **#104b Notfall-Löschordner:** „Löschen" an Mails (Detail-🗑 + Agent `POST /mail/:id/loeschen`) verschiebt in den Ordner **Notfall-Loeschung** (IMAP), Aufbewahrung konfigurierbar in Stunden (Default 24, Einstellungen → E-Mail), Bereinigung-Job alle 30 min löscht Überfällige endgültig. Deaktivierbar.
+
 ## [1.20.4] — 2026-09-27
 
 ### Behoben & Neu (Feldhärtung, Bus #94–#98)

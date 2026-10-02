@@ -18,6 +18,14 @@ export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: 
   try {
     const { versendeMail } = await import("./mailVersand");
     const text = e.text ?? "";
+    // Signatur-Doppelschutz (#118): die UI fügt sie seit 1.20.5 sichtbar in den Editor ein —
+    // serverseitig nur anhängen, wenn sie im Text NICHT schon steckt (Agent-Entwürfe)
+    let mitSignatur = true;
+    const settings = await db.query.companySettings.findFirst();
+    const { emailKonten } = await import("@db/schema");
+    const konto = e.kontoId ? await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, e.kontoId) }) : null;
+    const sigQuelle = ((e.inReplyTo ? konto?.signaturAntwort : konto?.signaturNeu) ?? "").trim() || (settings?.signatur ?? "").trim();
+    if (sigQuelle && (text.includes(sigQuelle) || text.includes(sigQuelle.replace(/\n/g, "<br>")))) mitSignatur = false;
     const r = await versendeMail({
       kontoId: e.kontoId ?? undefined,
       empfaenger,
@@ -28,7 +36,7 @@ export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: 
       html: text.startsWith("<") ? text : undefined,
       anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
       inReplyTo: e.inReplyTo ?? null,
-      mitSignatur: true,
+      mitSignatur,
     });
     if (!r.ok) {
       await fehlerMitBackoff(id, r.fehler ?? "Unbekannter Fehler");

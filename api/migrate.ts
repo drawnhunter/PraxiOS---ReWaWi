@@ -124,6 +124,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   // ── v1.20.4: Feldhärtung ──
   { tabelle: "mail_entwuerfe", spalte: "versand_versuche", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN versand_versuche INT NOT NULL DEFAULT 0 AFTER geplantes_senden_am" },
   { tabelle: "email_konten", spalte: "uidvaliditaet", ddl: "ALTER TABLE email_konten ADD COLUMN uidvaliditaet TEXT NULL AFTER ordner_liste" },
+  // ── v1.20.5: Notfall-Loeschordner ──
+  { tabelle: "company_settings", spalte: "notfall_ordner_aktiv", ddl: "ALTER TABLE company_settings ADD COLUMN notfall_ordner_aktiv TINYINT(1) NOT NULL DEFAULT 1 AFTER undo_sende_sekunden" },
+  { tabelle: "company_settings", spalte: "notfall_stunden", ddl: "ALTER TABLE company_settings ADD COLUMN notfall_stunden INT NOT NULL DEFAULT 24 AFTER notfall_ordner_aktiv" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

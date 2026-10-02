@@ -119,6 +119,15 @@ if (env.isProduction) {
     // Sende-Queue (Undo-Send + Senden-Später): fällige Ausgang-Entwürfe versenden
     const { starteEntwurfQueue } = await import("./lib/entwurfQueue");
     starteEntwurfQueue();
+    // Notfall-Loeschordner-Bereinigung (30 min): ueberfaellige Eintraege endgueltig loeschen
+    setInterval(async () => {
+      try {
+        const { notfallBereinigen } = await import("./imapDienst");
+        await notfallBereinigen();
+      } catch (e) {
+        console.error("[notfall] Bereinigung fehlgeschlagen:", e instanceof Error ? e.message : e);
+      }
+    }, 30 * 60_000);
   } catch (e) {
     console.error("[imap] Dienst-Start fehlgeschlagen:", e);
   }

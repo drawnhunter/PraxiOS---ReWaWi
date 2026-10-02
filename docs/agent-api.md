@@ -78,7 +78,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `POST /mail/:id/gelesen {status}` · `POST /mail/:id/markierung {status}` (Brain-Flag) · `POST /mail/:id/verschieben {ordner}` (echter IMAP-Move)
 - `POST /mail/:id/als-termin {datum*, titel?, startZeit?, endZeit?}` → Kalender-Termin aus Mail (idempotent per mailId)
 - `POST /mail/versenden` `{empfaenger[], cc?, bcc?, kontoId?, betreff, text, html?, anhaenge?[{dateiname,base64,mime}], inReplyTo?, references?}` — **vollautomatik** ODER Token-Freigabeliste
-- `POST /mail/:id/als-beleg` `{anhangIndex?}` → Eingangsbeleg aus Mail/Anhang
+- `POST /mail/:id/als-beleg` `{anhangIndex?}` → Eingangsbeleg aus Mail/Anhang · **`POST /mail/:id/loeschen`** → Notfall-Loeschordner (kein endgültiges Löschen)
 - `GET /versand-log` → letzte 200 Sendungen (Empfänger, Betreff, Erfolg, Zeit)
 
 ## Kontakte (ab 1.16.3)

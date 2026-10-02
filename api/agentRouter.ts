@@ -2803,6 +2803,16 @@ app.post("/mail/:id/markierung", async (c) => {
   return c.json({ ok: true, id, markiert: status });
 });
 
+/** Mail löschen — über den Notfall-Loeschordner (24 h Aufbewahrung, konfigurierbar) statt endgueltig. */
+app.post("/mail/:id/loeschen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { loescheMailNotfall } = await import("./imapDienst");
+  const r = await loescheMailNotfall(id);
+  if (!r.ok) return c.json({ ok: false, fehler: r.fehler }, 502);
+  await audit("mail_geloescht", { id, modus: r.modus });
+  return c.json({ ok: true, modus: r.modus });
+});
+
 /** Mail in anderen IMAP-Ordner verschieben (Server-Move + lokale Aktualisierung). */
 app.post("/mail/:id/verschieben", async (c) => {
   const id = Number(c.req.param("id"));

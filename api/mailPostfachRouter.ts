@@ -69,6 +69,8 @@ export const mailPostfachRouter = createRouter({
         aktiv: k.aktiv,
         letzterAbruf: k.letzterAbruf,
         letzterFehler: k.letzterFehler,
+        signaturNeu: k.signaturNeu ?? null,
+        signaturAntwort: k.signaturAntwort ?? null,
         ordner: ordnerNamen.map((name) => ({
           name,
           anzahl: stats.get(name)?.anzahl ?? 0,
@@ -456,6 +458,20 @@ export const mailPostfachRouter = createRouter({
       await pruefeSichtbarkeit(ctx.user, input.kontoId);
       const { loescheOrdner } = await import("./imapDienst");
       const r = await loescheOrdner(input.kontoId, input.name);
+      if (!r.ok) throw new Error(r.fehler);
+      return r;
+    }),
+
+  /** Mail löschen — greift der Notfall-Loeschordner (Einstellungen), sonst hart. */
+  mailLoeschen: authedQuery
+    .input(z.object({ mailId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const { mailMails } = await import("@db/schema");
+      const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
+      if (!m) throw new Error("Mail nicht gefunden.");
+      await pruefeSichtbarkeit(ctx.user, m.kontoId);
+      const { loescheMailNotfall } = await import("./imapDienst");
+      const r = await loescheMailNotfall(input.mailId);
       if (!r.ok) throw new Error(r.fehler);
       return r;
     }),

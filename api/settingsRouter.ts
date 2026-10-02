@@ -27,6 +27,8 @@ const settingsInput = z.object({
   typoKorrektur: z.boolean().optional(),
   undoSendeSekunden: z.number().int().min(0).max(60).optional(),
   oeffentlicheUrl: z.string().max(255).nullable().optional(),
+  notfallOrdnerAktiv: z.boolean().optional(),
+  notfallStunden: z.number().int().min(1).max(720).optional(),
   datevKontenrahmen: z.enum(["SKR03", "SKR04"]).default("SKR03"),
   erloeskonto19: z.string().default("8400"),
   erloeskonto7: z.string().default("8300"),

@@ -75,7 +75,9 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   } catch { /* Schutz darf den Versand nicht blockieren */ }
 
   const mailDaten = {
-    from: `"${absender}" <${firma.email ?? absender}>`,
+    // #119: Die Klammer-Adresse ist die KONTO-Adresse (Reply-To-Routing + SPF/DKIM-Alignment).
+    // firma.email nur als Fallback im Firmen-SMTP-Pfad (Belege/Support ohne Konto).
+    from: `"${absender}" <${e.kontoId ? absender : (firma.email ?? absender)}>`,
     to: empfaengerListe.join(", "),
     cc: e.cc?.map((x) => x.trim()).filter(Boolean).join(", ") || undefined,
     bcc: e.bcc?.map((x) => x.trim()).filter(Boolean).join(", ") || undefined,

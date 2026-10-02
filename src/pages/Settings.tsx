@@ -56,6 +56,8 @@ interface FirmenForm {
   typoKorrektur: boolean;
   undoSendeSekunden: number;
   oeffentlicheUrl: string;
+  notfallOrdnerAktiv: boolean;
+  notfallStunden: number;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
@@ -140,6 +142,8 @@ export default function SettingsPage() {
       typoKorrektur: s.typoKorrektur ?? true,
       undoSendeSekunden: s.undoSendeSekunden ?? 0,
       oeffentlicheUrl: s.oeffentlicheUrl ?? "",
+      notfallOrdnerAktiv: s.notfallOrdnerAktiv ?? true,
+      notfallStunden: s.notfallStunden ?? 24,
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
       smtpUser: s.smtpUser ?? "",
@@ -341,6 +345,8 @@ export default function SettingsPage() {
                 typoKorrektur: firma.typoKorrektur,
                 undoSendeSekunden: firma.undoSendeSekunden,
                 oeffentlicheUrl: firma.oeffentlicheUrl || null,
+                notfallOrdnerAktiv: firma.notfallOrdnerAktiv,
+                notfallStunden: firma.notfallStunden,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
                 smtpUser: firma.smtpUser || null,
@@ -531,6 +537,26 @@ export default function SettingsPage() {
                 <option value="30">30 s</option>
               </select>
               <span className="text-xs text-neutral-400">(Mail liegt X s im Ausgang — „Rückgängig" holt sie zurück)</span>
+            </label>
+          </div>
+          <div className="flex items-center gap-4 sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-600">
+              <input
+                type="checkbox"
+                checked={firma.notfallOrdnerAktiv}
+                onChange={(e) => setFirma({ ...firma, notfallOrdnerAktiv: e.target.checked })}
+              />
+              Notfall-Löschordner: gelöschte Mails wandern erst dorthin (statt endgültig weg)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-600">
+              Aufbewahrung:
+              <Input
+                type="number" min={1} max={720}
+                className="h-8 w-20 text-xs"
+                value={firma.notfallStunden}
+                onChange={(e) => setFirma({ ...firma, notfallStunden: Number(e.target.value) || 24 })}
+              />
+              <span className="text-xs text-neutral-400">Stunden (danach endgültig gelöscht)</span>
             </label>
           </div>
         </div>

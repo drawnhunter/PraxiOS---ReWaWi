@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -130,7 +130,6 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [editorKey, setEditorKey] = useState(0); // Remount für „Zurücksetzen"
   const [gespeichert, setGespeichert] = useState<string | null>(null);
   const [fehler, setFehler] = useState("");
-
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const einstellungen = trpc.settings.get.useQuery();
   const bausteine = trpc.postfach.bausteine.useQuery();
@@ -139,6 +138,52 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const entwurfPlanen = trpc.postfach.entwurfPlanen.useMutation();
   const entwurfLoeschen = trpc.postfach.entwurfLoeschen.useMutation();
   const utils = trpc.useUtils();
+
+  /** Aktive Signatur: Konto (neu vs. Antwort) > global. */
+  const aktiveSignatur = (kId: number | null): string => {
+    const k = (postfaecher.data ?? []).find((x) => x.id === kId);
+    const proKonto = start.inReplyTo ? (k?.signaturAntwort ?? k?.signaturNeu) : (k?.signaturNeu ?? k?.signaturAntwort);
+    return proKonto?.trim() ? proKonto.trim() : (einstellungen.data?.signatur ?? "").trim();
+  };
+
+  /** Signatur in den Editor einfügen (sichtbar + editierbar); bei Konto-Wechsel ersetzen. */
+  const signaturEinsetzen = (kId: number | null) => {
+    const sig = aktiveSignatur(kId);
+    if (!sig) return;
+    const sigHtml = sig.replace(/\n/g, "<br>");
+    setHtml((alt) => {
+      if (alt.includes(sig)) return alt; // schon drin — kein Doppeln (#118)
+      return `${alt}<p><br></p><p style="color:#6b7280">${sigHtml}</p>`;
+    });
+  };
+
+  // Beim Mount (frische Verfassung, kein Entwurf) + bei Konto-Wechsel einfügen
+  const signaturInit = useRef(false);
+  useEffect(() => {
+    if (signaturInit.current || start.entwurfId) return; // Entwürfe: Inhalt ist schon vollständig
+    if (!postfaecher.data) return;
+    signaturEinsetzen(kontoId);
+    signaturInit.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postfaecher.data]);
+
+  // Autosave (#104): alle 8 s nach Änderung still sichern — kein Entwurf geht mehr verloren
+  const letzteAuto = useRef("");
+  useEffect(() => {
+    const t = setInterval(() => {
+      const jetzt = JSON.stringify([empfaenger, cc, bcc, betreff, html, anhaenge.length]);
+      if (jetzt === letzteAuto.current) return;
+      const hatInhalt = html.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim().length >= 3;
+      if (!hatInhalt && !empfaenger.trim() && !betreff.trim()) return; // leerer Tab → kein Müll
+      letzteAuto.current = jetzt;
+      entwurfSpeichern.mutate(
+        { id: entwurfId ?? undefined, empfaenger, cc, bcc, kontoId: kontoId ?? undefined, betreff, text: html, anhaenge: anhaenge.length ? anhaenge : undefined },
+        { onSuccess: (r) => { setEntwurfId(r.id); utils.postfach.entwuerfe.invalidate(); } },
+      );
+    }, 8000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empfaenger, cc, bcc, betreff, html, anhaenge, entwurfId]);
 
   const dateiHinzufuegen = (dateien: FileList | null) => {
     if (!dateien) return;
@@ -215,7 +260,21 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
           <span className="w-20 shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-center text-[11px] text-neutral-500">Von</span>
           <Select
             value={kontoId === null ? "firma" : String(kontoId)}
-            onValueChange={(v) => setKontoId(v === "firma" ? null : Number(v))}
+            onValueChange={(v) => {
+              const neu = v === "firma" ? null : Number(v);
+              // Bei Konto-Wechsel: alte Signatur ersetzen (keine Dopplung), neue einfügen
+              const alte = aktiveSignatur(kontoId);
+              const neue = aktiveSignatur(neu);
+              setHtml((alt) => {
+                if (alte && alt.includes(alte)) {
+                  const sigHtmlNeu = neue ? `<p style="color:#6b7280">${neue.replace(/\n/g, "<br>")}</p>` : "";
+                  return alt.replace(`<p style="color:#6b7280">${alte.replace(/\n/g, "<br>")}</p>`, sigHtmlNeu);
+                }
+                return alt;
+              });
+              setKontoId(neu);
+              signaturEinsetzen(neu);
+            }}
           >
             <SelectTrigger className="h-7 text-[13px]"><SelectValue /></SelectTrigger>
             <SelectContent>

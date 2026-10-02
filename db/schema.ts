@@ -77,6 +77,9 @@ export const companySettings = mysqlTable("company_settings", {
   // Editor/Mail-Komfort (v1.20): typografische Autokorrektur + Undo-Send-Verzoegerung
   typoKorrektur: boolean("typo_korrektur").notNull().default(true),
   undoSendeSekunden: int("undo_sende_sekunden").notNull().default(0),
+  // Notfall-Loeschordner (v1.20.5, Bus #104): geloeschte Mails wandern erst hierhin
+  notfallOrdnerAktiv: boolean("notfall_ordner_aktiv").notNull().default(true),
+  notfallStunden: int("notfall_stunden").notNull().default(24),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
 
