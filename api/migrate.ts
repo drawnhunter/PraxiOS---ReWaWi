@@ -127,6 +127,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   // ── v1.20.5: Notfall-Loeschordner ──
   { tabelle: "company_settings", spalte: "notfall_ordner_aktiv", ddl: "ALTER TABLE company_settings ADD COLUMN notfall_ordner_aktiv TINYINT(1) NOT NULL DEFAULT 1 AFTER undo_sende_sekunden" },
   { tabelle: "company_settings", spalte: "notfall_stunden", ddl: "ALTER TABLE company_settings ADD COLUMN notfall_stunden INT NOT NULL DEFAULT 24 AFTER notfall_ordner_aktiv" },
+  // ── v1.21.0: Proforma/Vorschuss ──
+  { tabelle: "invoices", spalte: "typ", ddl: "ALTER TABLE invoices ADD COLUMN typ VARCHAR(20) NOT NULL DEFAULT 'rechnung' AFTER status" },
+  { tabelle: "invoices", spalte: "abschlag_betrag", ddl: "ALTER TABLE invoices ADD COLUMN abschlag_betrag DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER typ" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -633,6 +636,13 @@ const SCHEMA_UPDATES: { name: string; check: (db: string) => string; ddl: string
     check: (db) =>
       `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='offers' AND COLUMN_NAME='status' AND COLUMN_TYPE NOT LIKE '%finalisiert%'`,
     ddl: "UPDATE offers SET status='offen' WHERE status='finalisiert'",
+  },
+  {
+    // v1.21: invoices.status um 'proforma' erweitern (Bus #123)
+    name: "invoices.status + proforma",
+    check: (db) =>
+      `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='invoices' AND COLUMN_NAME='status' AND COLUMN_TYPE LIKE '%proforma%'`,
+    ddl: "ALTER TABLE invoices MODIFY status ENUM('entwurf','proforma','finalisiert','storniert') NOT NULL DEFAULT 'entwurf'",
   },
   {
     // v1.19: users.role um 'kanzlei' erweitern (Kanzlei-Arbeitsplatz)

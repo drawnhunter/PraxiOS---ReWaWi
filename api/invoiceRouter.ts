@@ -75,7 +75,7 @@ export const invoiceRouter = createRouter({
     .input(
       z
         .object({
-          status: z.enum(["entwurf", "finalisiert", "storniert"]).optional(),
+          status: z.enum(["entwurf", "proforma", "finalisiert", "storniert"]).optional(),
           archiviert: z.boolean().optional(), // Standard: nur nicht-archivierte
         })
         .optional(),

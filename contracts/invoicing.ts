@@ -14,10 +14,11 @@ export const EINHEITEN = [
   "Behandlung",
 ] as const;
 
-export type InvoiceStatus = "entwurf" | "finalisiert" | "storniert";
+export type InvoiceStatus = "entwurf" | "proforma" | "finalisiert" | "storniert";
 
 export const STATUS_LABELS: Record<InvoiceStatus, string> = {
   entwurf: "Entwurf",
+  proforma: "Proforma",
   finalisiert: "Finalisiert",
   storniert: "Storniert",
 };
@@ -92,8 +93,8 @@ export function computeTotals(
     if (!it.rabattArt || it.rabattWert === null || it.rabattWert === undefined) return 0;
     const wert = Number(it.rabattWert);
     if (!Number.isFinite(wert) || wert <= 0) return 0;
-    if (it.rabattArt === "prozent") return Math.min(basis[i], Math.round((basis[i] * Math.min(wert, 100)) / 100));
-    return Math.min(basis[i], Math.round(wert * 100));
+    if (it.rabattArt === "prozent") return Math.max(0, Math.min(basis[i], Math.round((basis[i] * Math.min(wert, 100)) / 100)));
+    return Math.max(0, Math.min(basis[i], Math.round(wert * 100)));
   });
   const rabattPositionenCent = zeilenRabattCent.reduce((a, b) => a + b, 0);
   const nachPositionen = basis.map((b, i) => b - zeilenRabattCent[i]);
@@ -125,7 +126,10 @@ export function computeTotals(
     }
   }
 
-  const zeilenNettoCent = nachPositionen.map((n, i) => Math.max(0, n - zeilenHaupAnteil[i]));
+  // Negative Positionen (Anzahlungs-/Vorkassen-Abzug) bleiben erhalten (#120):
+  // die Floor-Klemme gilt NUR in der Rabatt-Logik oben, nicht global — ein
+  // Abzug saldiert korrekt gegen die anderen Zeilen statt still auf 0 zu fallen.
+  const zeilenNettoCent = nachPositionen.map((n, i) => n - zeilenHaupAnteil[i]);
   const nettoCent = zeilenNettoCent.reduce((a, b) => a + b, 0);
 
   const proSatz = new Map<number, number>();

@@ -757,9 +757,12 @@ app.post("/rechnung-entwurf", async (c) => {
   const standardBank = await db.query.bankAccounts.findFirst({ where: (b, { eq: e }) => e(b.istStandard, true) });
 
   const totals = computeTotals(positionen);
+  // #123: typ akzeptiert "proforma" (Entwurf → proforma-setzen) für Vorschuss-Anforderungen
+  const istProforma = body.typ === "proforma";
   const [{ id }] = await db
     .insert(invoices)
     .values({
+      typ: istProforma ? "proforma" : "rechnung",
       customerId: kunde.id,
       rechnungsdatum: fmt(heuteD),
       faelligkeitsdatum: fmt(faellig),
@@ -796,17 +799,18 @@ app.post("/rechnung-entwurf", async (c) => {
   return c.json({ ok: true, id, kunde: kundeAnzeige, kundenId: kunde.id, brutto: centToDecimal(totals.bruttoCent), hinweis: "Entwurf angelegt — Freigabe erfolgt durch einen Menschen (oder Vollautomatik in Einstellungen)." });
 });
 
-/** Rechnungs-PDF als base64 (GoBD: dasselbe PDF wie im UI-Download). */
+/** Rechnungs-PDF als base64 (GoBD: dasselbe PDF wie im UI-Download; Proforma auch ohne Nummer). */
 app.get("/rechnung/:id/pdf", async (c) => {
   const id = Number(c.req.param("id"));
   const r = await getDb().query.invoices.findFirst({ where: eq(invoices.id, id) });
   if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
-  if (r.status === "entwurf") return c.json({ ok: false, fehler: "Entwurf — noch kein GoBD-PDF (erst finalisieren)." }, 409);
+  if (r.status === "entwurf") return c.json({ ok: false, fehler: "Entwurf — erst finalisieren oder als Proforma setzen." }, 409);
   const { ladeRechnungsBeleg, ladeDesign } = await import("./pdfBelege");
   const { renderBelegPdf } = await import("./pdf");
   const { beleg, dateiname } = await ladeRechnungsBeleg(id);
   const pdf = await renderBelegPdf(beleg, await ladeDesign());
-  return c.json({ ok: true, dateiname: `Rechnung-${dateiname}.pdf`, base64: pdf.toString("base64"), mime: "application/pdf" });
+  const prefix = r.status === "proforma" || r.typ === "proforma" ? "Proforma" : "Rechnung";
+  return c.json({ ok: true, dateiname: `${prefix}-${dateiname}.pdf`, base64: pdf.toString("base64"), mime: "application/pdf" });
 });
 
 app.post("/rechnung/:id/versenden", async (c) => {
@@ -2503,6 +2507,69 @@ app.post("/posteingang/:id/status", async (c) => {
   await db.update(postEingang).set({ status: status as "neu" | "gebucht" | "abgelegt" }).where(eq(postEingang.id, id));
   await audit("posteingang_status", { id, status });
   return c.json({ ok: true, id, status });
+});
+
+/** Entwurf finalisieren (Nummernkreis) ODER als Proforma setzen (ohne Nummer) — Bus #123. */
+app.post("/rechnung/:id/finalisieren", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c).catch(() => ({} as Record<string, unknown>));
+  try {
+    if (body.typ === "proforma") {
+      const { proformaSetzenIntern } = await import("./lib/proforma");
+      const r = await proformaSetzenIntern(id);
+      await audit("proforma_setzen", { id });
+      return c.json({ ok: true, id: r.id, status: "proforma" });
+    }
+    const { finalisiereIntern } = await import("./lib/proforma");
+    const r = await finalisiereIntern(id);
+    await audit("rechnung_finalisiert", { id, nummer: r.nummer });
+    return c.json({ ok: true, id: r.id, nummer: r.nummer, status: "finalisiert" });
+  } catch (e) {
+    return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
+/** Proforma → Vorkasse setzen (abschlagBetrag = bezahlter Betrag; erst /zahlung buchen). */
+app.post("/rechnung/:id/vorkasse-setzen", async (c) => {
+  const id = Number(c.req.param("id"));
+  try {
+    const { vorkasseSetzenIntern } = await import("./lib/proforma");
+    const r = await vorkasseSetzenIntern(id);
+    await audit("vorkasse_setzen", { id, abschlagBetrag: r.abschlagBetrag });
+    return c.json({ ok: true, ...r });
+  } catch (e) {
+    return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
+/** Proforma → echte Rechnung (Nummernkreis + Snapshots). */
+app.post("/rechnung/:id/in-rechnung-umwandeln", async (c) => {
+  const id = Number(c.req.param("id"));
+  try {
+    const { umwandelnIntern } = await import("./lib/proforma");
+    const r = await umwandelnIntern(id);
+    await audit("proforma_umgewandelt", { id, nummer: r.nummer });
+    return c.json({ ok: true, ...r, status: "finalisiert" });
+  } catch (e) {
+    return c.json({ ok: false, fehler: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
+/** Entwurf korrigieren: rechnungsdatum/faelligkeitsdatum (nur Entwürfe, GoBD). */
+app.patch("/rechnung-entwurf/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  if (r.status !== "entwurf") return c.json({ ok: false, fehler: "Nur Entwürfe sind korrigierbar (GoBD)." }, 409);
+  const patch: Record<string, unknown> = {};
+  if (body.rechnungsdatum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.rechnungsdatum))) patch.rechnungsdatum = String(body.rechnungsdatum);
+  if (body.faelligkeitsdatum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.faelligkeitsdatum))) patch.faelligkeitsdatum = String(body.faelligkeitsdatum);
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "rechnungsdatum und/oder faelligkeitsdatum (JJJJ-MM-TT) angeben." }, 400);
+  await db.update(invoices).set(patch).where(eq(invoices.id, id));
+  await audit("entwurf_korrigiert", { id, ...patch });
+  return c.json({ ok: true, id, ...patch });
 });
 
 /** Beleg-Freigabe setzen (neu/geprueft/freigegeben) — audit-logged, GoBD-nachvollziehbar. */

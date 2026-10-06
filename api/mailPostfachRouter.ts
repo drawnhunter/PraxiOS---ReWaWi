@@ -462,6 +462,34 @@ export const mailPostfachRouter = createRouter({
       return r;
     }),
 
+  /** Gelesen-Status einer Mail setzen (Kontextmenü #128). */
+  gelesenSetzen: authedQuery
+    .input(z.object({ mailId: z.number(), gelesen: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      const { mailMails } = await import("@db/schema");
+      const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
+      if (!m) throw new Error("Mail nicht gefunden.");
+      await pruefeSichtbarkeit(ctx.user, m.kontoId);
+      await getDb().update(mailMails).set({ gelesen: input.gelesen }).where(eq(mailMails.id, input.mailId));
+      return { ok: true, gelesen: input.gelesen };
+    }),
+
+  /** Mail in anderen IMAP-Ordner verschieben (Kontextmenü #128). */
+  mailVerschieben: authedQuery
+    .input(z.object({ mailId: z.number(), ordner: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const { mailMails } = await import("@db/schema");
+      const db = getDb();
+      const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
+      if (!m) throw new Error("Mail nicht gefunden.");
+      await pruefeSichtbarkeit(ctx.user, m.kontoId);
+      const { verschiebeMail } = await import("./imapDienst");
+      const r = await verschiebeMail(m.kontoId, m.ordner, m.uid, input.ordner);
+      if (!r.ok) throw new Error(r.fehler);
+      await db.update(mailMails).set({ ordner: input.ordner }).where(eq(mailMails.id, input.mailId));
+      return { ok: true, ordner: input.ordner };
+    }),
+
   /** Mail löschen — greift der Notfall-Loeschordner (Einstellungen), sonst hart. */
   mailLoeschen: authedQuery
     .input(z.object({ mailId: z.number() }))

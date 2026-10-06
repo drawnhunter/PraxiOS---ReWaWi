@@ -178,7 +178,7 @@ export const invoices = mysqlTable(
     id: serial("id").primaryKey(),
     // Nummer wird erst bei Finalisierung vergeben (Entwürfe haben keine)
     nummer: varchar("nummer", { length: 20 }).unique(),
-    status: mysqlEnum("status", ["entwurf", "finalisiert", "storniert"])
+    status: mysqlEnum("status", ["entwurf", "proforma", "finalisiert", "storniert"])
       .notNull()
       .default("entwurf"),
     customerId: bigint("customer_id", { mode: "number", unsigned: true }).notNull(),
@@ -206,6 +206,10 @@ export const invoices = mysqlTable(
     bezahltBetrag: decimal("bezahlt_betrag", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),
+    // Proforma/Vorschuss (v1.21.0, Bus #123): typ unterscheidet echte Rechnung vs.
+    // Proforma (ohne Nummer); abschlagBetrag = geleistete Vorkasse vor Umwandlung
+    typ: varchar("typ", { length: 20 }).notNull().default("rechnung"),
+    abschlagBetrag: decimal("abschlag_betrag", { precision: 12, scale: 2 }).notNull().default("0"),
     bezahltAm: date("bezahlt_am", { mode: "string" }),
     bereitsBezahlt: boolean("bereits_bezahlt").notNull().default(false),
     pdfNotiz: text("pdf_notiz"),

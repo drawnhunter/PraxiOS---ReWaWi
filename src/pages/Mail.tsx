@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/select";
 import {
   RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, Pin, PinOff,
-  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy,
+  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy, ChevronDown,
 } from "lucide-react";
 import { Link } from "react-router";
 import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
@@ -159,6 +159,14 @@ export default function MailPostfach() {
           >
             Postfach
           </button>
+          {/* #128.4: Verfassen-Button links neben den Tabs (Ghost-Stil — kann nicht mit „Senden" verwechselt werden) */}
+          <button
+            onClick={() => oeffneVerfassen({ kontoId })}
+            title="Neue Mail verfassen"
+            className="flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Verfassen
+          </button>
           {tabs.map((t) => {
             const istAktiv = aktiv === t;
             const label = t.typ === "mail" ? (t.betreff || "(kein Betreff)") : "✉ Verfassen";
@@ -193,9 +201,6 @@ export default function MailPostfach() {
           })}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <SeitenEinstellung bereich="mailkonten" titel="Mail-Konten" />
-            <Button size="sm" onClick={() => oeffneVerfassen({ kontoId })}>
-              <Pencil className="mr-1.5 h-4 w-4" /> Verfassen
-            </Button>
           </div>
         </div>
 
@@ -238,8 +243,17 @@ export default function MailPostfach() {
                 value={q}
                 onChange={(e) => { setQ(e.target.value); setSeite(1); }}
                 placeholder="Betreff, Absender, Inhalt suchen …"
-                className="h-8 pl-8 text-sm"
+                className={`h-8 pl-8 text-sm ${q.trim() ? "ring-2 ring-teal-400 border-teal-300" : ""}`}
               />
+              {q.trim() && (
+                <button
+                  onClick={() => setQ("")}
+                  title="Suche leeren"
+                  className="absolute right-2 top-1.5 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -426,6 +440,8 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
   const [kontext, setKontext] = useState<{ x: number; y: number; fav: OrdnerFavorit } | null>(null);
   const [kontoKontext, setKontoKontext] = useState<{ x: number; y: number; kontoId: number; kontoName: string } | null>(null);
   const [dragKonto, setDragKonto] = useState<number | null>(null);
+  // #128.5: Klappbare Ordner je Konto (Betterbird-Standard; Default: aktives Konto offen)
+  const [aufgeklappt, setAufgeklappt] = useState<Record<number, boolean>>({});
 
   // Konten in gespeicherter Reihenfolge (unbekannte hinten anhängen)
   const kontenSortiert = [...(postfaecher.data ?? [])].sort((a, b) => {
@@ -506,6 +522,13 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
         >
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setAufgeklappt((a) => ({ ...a, [k.id]: !(a[k.id] ?? (kontoId === k.id)) }))}
+              className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+              title="Ordner ein-/ausklappen"
+            >
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${(aufgeklappt[k.id] ?? (kontoId === k.id)) ? "" : "-rotate-90"}`} />
+            </button>
+            <button
               onClick={() => setKontoId(k.id)}
               onContextMenu={(e) => { e.preventDefault(); setKontext(null); setKontoKontext({ x: e.clientX, y: e.clientY, kontoId: k.id, kontoName: k.name }); }}
               className={`flex-1 cursor-grab truncate rounded-md px-2 py-1.5 text-left text-sm active:cursor-grabbing ${kontoId === k.id && !ordner ? "bg-neutral-100 font-medium" : "hover:bg-neutral-50"}`}
@@ -522,7 +545,7 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
               <RefreshCw className={`h-3.5 w-3.5 ${sync.isPending ? "animate-spin" : ""}`} />
             </button>
           </div>
-          {kontoId === k.id && k.ordner.map((o) => (
+          {(aufgeklappt[k.id] ?? (kontoId === k.id)) && k.ordner.map((o) => (
             <button
               key={o.name}
               onClick={() => setOrdner(ordner === o.name ? null : o.name)}
@@ -945,6 +968,11 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl,
   });
   const gesamtSeiten = liste.data ? Math.max(1, Math.ceil(liste.data.gesamt / liste.data.proSeite)) : 1;
   const markieren = trpc.postfach.markieren.useMutation();
+  // #128.7: Kontextmenü pro Mail-Zeile (Rechtsklick)
+  const [kontext, setKontext] = useState<{ x: number; y: number; mail: MailZeile } | null>(null);
+  const gelesenSetzen = trpc.postfach.gelesenSetzen.useMutation({ onSuccess: () => liste.refetch() });
+  const verschieben = trpc.postfach.mailVerschieben.useMutation({ onSuccess: () => { liste.refetch(); setKontext(null); } });
+  const loeschen = trpc.postfach.mailLoeschen.useMutation({ onSuccess: () => { liste.refetch(); setKontext(null); } });
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white">
@@ -953,12 +981,23 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl,
         {liste.error && <p className="p-4 text-sm text-red-600">Fehler beim Laden: {liste.error.message}</p>}
         {liste.isLoading && <p className="p-4 text-sm text-neutral-400">Lade …</p>}
         {liste.data?.mails.length === 0 && (
-          <p className="p-4 text-sm text-neutral-400">Keine Mails — Sync-Button am Konto drücken oder Intervall abwarten.</p>
+          <p className="p-4 text-sm text-neutral-400">
+            Keine Mails — Sync-Button am Konto drücken oder Intervall abwarten.
+            {q?.trim() ? (
+              <>
+                <br />
+                <span className="text-amber-700">
+                  Hinweis: Die Suche nach „{q.trim()}" ist aktiv — Begriff im Suchfenster ändern/leeren oder anderen Ordner wählen.
+                </span>
+              </>
+            ) : null}
+          </p>
         )}
         {(liste.data?.mails ?? []).map((m) => (
           <button
             key={m.id}
             onClick={() => onVorschau(vorschau === m.id ? null : m.id)}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setKontext({ x: e.clientX, y: e.clientY, mail: m }); }}
             className={`flex w-full flex-col border-b border-neutral-100 px-3 py-2 text-left hover:bg-neutral-50 ${vorschau === m.id ? "bg-teal-50 border-l-2 border-l-teal-600" : ""} ${!m.gelesen ? "bg-teal-50/30" : ""}`}
           >
             <div className="flex w-full items-center gap-2">
@@ -991,6 +1030,75 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl,
           <Button variant="ghost" size="sm" disabled={seite >= gesamtSeiten} onClick={() => setSeite(seite + 1)}>→</Button>
         </div>
       )}
+
+      {/* #128.7: Kontextmenü (Rechtsklick auf eine Mail-Zeile) */}
+      {kontext && (
+        <MailKontextMenue
+          x={kontext.x} y={kontext.y} mail={kontext.mail}
+          onSchliessen={() => setKontext(null)}
+          onOeffnen={() => { onVorschau(kontext.mail.id); setKontext(null); }}
+          onAntworten={() => { onVorschau(kontext.mail.id); setKontext(null); }}
+          onVerschieben={(ziel) => verschieben.mutate({ mailId: kontext.mail.id, ordner: ziel })}
+          onGelesenUmschalten={() => gelesenSetzen.mutate({ mailId: kontext.mail.id, gelesen: !kontext.mail.gelesen })}
+          onMarkieren={() => markieren.mutate({ id: kontext.mail.id, markiert: !kontext.mail.markiert }, { onSuccess: () => { liste.refetch(); setKontext(null); } })}
+          onLoeschen={() => {
+            if (window.confirm("Mail löschen? Sie wandert in den Notfall-Löschordner.")) loeschen.mutate({ mailId: kontext.mail.id });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+type MailZeile = { id: number; betreff: string | null; gelesen: boolean; markiert: boolean };
+
+/* #128.7: Kontextmenü-Komponente (Betterbird-Standard) */
+function MailKontextMenue({ x, y, mail, onSchliessen, onOeffnen, onAntworten, onVerschieben, onGelesenUmschalten, onMarkieren, onLoeschen }: {
+  x: number; y: number; mail: MailZeile;
+  onSchliessen: () => void;
+  onOeffnen: () => void;
+  onAntworten: () => void;
+  onVerschieben: (ziel: string) => void;
+  onGelesenUmschalten: () => void;
+  onMarkieren: () => void;
+  onLoeschen: () => void;
+}) {
+  const postfaecher = trpc.postfach.postfaecher.useQuery();
+  const eintrag = (label: string, aktion: () => void, klasse = "") => (
+    <button
+      onClick={aktion}
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-neutral-100 ${klasse}`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      className="fixed z-50 w-52 rounded-md border border-neutral-200 bg-white py-1 shadow-xl"
+      style={{ left: Math.min(x, window.innerWidth - 220), top: Math.min(y, window.innerHeight - 300) }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {eintrag("Öffnen", onOeffnen)}
+      {eintrag("Antworten", onAntworten)}
+      {eintrag("Weiterleiten", onAntworten)}
+      <div className="my-1 border-t border-neutral-100" />
+      {eintrag(mail.gelesen ? "Als ungelesen markieren" : "Als gelesen markieren", onGelesenUmschalten)}
+      {eintrag(mail.markiert ? "Markierung entfernen" : "Markieren", onMarkieren)}
+      <div className="my-1 border-t border-neutral-100" />
+      <div className="px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">Verschieben in …</div>
+      {(postfaecher.data ?? []).flatMap((k) => k.ordner.map((o) => (
+        <button
+          key={`${k.id}|${o.name}`}
+          onClick={() => onVerschieben(o.name)}
+          className="block w-full px-5 py-1 text-left text-xs hover:bg-neutral-100"
+        >
+          {o.name} <span className="text-neutral-400">· {k.name}</span>
+        </button>
+      )))}
+      <div className="my-1 border-t border-neutral-100" />
+      {eintrag("Löschen (Notfall-Ordner)", onLoeschen, "text-red-600")}
+      <div className="my-1 border-t border-neutral-100" />
+      {eintrag("Schließen", onSchliessen, "text-neutral-400")}
     </div>
   );
 }
@@ -1018,18 +1126,34 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
   const markieren = trpc.postfach.markieren.useMutation();
   const [belegOk, setBelegOk] = useState<string | null>(null);
   const [adressDialog, setAdressDialog] = useState<{ name: string | null; adresse: string } | null>(null);
+  // #128.2: Anhangsvorschau (Overlay vor Download)
+  const [vorschau, setVorschau] = useState<{ index: number; name: string; mime: string; url: string } | null>(null);
+  // #128.6: Bilderblocker (externe Bilder standardmäßig blockiert)
+  const [bilderErlaubt, setBilderErlaubt] = useState(false);
+  const terminAnlegen = trpc.kalender.anlegen.useMutation();
 
-  const anhangLaden = async (index: number) => {
-    // Gesendet-Anhänge tragen den Inhalt direkt im Meta (kein Server-Fetch nötig)
+  const anhangBlobUrl = async (index: number): Promise<{ url: string; dateiname: string; mime: string }> => {
     const meta = mail.data?.anhaengeMeta?.[index] as { inhalt?: string; name?: string; mime?: string } | undefined;
     const r = meta?.inhalt
       ? { base64: meta.inhalt, dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream" }
       : await utils.postfach.anhang.fetch({ mailId: id, index });
     const blob = new Blob([Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0))], { type: r.mime });
+    return { url: URL.createObjectURL(blob), dateiname: r.dateiname, mime: r.mime };
+  };
+
+  const anhangLaden = async (index: number) => {
+    const r = await anhangBlobUrl(index);
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    a.href = r.url;
     a.download = r.dateiname;
     a.click();
+  };
+
+  // #128.2: Anhang-Klick → Vorschau-Overlay (PDF/Bild/Text), Download per Button
+  const anhangVorschau = async (index: number) => {
+    const meta = mail.data?.anhaengeMeta?.[index] as { name?: string; mime?: string } | undefined;
+    const r = await anhangBlobUrl(index);
+    setVorschau({ index, name: meta?.name ?? r.dateiname, mime: r.mime, url: r.url });
   };
 
   if (mail.isLoading) return <div className="flex-1 rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-400">Lade …</div>;
@@ -1207,8 +1331,8 @@ ${inhalt}
               const hatInhalt = Boolean(a.postEingangId) || Boolean((a as { inhalt?: string }).inhalt);
               return (
                 <div key={i} className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${hatInhalt ? "cursor-pointer border-neutral-200 hover:border-teal-300 hover:bg-teal-50" : "border-neutral-200"}`}
-                  onClick={() => hatInhalt && anhangLaden(i)}
-                  title={hatInhalt ? "Anhang öffnen/herunterladen" : "Anhang (nur Metadaten)"}
+                  onClick={() => hatInhalt && anhangVorschau(i)}
+                  title={hatInhalt ? "Anhang-Vorschau öffnen" : "Anhang (nur Metadaten)"}
                 >
                   <Paperclip className="h-3 w-3 text-neutral-500" />
                   <span className="max-w-32 truncate">{a.name}</span>
@@ -1228,14 +1352,165 @@ ${inhalt}
           </div>
         )}
       </div>
+      {/* #128.1: iCalendar-Terminmail lesbar machen (Outlook-Einladung/-Absage) */}
+      <ICalKarte mailId={id} textPlain={m.textPlain} textHtml={m.textHtml} anhaenge={m.anhaengeMeta} onTermin={(n) => terminAnlegen.mutate(n)} />
+
+      {/* #128.6: Bilderblocker — externe Bilder blockiert bis „Bilder laden" */}
+      {m.textHtml && (() => {
+        const hatExterneBilder = /<img[^>]*src=["']https?:\/\//i.test(m.textHtml);
+        if (!hatExterneBilder) return null;
+        const freigegeben = (JSON.parse(localStorage.getItem("mail-bilder-absender") ?? "[]") as string[]).includes(m.absenderAdresse ?? "");
+        
+        if (bilderErlaubt || freigegeben) return null;
+        return (
+          <div className="mx-3.5 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span>Diese Mail enthält externe Bilder (blockiert aus Sicherheitsgründen).</span>
+            <button className="font-medium text-teal-700 hover:underline" onClick={() => setBilderErlaubt(true)}>Bilder laden</button>
+            <button
+              className="text-neutral-500 hover:underline"
+              onClick={() => {
+                const liste = JSON.parse(localStorage.getItem("mail-bilder-absender") ?? "[]") as string[];
+                if (m.absenderAdresse && !liste.includes(m.absenderAdresse)) {
+                  liste.push(m.absenderAdresse);
+                  localStorage.setItem("mail-bilder-absender", JSON.stringify(liste));
+                }
+                setBilderErlaubt(true);
+              }}
+            >
+              immer von diesem Absender laden
+            </button>
+          </div>
+        );
+      })()}
+
       <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
         {m.textHtml ? (
-          <iframe sandbox="" title="Mail-Inhalt" srcDoc={m.textHtml} className="h-full min-h-[380px] w-full rounded-md border border-neutral-100" />
+          <iframe
+            sandbox=""
+            title="Mail-Inhalt"
+            srcDoc={
+              bilderErlaubt || (JSON.parse(localStorage.getItem("mail-bilder-absender") ?? "[]") as string[]).includes(m.absenderAdresse ?? "")
+                ? m.textHtml
+                : m.textHtml.replace(/<img([^>]*?)src=["']https?:\/\/[^"']*["']/gi, '<div$1style="display:inline-block;min-width:60px;padding:6px 10px;border:1px dashed #d6d3d1;border-radius:6px;color:#a8a29e;font-size:11px" data-blocked-img="1">[externes Bild]</div')
+            }
+            className="h-full min-h-[380px] w-full rounded-md border border-neutral-100"
+          />
         ) : (
           <pre className="whitespace-pre-wrap font-sans text-sm text-neutral-800">{(m.textPlain ?? "").replace(/\t/g, "    ") || "(kein Text)"}</pre>
         )}
       </div>
+
+      {/* #128.2: Anhangsvorschau-Overlay */}
+      {vorschau && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={() => setVorschau(null)}>
+          <div className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 border-b border-neutral-200 px-4 py-2.5">
+              <Paperclip className="h-4 w-4 text-neutral-500" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{vorschau.name}</span>
+              <Button size="sm" variant="outline" onClick={() => anhangLaden(vorschau.index)}>Herunterladen</Button>
+              <Button size="sm" variant="ghost" onClick={() => setVorschau(null)}><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="min-h-0 flex-1 bg-neutral-50">
+              {vorschau.mime === "application/pdf" || /^text\//.test(vorschau.mime) ? (
+                <iframe src={vorschau.url} title="Anhang-Vorschau" className="h-full w-full bg-white" />
+              ) : /^image\//.test(vorschau.mime) ? (
+                <div className="flex h-full items-center justify-center p-4">
+                  <img src={vorschau.url} alt={vorschau.name} className="max-h-full max-w-full rounded-md object-contain" />
+                </div>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-neutral-500">
+                  <Paperclip className="h-10 w-10 text-neutral-300" />
+                  <p>Keine Vorschau für diesen Dateityp ({vorschau.mime}).</p>
+                  <Button variant="outline" onClick={() => anhangLaden(vorschau.index)}>Herunterladen</Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
 
+  );
+}
+
+/* #128.1: iCalendar-Karte (Outlook-Terminmails: Einladung/Absage/Änderung) */
+function ICalKarte({ mailId, textPlain, textHtml, anhaenge, onTermin }: {
+  mailId: number;
+  textPlain: string | null;
+  textHtml: string | null;
+  anhaenge: { name?: string; mime?: string; inhalt?: string }[];
+  onTermin: (n: { datum: string; startZeit?: string | null; endZeit?: string | null; titel: string; beschreibung?: string | null; mailId?: number | null }) => void;
+}) {
+  const utils = trpc.useUtils();
+  const [daten, setDaten] = useState<import("../../api/lib/icalParse").ICalDaten | null>(null);
+  const [ok, setOk] = useState(false);
+
+  useEffect(() => {
+    let aktiv = true;
+    void (async () => {
+      const { enthaeltICal, parseICal } = await import("../../api/lib/icalParse");
+      // iCal kann im Text ODER als text/calendar-Anhang stecken
+      let roh: string | null = null;
+      if (textPlain && /BEGIN:VCALENDAR/i.test(textPlain)) roh = textPlain;
+      else if (textHtml && /BEGIN:VCALENDAR/i.test(textHtml)) {
+        const div = document.createElement("div");
+        div.innerHTML = textHtml;
+        roh = div.textContent ?? null;
+      }
+      if (!roh) {
+        const idx = anhaenge.findIndex((a) => a.mime === "text/calendar");
+        if (idx >= 0) {
+          const meta = anhaenge[idx] as { inhalt?: string };
+          if (meta.inhalt) roh = atob(meta.inhalt);
+          else {
+            const r = await utils.postfach.anhang.fetch({ mailId, index: idx }).catch(() => null);
+            if (r?.base64) roh = atob(r.base64);
+          }
+        }
+      }
+      if (aktiv && roh && enthaeltICal(roh, anhaenge)) setDaten(parseICal(roh));
+    })();
+    return () => { aktiv = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mailId, textPlain, textHtml]);
+
+  if (!daten || daten.events.length === 0) return null;
+  const absage = daten.methode === "CANCEL";
+  return (
+    <div className={`mx-3.5 mb-3 rounded-lg border p-3 ${absage ? "border-red-200 bg-red-50/60" : "border-teal-200 bg-teal-50/60"}`}>
+      <div className="mb-1.5 flex items-center gap-2">
+        <Badge variant={absage ? "destructive" : "default"}>{absage ? "Termin-Absage" : "Termin-Einladung"}</Badge>
+        <span className="text-xs text-neutral-500">iCalendar</span>
+      </div>
+      {daten.events.map((e, i) => (
+        <div key={i} className="mb-1.5 text-sm">
+          <b>{e.titel}</b>
+          <div className="text-xs text-neutral-600">
+            {e.beginn}{e.ende ? ` – ${e.ende}` : ""}{e.ort ? ` · ${e.ort}` : ""}
+          </div>
+          {!absage && !ok && (
+            <Button
+              size="sm" variant="outline" className="mt-1.5 h-7 text-xs"
+              onClick={() => {
+                const m = e.beginn.match(/^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?/);
+                const ende = e.ende?.match(/^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?/);
+                onTermin({
+                  datum: m ? m[1] : new Date().toISOString().slice(0, 10),
+                  startZeit: m?.[2] ?? null,
+                  endZeit: ende?.[2] ?? null,
+                  titel: e.titel,
+                  beschreibung: `Aus Mail #${mailId}${e.ort ? ` · Ort: ${e.ort}` : ""}`,
+                  mailId,
+                });
+                setOk(true);
+              }}
+            >
+              In Kalender übernehmen
+            </Button>
+          )}
+          {ok && <span className="ml-2 text-xs text-teal-700">✓ im Kalender</span>}
+        </div>
+      ))}
+    </div>
   );
 }

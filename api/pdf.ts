@@ -35,7 +35,7 @@ function fmtIban(iban: string): string {
 }
 
 // ── Beleg-Datenmodell für das PDF ───────────────────────────────────────────
-export type BelegArt = "rechnung" | "gutschrift" | "lieferschein" | "bestellung" | "angebot";
+export type BelegArt = "rechnung" | "gutschrift" | "lieferschein" | "bestellung" | "angebot" | "proforma";
 
 export const BELEG_TITEL: Record<BelegArt, string> = {
   rechnung: "Rechnung",
@@ -43,12 +43,15 @@ export const BELEG_TITEL: Record<BelegArt, string> = {
   lieferschein: "Lieferschein",
   bestellung: "Bestellung",
   angebot: "Angebot",
+  proforma: "Proforma-Rechnung",
 };
 
 export interface PdfBeleg {
   art: BelegArt;
   nummer: string;
   istEntwurf: boolean;
+  proforma?: boolean;
+  abschlagCent?: number;
   datum: string;
   faellig?: string | null;
   leistungsdatum?: string | null;

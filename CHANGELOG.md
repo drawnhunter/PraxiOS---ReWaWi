@@ -2,6 +2,27 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.21.0] — 2026-10-06
+
+### Neu (Feld-Polish: Engine-Fix + Proforma + Mail-UX ×7 — Bus #120/#123/#128)
+
+**#120 Engine-Fix (geteilte Engine, auch PaWaWi-relevant):** Negative Rechnungspositionen (Anzahlungs-/Vorkassen-Abzug) werden nicht mehr still auf 0 geklemmt — `computeTotals` saldiert korrekt; die Floor-Klemme gilt nur in der Rabatt-Logik. Neue Engine-Tests (Negativzeilen, Gesamt-Negativ, Regression).
+
+**#123 Proforma/Vorschuss (PaWaWi-Parität #110):**
+- `POST /rechnung/:id/finalisieren` (Nummernkreis) und `POST /rechnung/:id/finalisieren {typ:"proforma"}` (finalisiert **ohne** Nummer, Status `proforma`, PDF als „Proforma-Rechnung")
+- `POST /rechnung/:id/vorkasse-setzen` (abschlagBetrag = bezahlter Betrag) · `POST /rechnung/:id/in-rechnung-umwandeln` (Proforma → echte Rechnung mit Nummer)
+- `PATCH /rechnung-entwurf/:id` (rechnungs-/faelligkeitsdatum korrigierbar, nur Entwürfe) · `typ:"proforma"` auch in `POST /rechnung-entwurf`
+- `GET /rechnung/:id/pdf` gibt Proforma-PDFs aus (Präfix „Proforma-…", kein „Entwurf #")
+
+**#128 Mail-UX ×7:**
+1. **iCalendar-Terminmails** (Outlook-Einladung/Absage) werden geparst und als Termin-Karte gerendert — mit „In Kalender übernehmen" (iCal-Lib + parserseitiges Laden aus Text oder text/calendar-Anhang)
+2. **Anhangsvorschau** vor Download (Overlay: PDF/Bild/Text inline, Download per Button)
+3. **Suche-Hinweis** nennt den aktiven Begriff dynamisch + Suchfeld bekommt Fokus-Ring + Leeren-X
+4. **Verfassen-Button** liegt jetzt links neben den Tabs als Ghost (nicht mehr mit „Senden" verwechselbar)
+5. **Klappbare Ordner** je Postfach (Chevron, Betterbird-Standard)
+6. **Bilderblocker:** externe Bilder blockiert mit Banner + „Bilder laden" + „immer von diesem Absender" (lokal gemerkt)
+7. **Kontextmenü pro Mail** (Rechtsklick): Öffnen, Antworten, Weiterleiten, Gelesen/Ungelesen, Markierung, Verschieben in … (Ordnerliste), Löschen (Notfall)
+
 ## [1.20.5] — 2026-10-02
 
 ### Behoben & Neu (Mail-Sicherheit, Bus #104/#118/#119)
