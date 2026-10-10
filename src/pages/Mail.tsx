@@ -1064,6 +1064,22 @@ function MailKontextMenue({ x, y, mail, onSchliessen, onOeffnen, onAntworten, on
   onLoeschen: () => void;
 }) {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
+
+  // Sammel-Fix: schließt bei Klick außerhalb UND bei Escape
+  useEffect(() => {
+    const klick = (e: MouseEvent) => {
+      const ziel = e.target as HTMLElement;
+      if (!ziel.closest("[data-mailkontext]")) onSchliessen();
+    };
+    const taste = (e: KeyboardEvent) => { if (e.key === "Escape") onSchliessen(); };
+    document.addEventListener("mousedown", klick);
+    document.addEventListener("keydown", taste);
+    return () => {
+      document.removeEventListener("mousedown", klick);
+      document.removeEventListener("keydown", taste);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const eintrag = (label: string, aktion: () => void, klasse = "") => (
     <button
       onClick={aktion}
@@ -1074,6 +1090,7 @@ function MailKontextMenue({ x, y, mail, onSchliessen, onOeffnen, onAntworten, on
   );
   return (
     <div
+      data-mailkontext
       className="fixed z-50 w-52 rounded-md border border-neutral-200 bg-white py-1 shadow-xl"
       style={{ left: Math.min(x, window.innerWidth - 220), top: Math.min(y, window.innerHeight - 300) }}
       onClick={(e) => e.stopPropagation()}

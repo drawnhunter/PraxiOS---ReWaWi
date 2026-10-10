@@ -2,6 +2,12 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.21.1] — 2026-10-06
+
+### Behoben
+
+- **Mail-Kontextmenü schließt jetzt bei Klick außerhalb und per Escape** (Sammel-Fix aus der Praxis: bisher nur Menüpunkt-Auswahl schloss das Rechtsklick-Menü).
+
 ## [1.21.0] — 2026-10-06
 
 ### Neu (Feld-Polish: Engine-Fix + Proforma + Mail-UX ×7 — Bus #120/#123/#128)
