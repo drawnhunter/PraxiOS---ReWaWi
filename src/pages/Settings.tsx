@@ -58,6 +58,7 @@ interface FirmenForm {
   oeffentlicheUrl: string;
   notfallOrdnerAktiv: boolean;
   notfallStunden: number;
+  standardKontoId: number | null;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
@@ -88,6 +89,7 @@ export default function SettingsPage() {
   const settings = trpc.settings.get.useQuery();
   const sequenzen = trpc.settings.sequences.useQuery();
   const banken = trpc.bank.list.useQuery();
+  const mailKonten = trpc.emailKonten.liste.useQuery();
 
   const [firma, setFirma] = useState<FirmenForm | null>(null);
   const [bankDialog, setBankDialog] = useState(false);
@@ -144,6 +146,7 @@ export default function SettingsPage() {
       oeffentlicheUrl: s.oeffentlicheUrl ?? "",
       notfallOrdnerAktiv: s.notfallOrdnerAktiv ?? true,
       notfallStunden: s.notfallStunden ?? 24,
+      standardKontoId: s.standardKontoId ?? null,
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
       smtpUser: s.smtpUser ?? "",
@@ -347,6 +350,7 @@ export default function SettingsPage() {
                 oeffentlicheUrl: firma.oeffentlicheUrl || null,
                 notfallOrdnerAktiv: firma.notfallOrdnerAktiv,
                 notfallStunden: firma.notfallStunden,
+                standardKontoId: firma.standardKontoId ?? null,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
                 smtpUser: firma.smtpUser || null,
@@ -538,6 +542,20 @@ export default function SettingsPage() {
               </select>
               <span className="text-xs text-neutral-400">(Mail liegt X s im Ausgang — „Rückgängig" holt sie zurück)</span>
             </label>
+          </div>
+          <div className="flex items-center gap-3 sm:col-span-2">
+            <Label className="shrink-0">Standard-Absenderkonto</Label>
+            <select
+              className="h-8 rounded-md border border-neutral-200 bg-white px-2 text-xs"
+              value={String(firma.standardKontoId ?? "")}
+              onChange={(e) => setFirma({ ...firma, standardKontoId: e.target.value ? Number(e.target.value) : null })}
+            >
+              <option value="">— Firmen-SMTP (wie bisher)</option>
+              {(mailKonten.data ?? []).map((k) => (
+                <option key={k.id} value={String(k.id)}>{k.name} ({k.benutzer})</option>
+              ))}
+            </select>
+            <span className="text-xs text-neutral-400">unabhängig vom E-Rechnungs-Empfangskonto (Bus #172)</span>
           </div>
           <div className="flex items-center gap-4 sm:col-span-2">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-600">

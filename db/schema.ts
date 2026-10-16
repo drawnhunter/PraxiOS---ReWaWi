@@ -80,6 +80,8 @@ export const companySettings = mysqlTable("company_settings", {
   // Notfall-Loeschordner (v1.20.5, Bus #104): geloeschte Mails wandern erst hierhin
   notfallOrdnerAktiv: boolean("notfall_ordner_aktiv").notNull().default(true),
   notfallStunden: int("notfall_stunden").notNull().default(24),
+  // Standard-Absenderkonto (v1.21.2, Bus #172): getrennt vom E-Rechnungs-Empfangskonto
+  standardKontoId: bigint("standard_konto_id", { mode: "number", unsigned: true }),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
 

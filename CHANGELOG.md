@@ -2,6 +2,15 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.21.2] — 2026-10-16
+
+### Neu & Behoben (Bus #168–#172)
+
+- **#172 Standard-Absenderkonto** (Einstellungen → E-Mail): getrennt vom E-Rechnungs-Empfangskonto — die Vorauswahl im Verfassen-Tab folgt jetzt der Einstellung (Fallback: bisheriges Verhalten). rechnung@ als Empfangskonto, info@ als Absender — sauber getrennt.
+- **#170 Kontext-sensitiver Schließ-Dialog:** bei geöffnetem Entwurf fünf Optionen — Abbrechen / Entwurf speichern / **Änderung verwerfen** (schreibt den gespeicherten Stand zurück, Entwurf bleibt bestehen — Autosave-sicher) / Senden / **Löschen (endgültig)**. Bei neuen Mails unverändert. Agenten-Vorlagen (z. B. Avis) sind vor versehentlichem Löschen geschützt.
+- **#169 `PATCH /mail-entwurf/:id`** — Entwurf-Felder per Merge korrigieren (empfaenger/cc/bcc/betreff/text/kontoId/anhaenge) — Agenten können Entwürfe anfassen, ohne UI-Korrekturen zu verlieren. (Betreff-Mojibake-Teil: IMAP-Ingest unschuldig — Codepoints-Nachmessung des Agenten bestätigt.)
+- **#168 „Mail schreiben"-Button** prominent über den Postfächern in der Sidebar (nicht mehr nur als Tab oben).
+
 ## [1.21.1] — 2026-10-06
 
 ### Behoben

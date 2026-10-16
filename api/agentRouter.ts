@@ -2054,6 +2054,32 @@ app.get("/mail-entwuerfe", async (c) => {
   });
 });
 
+/** Entwurf korrigieren (Merge — Bus #169): Felder nur ändern, nicht ersetzen-müssen. */
+app.patch("/mail-entwurf/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const { mailEntwuerfe } = await import("@db/schema");
+  const db = getDb();
+  const e = await db.query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, id) });
+  if (!e) return c.json({ ok: false, fehler: "Entwurf nicht gefunden." }, 404);
+  const patch: Record<string, unknown> = {};
+  for (const feld of ["empfaenger", "cc", "bcc", "betreff", "text"] as const) {
+    if (body[feld] !== undefined) patch[feld] = String(body[feld]);
+  }
+  if (body.kontoId !== undefined) patch.kontoId = body.kontoId ? Number(body.kontoId) : null;
+  if (Array.isArray(body.anhaenge)) {
+    patch.anhaenge = JSON.stringify((body.anhaenge as { dateiname?: unknown; base64?: unknown; mime?: unknown }[])
+      .filter((a) => a?.dateiname && a?.base64)
+      .map((a) => ({ dateiname: String(a.dateiname), base64: String(a.base64), mime: String(a.mime ?? "application/octet-stream") })));
+  }
+  if (Object.keys(patch).length === 0) {
+    return c.json({ ok: false, fehler: "Nichts zu ändern — Felder: empfaenger, cc, bcc, betreff, text, kontoId, anhaenge." }, 400);
+  }
+  await db.update(mailEntwuerfe).set(patch).where(eq(mailEntwuerfe.id, id));
+  await audit("mail_entwurf_korrigiert", { id, felder: Object.keys(patch) });
+  return c.json({ ok: true, id, aktualisiert: Object.keys(patch) });
+});
+
 app.delete("/mail-entwurf/:id", async (c) => {
   const { mailEntwuerfe } = await import("@db/schema");
   const id = Number(c.req.param("id"));

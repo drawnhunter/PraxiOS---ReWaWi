@@ -130,6 +130,8 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   // ── v1.21.0: Proforma/Vorschuss ──
   { tabelle: "invoices", spalte: "typ", ddl: "ALTER TABLE invoices ADD COLUMN typ VARCHAR(20) NOT NULL DEFAULT 'rechnung' AFTER status" },
   { tabelle: "invoices", spalte: "abschlag_betrag", ddl: "ALTER TABLE invoices ADD COLUMN abschlag_betrag DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER typ" },
+  // ── v1.21.2 ──
+  { tabelle: "company_settings", spalte: "standard_konto_id", ddl: "ALTER TABLE company_settings ADD COLUMN standard_konto_id BIGINT UNSIGNED NULL AFTER notfall_stunden" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

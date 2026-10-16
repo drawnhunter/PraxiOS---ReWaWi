@@ -72,7 +72,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `GET /mail/:id/anhang/:index/text` → **Textinhalt des Anhangs** (PDF via pdftotext, Scan-PDFs automatisch per OCR, Bilder via OCR) — mit `scanHinweis: true` bei < 150 Zeichen OCR-Ertrag; `POST /mail/:id/als-beleg` extrahiert Betrag/Datum jetzt automatisch vor
 - `POST /mails/datum-heilen` → Mails ohne Datum bekommen IMAP-Envelope-Datum (Fallback: created_at)
 - **`POST /mail/entwurf {empfaenger[], cc?, bcc?, kontoId?, betreff, text|html, anhaenge?[{dateiname,base64,mime}], inReplyTo?, references?}`** → Entwurf in der UI (Verfassen-Tab → Entwürfe-Liste, Badge „KI"). **Der Mensch-Review-Weg: du bereitest vor, der Mensch sendet ab.** Braucht KEINE vollautomatik.
-- `GET /mail-entwuerfe?kontoId=` → Liste · `DELETE /mail-entwurf/:id`
+- `GET /mail-entwuerfe?kontoId=` → Liste · **`PATCH /mail-entwurf/:id`** (Merge: empfaenger/cc/bcc/betreff/text/kontoId/anhaenge) · `DELETE /mail-entwurf/:id`
 - **`POST /mail-entwurf/:id/senden`** → Entwurf direkt senden (Gate: vollautomatik ODER Freigabeliste deckt alle Empfänger) — danach ist der Entwurf gelöscht und die Mail liegt im Gesendet-Ordner (IMAP-Append, sofort sichtbar)
 - **`POST /mail/:id/als-entwurf {empfaenger?, betreff?, text, mitAnhaengen?}`** → Antwort-/Weiterleiten-Entwurf aus vorhandener Mail (Anhänge optional übernommen — „Beleg ans Steuerbüro")
 - `POST /mail/:id/gelesen {status}` · `POST /mail/:id/markierung {status}` (Brain-Flag) · `POST /mail/:id/verschieben {ordner}` (echter IMAP-Move)

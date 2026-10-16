@@ -97,7 +97,7 @@ function EmpfaengerFeld({ wert, onWert, placeholder }: {
 /** Der „Mail verfassen"-Tab: volles Paket (RTE, Von/An/CC/BCC, Anhänge, Entwurf). */
 export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   start: VerfassenStart;
-  abschlussAktion: "loeschen" | "entwurf" | "senden" | null;
+  abschlussAktion: "loeschen" | "entwurf" | "senden" | "aenderungVerwerfen" | null;
   onAktionErledigt: () => void;
 }) {
   /** Entwurf wirklich verwerfen: DB-Löschung (falls gespeichert) + Tab zu. */
@@ -111,11 +111,26 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
     }
   };
 
+  /** Änderung verwerfen (#170): gespeicherten Entwurf auf den Zustand beim Öffnen zurückschreiben, dann schließen. */
+  const aenderungVerwerfen = () => {
+    if (!entwurfId) { onAktionErledigt(); return; }
+    entwurfSpeichern.mutate(
+      {
+        id: entwurfId,
+        empfaenger: start.empfaenger ?? "", cc: start.cc ?? "", bcc: start.bcc ?? "",
+        kontoId: start.kontoId ?? undefined, betreff: start.betreff ?? "",
+        text: start.html ?? "", anhaenge: start.anhaenge?.length ? start.anhaenge : undefined,
+      },
+      { onSuccess: () => { utils.postfach.entwuerfe.invalidate(); onAktionErledigt(); }, onError: (e) => setFehler(e.message) },
+    );
+  };
+
   // Aktion aus dem Schliessen-Dialog ausfuehren (Loeschen / Entwurf / Senden)
   useEffect(() => {
     if (abschlussAktion === "loeschen") entwurfVerwerfen();
     else if (abschlussAktion === "entwurf") entwurfSichern(true);
     else if (abschlussAktion === "senden") senden();
+    else if (abschlussAktion === "aenderungVerwerfen") aenderungVerwerfen();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abschlussAktion]);
   const [kontoId, setKontoId] = useState<number | null>(start.kontoId ?? null);
@@ -166,6 +181,19 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
     signaturInit.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postfaecher.data]);
+
+  // #172: Standard-Absenderkonto (unabhängig vom E-Rechnungs-Empfangskonto) als Vorauswahl
+  const standardInit = useRef(false);
+  useEffect(() => {
+    if (standardInit.current) return;
+    const standard = einstellungen.data?.standardKontoId;
+    if (standard && start.kontoId == null && kontoId == null) {
+      setKontoId(standard);
+      if (signaturInit.current) signaturEinsetzen(standard);
+    }
+    standardInit.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [einstellungen.data]);
 
   // Autosave (#104): alle 8 s nach Änderung still sichern — kein Entwurf geht mehr verloren
   const letzteAuto = useRef("");
@@ -381,30 +409,58 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   );
 }
 
-/** Bestätigungs-Dialog beim Schließen eines Verfassen-Tabs. */
-export function VerfassenSchliessenDialog({ onWahl, onAbbrechen }: {
-  onWahl: (aktion: "loeschen" | "entwurf" | "senden") => void;
+/** Bestätigungs-Dialog beim Schließen eines Verfassen-Tabs — kontext-sensitiv (#170):
+ *  Neue Mail → 3 Optionen wie bisher. Entwurf offen → 5 Optionen (Änderung verwerfen ≠ Löschen). */
+export function VerfassenSchliessenDialog({ onWahl, onAbbrechen, istEntwurf }: {
+  onWahl: (aktion: "loeschen" | "entwurf" | "senden" | "aenderungVerwerfen") => void;
   onAbbrechen: () => void;
+  istEntwurf?: boolean;
 }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onAbbrechen()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Entwurf schließen — was soll passieren?</DialogTitle>
+          <DialogTitle>{istEntwurf ? "Entwurf schließen — was soll passieren?" : "Verfassen schließen — was soll passieren?"}</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-neutral-600">Du hast ungesendete Inhalte in diesem Entwurf.</p>
+        <p className="text-sm text-neutral-600">
+          {istEntwurf
+            ? "Der Entwurf ist gespeichert und bleibt bestehen. Wähle, was mit den seit dem Öffnen gemachten Änderungen passiert."
+            : "Du hast ungesendete Inhalte in diesem Entwurf."}
+        </p>
         <DialogFooter className="flex flex-wrap justify-between gap-2">
-          <Button variant="ghost" className="text-red-600" onClick={() => onWahl("loeschen")}>
-            <Trash2 className="mr-1.5 h-4 w-4" /> Löschen
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onWahl("entwurf")}>
-              <Save className="mr-1.5 h-4 w-4" /> Als Entwurf speichern
-            </Button>
-            <Button onClick={() => onWahl("senden")}>
-              <Send className="mr-1.5 h-4 w-4" /> Senden
-            </Button>
-          </div>
+          {istEntwurf ? (
+            <div className="flex w-full flex-col gap-2">
+              <Button variant="ghost" onClick={onAbbrechen}>Abbrechen</Button>
+              <Button variant="outline" onClick={() => onWahl("entwurf")}>
+                <Save className="mr-1.5 h-4 w-4" /> Entwurf speichern
+              </Button>
+              <Button variant="outline" className="border-amber-300 text-amber-700" onClick={() => onWahl("aenderungVerwerfen")}>
+                <X className="mr-1.5 h-4 w-4" /> Änderung verwerfen (Entwurf bleibt wie gespeichert)
+              </Button>
+              <div className="flex justify-between gap-2">
+                <Button variant="ghost" className="text-red-600" onClick={() => onWahl("loeschen")}>
+                  <Trash2 className="mr-1.5 h-4 w-4" /> Löschen (endgültig)
+                </Button>
+                <Button onClick={() => onWahl("senden")}>
+                  <Send className="mr-1.5 h-4 w-4" /> Senden
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <Button variant="ghost" className="text-red-600" onClick={() => onWahl("loeschen")}>
+                <Trash2 className="mr-1.5 h-4 w-4" /> Löschen
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => onWahl("entwurf")}>
+                  <Save className="mr-1.5 h-4 w-4" /> Als Entwurf speichern
+                </Button>
+                <Button onClick={() => onWahl("senden")}>
+                  <Send className="mr-1.5 h-4 w-4" /> Senden
+                </Button>
+              </div>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

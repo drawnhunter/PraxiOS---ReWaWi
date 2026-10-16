@@ -80,7 +80,7 @@ export default function MailPostfach() {
   const [listeBreite, setListeBreite] = nutzeBreite("mail-spalte-liste", 400, 280, 640);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [aktiv, setAktiv] = useState<Tab | null>(null);
-  const [abschlussAktion, setAbschlussAktion] = useState<"loeschen" | "entwurf" | "senden" | null>(null);
+  const [abschlussAktion, setAbschlussAktion] = useState<"loeschen" | "entwurf" | "senden" | "aenderungVerwerfen" | null>(null);
   const [aktionZiel, setAktionZiel] = useState<number | null>(null); // schluessel des Verfassen-Tabs
   const [schliessenDialog, setSchliessenDialog] = useState<number | null>(null);
   const [vorschau, setVorschau] = useState<number | null>(null);
@@ -140,6 +140,7 @@ export default function MailPostfach() {
         <Seitenleiste
           kontoId={kontoId} setKontoId={(v) => { setKontoId(v); setOrdner(null); }}
           ordner={ordner} setOrdner={setOrdner}
+          onVerfassen={() => oeffneVerfassen({ kontoId })}
           onEntwurfOeffnen={(e) => oeffneVerfassen({
             empfaenger: e.empfaenger ?? "", cc: e.cc ?? "", bcc: e.bcc ?? "",
             betreff: e.betreff ?? "", html: e.text ?? "<p><br></p>",
@@ -355,6 +356,7 @@ export default function MailPostfach() {
         const dlg = tabs.find((t) => t.typ === "verfassen" && t.schluessel === schliessenDialog);
         return dlg ? (
           <VerfassenSchliessenDialog
+            istEntwurf={dlg.typ === "verfassen" && Boolean(dlg.start.entwurfId)}
             onWahl={(aktion) => { setAbschlussAktion(aktion); setAktionZiel(schliessenDialog); setSchliessenDialog(null); }}
             onAbbrechen={() => setSchliessenDialog(null)}
           />
@@ -425,9 +427,10 @@ function ladeJson<T>(key: string, fallback: T): T {
   }
 }
 
-function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen }: {
+function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onVerfassen, onEntwurfOeffnen }: {
   kontoId: number | null; setKontoId: (v: number | null) => void;
   ordner: string | null; setOrdner: (v: string | null) => void;
+  onVerfassen: () => void;
   onEntwurfOeffnen: (e: EntwurfEintrag) => void;
 }) {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
@@ -474,6 +477,10 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onEntwurfOeffnen
 
   return (
     <div className="h-full space-y-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3" onClick={() => { setKontext(null); setKontoKontext(null); }}>
+      {/* #168: prominenter „Mail schreiben"-Button direkt über den Postfächern */}
+      <Button className="mb-2 w-full" onClick={onVerfassen}>
+        <Pencil className="mr-1.5 h-4 w-4" /> Mail schreiben
+      </Button>
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Postfächer</span>
         <Link to="/einstellungen" title="Konten verwalten">
