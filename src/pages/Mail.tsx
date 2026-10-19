@@ -160,14 +160,7 @@ export default function MailPostfach() {
           >
             Postfach
           </button>
-          {/* #128.4: Verfassen-Button links neben den Tabs (Ghost-Stil — kann nicht mit „Senden" verwechselt werden) */}
-          <button
-            onClick={() => oeffneVerfassen({ kontoId })}
-            title="Neue Mail verfassen"
-            className="flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Verfassen
-          </button>
+          {/* #175: Der obere Verfassen-Tab ist weg — Verfassen läuft über den „Mail schreiben"-Button in der Sidebar */}
           {tabs.map((t) => {
             const istAktiv = aktiv === t;
             const label = t.typ === "mail" ? (t.betreff || "(kein Betreff)") : "✉ Verfassen";

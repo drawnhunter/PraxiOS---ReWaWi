@@ -2,6 +2,13 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.21.3] — 2026-10-19
+
+### Behoben & Neu (Bus #174/#175)
+
+- **#174 Signatur WYSIWYG wirklich sichtbar:** Die Editor-Einfügung aus v1.20.5 blieb unsichtbar, weil der Editor sein `innerHTML` nur beim Mount setzt — jetzt erzwingt die Signatur-Einfügung einen Editor-Remount (Marker `<p data-signatur="1">`). Server-Regel sauber getrennt: UI-Entwürfe (quelle=mensch) bekommen **nie** serverseitig angehängt (manuell entfernt = gewollt); Agent-Entwürfe (quelle=agent) nur, wenn sie fehlt. Kein Doppeln mehr.
+- **#175 Verfassen-Tab oben entfernt** — Verfassen läuft nur noch über den „Mail schreiben"-Button über den Postfächern in der Sidebar (aus #168).
+
 ## [1.21.2] — 2026-10-16
 
 ### Neu & Behoben (Bus #168–#172)

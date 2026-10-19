@@ -161,15 +161,14 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
     return proKonto?.trim() ? proKonto.trim() : (einstellungen.data?.signatur ?? "").trim();
   };
 
-  /** Signatur in den Editor einfügen (sichtbar + editierbar); bei Konto-Wechsel ersetzen. */
+  /** Signatur in den Editor einfügen (sichtbar + editierbar); Marker data-signatur für den Server. */
   const signaturEinsetzen = (kId: number | null) => {
     const sig = aktiveSignatur(kId);
     if (!sig) return;
-    const sigHtml = sig.replace(/\n/g, "<br>");
-    setHtml((alt) => {
-      if (alt.includes(sig)) return alt; // schon drin — kein Doppeln (#118)
-      return `${alt}<p><br></p><p style="color:#6b7280">${sigHtml}</p>`;
-    });
+    if (html.includes(sig) || html.includes('data-signatur="1"')) return; // schon drin — kein Doppeln
+    setHtml(`${html}<p><br></p><p data-signatur="1" style="color:#6b7280">${sig.replace(/\n/g, "<br>")}</p>`);
+    // #174: Der Editor setzt innerHTML nur beim Mount — Remount erzwingen, damit die Signatur sichtbar wird
+    setEditorKey((k) => k + 1);
   };
 
   // Beim Mount (frische Verfassung, kein Entwurf) + bei Konto-Wechsel einfügen
@@ -295,12 +294,13 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
               const neue = aktiveSignatur(neu);
               setHtml((alt) => {
                 if (alte && alt.includes(alte)) {
-                  const sigHtmlNeu = neue ? `<p style="color:#6b7280">${neue.replace(/\n/g, "<br>")}</p>` : "";
-                  return alt.replace(`<p style="color:#6b7280">${alte.replace(/\n/g, "<br>")}</p>`, sigHtmlNeu);
+                  const sigHtmlNeu = neue ? `<p data-signatur="1" style="color:#6b7280">${neue.replace(/\n/g, "<br>")}</p>` : "";
+                  return alt.replace(`<p data-signatur="1" style="color:#6b7280">${alte.replace(/\n/g, "<br>")}</p>`, sigHtmlNeu);
                 }
                 return alt;
               });
               setKontoId(neu);
+              setEditorKey((k) => k + 1); // Remount: Editor zeigt die gewechselte Signatur
               signaturEinsetzen(neu);
             }}
           >

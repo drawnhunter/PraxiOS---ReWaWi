@@ -18,14 +18,17 @@ export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: 
   try {
     const { versendeMail } = await import("./mailVersand");
     const text = e.text ?? "";
-    // Signatur-Doppelschutz (#118): die UI fügt sie seit 1.20.5 sichtbar in den Editor ein —
-    // serverseitig nur anhängen, wenn sie im Text NICHT schon steckt (Agent-Entwürfe)
-    let mitSignatur = true;
-    const settings = await db.query.companySettings.findFirst();
-    const { emailKonten } = await import("@db/schema");
-    const konto = e.kontoId ? await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, e.kontoId) }) : null;
-    const sigQuelle = ((e.inReplyTo ? konto?.signaturAntwort : konto?.signaturNeu) ?? "").trim() || (settings?.signatur ?? "").trim();
-    if (sigQuelle && (text.includes(sigQuelle) || text.includes(sigQuelle.replace(/\n/g, "<br>")))) mitSignatur = false;
+    // Signatur-Regel (#174): UI-Entwürfe (quelle=mensch) haben die Signatur seit 1.21.3 sichtbar
+    // im Editor — der Server hängt bei ihnen NIE nach (manuell entfernt = gewollt).
+    // Agent-Entwürfe (quelle=agent) bekommen sie angehängt, wenn sie im Text fehlt.
+    let mitSignatur = false;
+    if (e.quelle === "agent") {
+      const settings = await db.query.companySettings.findFirst();
+      const { emailKonten } = await import("@db/schema");
+      const konto = e.kontoId ? await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, e.kontoId) }) : null;
+      const sigQuelle = ((e.inReplyTo ? konto?.signaturAntwort : konto?.signaturNeu) ?? "").trim() || (settings?.signatur ?? "").trim();
+      if (sigQuelle && !text.includes('data-signatur="1"') && !text.includes(sigQuelle) && !text.includes(sigQuelle.replace(/\n/g, "<br>"))) mitSignatur = true;
+    }
     const r = await versendeMail({
       kontoId: e.kontoId ?? undefined,
       empfaenger,
