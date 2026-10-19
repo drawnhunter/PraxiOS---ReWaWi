@@ -44,13 +44,18 @@ const ZEILEN_SKIP =
 
 const START = /^(\d{2})\.(\d{2})\.(\d{2}),\s+([A-Z0-9]{10})\s+(.*)$/;
 const ZEIT = /^\d{2}:\d{2}\s*/;
-// Vier Zahlenkolonnen am Zeilenende: ausgehend, eingehend, Gebühr, Saldo
-const ENDCLUSTER =
-  /(-?[\d][\d.]*[.,]\d{2})\s+(-?[\d][\d.]*[.,]\d{2})\s+(-?[\d][\d.]*[.,]\d{2})\s+(-?[\d][\d.]*[.,]\d{2})\s*$/;
+// Vier Zahlenkolonnen am Zeilenende: ausgehend, eingehend, Gebühr, Saldo.
+// Leere Zellen stehen im Auszug als „-" (v1.21.4, Bus #176: Auszahlungs-/
+// Gebühren-/Kartenzahlungs-Zeilen haben nicht alle vier Kolonnen belegt).
+// Die Saldo-Kolonne (letzte) ist immer eine Zahl.
+const ZAHL = String.raw`-?[\d][\d.]*[.,]\d{2}`;
+const ENDCLUSTER = new RegExp(
+  `(${ZAHL}|-)\\s+(${ZAHL}|-)\\s+(${ZAHL}|-)\\s+(${ZAHL})\\s*$`,
+);
 
 function betragLesen(roh: string): number | null {
   const t = roh.trim().replace(/\s/g, "");
-  if (!t) return null;
+  if (!t || t === "-") return null;
   // Deutsch "1.234,56" oder englisch "1234.56" (SumUp nutzt im Auszug Punkte)
   const n = t.includes(",")
     ? Number(t.replace(/\./g, "").replace(",", "."))
@@ -69,10 +74,18 @@ function datumIso(t: string, m: string, j: string): string {
 export function zerlegeAuszugZeilen(textZeilen: string[]): {
   zeilen: AuszugZeile[];
   uebersprungen: number;
+  uebersprungeneZeilen: string[];
   meta: AuszugMeta;
 } {
   const zeilen: AuszugZeile[] = [];
   let uebersprungen = 0;
+  // Rohzeilen der übersprungenen Buchungskandidaten (Diagnose, Bus #176) —
+  // damit Agent/UI sehen können, WELCHE Zeilen der Parser nicht frisst
+  const uebersprungeneZeilen: string[] = [];
+  const merkeUebersprungen = (roh: string) => {
+    uebersprungen++;
+    if (uebersprungeneZeilen.length < 20) uebersprungeneZeilen.push(roh.slice(0, 200));
+  };
   const meta: AuszugMeta = { iban: null, anfangsSaldo: null, endSaldo: null, pruefsummeOk: null };
 
   let offen: AuszugZeile | null = null;
@@ -117,7 +130,7 @@ export function zerlegeAuszugZeilen(textZeilen: string[]): {
 
       // Status + vier Zahlenkolonnen (ausgehend, eingehend, Gebühr, Saldo) am Zeilenende
       const endM = rest.match(ENDCLUSTER);
-      if (!endM || endM.index === undefined) { uebersprungen++; continue; }
+      if (!endM || endM.index === undefined) { merkeUebersprungen(zeile); continue; }
       const vier = endM.slice(1, 5);
       const vorZahlen = rest.slice(0, endM.index).trim();
 
@@ -129,8 +142,8 @@ export function zerlegeAuszugZeilen(textZeilen: string[]): {
         if (STATUS.test(kandidat)) status = worte.pop() as string;
         else break;
       }
-      if (!status) { uebersprungen++; continue; }
-      if (STATUS_SKIP.test(status)) { uebersprungen++; continue; }
+      if (!status) { merkeUebersprungen(zeile); continue; }
+      if (STATUS_SKIP.test(status)) { merkeUebersprungen(zeile); continue; }
 
       let kopf = worte.join(" ").trim();
       // Art der Transaktion vom Zeilenanfang abtrennen
@@ -177,7 +190,7 @@ export function zerlegeAuszugZeilen(textZeilen: string[]): {
       Math.abs(meta.anfangsSaldo + summe - meta.endSaldo) < 0.02;
   }
 
-  return { zeilen, uebersprungen, meta };
+  return { zeilen, uebersprungen, uebersprungeneZeilen, meta };
 }
 
 import { execFile } from "node:child_process";
@@ -213,6 +226,7 @@ export async function extrahiereTextZeilen(puffer: Uint8Array): Promise<string[]
 export async function liesSumUpKontoauszug(puffer: Uint8Array): Promise<{
   zeilen: AuszugZeile[];
   uebersprungen: number;
+  uebersprungeneZeilen: string[];
   meta: AuszugMeta;
 }> {
   const zeilen = await extrahiereTextZeilen(puffer);

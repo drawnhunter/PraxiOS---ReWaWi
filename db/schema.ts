@@ -590,6 +590,9 @@ export const incomingInvoices = mysqlTable(
     typ: varchar("typ", { length: 20 }).notNull().default("rechnung"), // rechnung / gutschrift (v1.19)
     betragBank: decimal("betrag_bank", { precision: 12, scale: 2 }), // EUR-Ist bei Fremdwährung (v1.19)
     bezahltAm: date("bezahlt_am", { mode: "string" }),
+    // Teilzahlung (v1.21.4): Summe der zugebuchten Zahlungen; bezahltAm gilt nur,
+    // wenn bezahltBetrag >= brutto (Bus #177)
+    bezahltBetrag: decimal("bezahlt_betrag", { precision: 12, scale: 2 }).notNull().default("0"),
     positionenJson: text("positionen_json"),
     originalXml: text("original_xml"),
     bemerkung: text("bemerkung"),

@@ -132,6 +132,8 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "invoices", spalte: "abschlag_betrag", ddl: "ALTER TABLE invoices ADD COLUMN abschlag_betrag DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER typ" },
   // ── v1.21.2 ──
   { tabelle: "company_settings", spalte: "standard_konto_id", ddl: "ALTER TABLE company_settings ADD COLUMN standard_konto_id BIGINT UNSIGNED NULL AFTER notfall_stunden" },
+  // ── v1.21.4: Beleg-Teilzahlung (Bus #177) ──
+  { tabelle: "incoming_invoices", spalte: "bezahlt_betrag", ddl: "ALTER TABLE incoming_invoices ADD COLUMN bezahlt_betrag DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER bezahlt_am" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -665,6 +667,15 @@ const SCHEMA_UPDATES: { name: string; check: (db: string) => string; ddl: string
     check: (db) =>
       `SELECT COUNT(*) AS v FROM suppliers WHERE synonym IS NULL`,
     ddl: "UPDATE suppliers SET synonym = CONCAT('L-', LPAD(id, 4, '0')) WHERE synonym IS NULL",
+  },
+  {
+    // v1.21.4 (Bus #177): Legacy-Invariante herstellen — bezahltAm gesetzt hieß bisher
+    // „voll bezahlt" → bezahlt_betrag auf brutto nachziehen. Einzelfall-Korrekturen
+    // (tatsächliche Teilzahlung) danach explizit per PATCH /beleg/:id.
+    name: "incoming_invoices bezahlt_betrag backfill",
+    check: () =>
+      `SELECT 1 AS v FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM incoming_invoices WHERE bezahlt_am IS NOT NULL AND bezahlt_betrag + 0.004 < brutto)`,
+    ddl: "UPDATE incoming_invoices SET bezahlt_betrag = brutto WHERE bezahlt_am IS NOT NULL AND bezahlt_betrag + 0.004 < brutto",
   },
   {
     // v1.8 Schritt 3: Enum auf Endzustand (ohne 'finalisiert')

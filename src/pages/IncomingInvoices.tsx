@@ -5,6 +5,7 @@ import { CsvButton } from "@/components/CsvButton";
 import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 import { deZahl } from "@/lib/downloads";
 import { trpc } from "@/providers/trpc";
+import { toast } from "sonner";
 import { useSortierung } from "@/lib/sortierung";
 import { geld, datum as fmtDatum } from "@/lib/format";
 import { textHerunterladen } from "@/lib/downloads";
@@ -27,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Upload, CheckCircle2, AlertTriangle, XCircle, FileDown, Eye, FileText, ArchiveRestore, Search, MessageCircleQuestion } from "lucide-react";
+import { Upload, CheckCircle2, AlertTriangle, XCircle, FileDown, Eye, FileText, ArchiveRestore, Search, MessageCircleQuestion, Coins } from "lucide-react";
 
 type Analyse = {
   ok: boolean;
@@ -100,6 +101,13 @@ export default function IncomingInvoices() {
   });
   const unmarkPaid = trpc.einrechnung.unmarkPaid.useMutation({
     onSuccess: () => utils.einrechnung.list.invalidate(),
+  });
+  const teilzahlung = trpc.einrechnung.teilzahlung.useMutation({
+    onSuccess: (res) => {
+      utils.einrechnung.list.invalidate();
+      toast.success(`Teilzahlung ${geld(res.zugebucht)} gebucht — noch offen: ${geld(res.offen)}`);
+    },
+    onError: (e) => toast.error(e.message),
   });
 
   // Beleg-Freigabe + Klärungen (Kanzlei-Arbeitsplatz)
@@ -362,6 +370,10 @@ export default function IncomingInvoices() {
                   <div className="flex flex-wrap items-center gap-1">
                     {r.bezahltAm ? (
                       <Badge>bezahlt {fmtDatum(r.bezahltAm)}</Badge>
+                    ) : Number(r.bezahltBetrag ?? 0) > 0.004 ? (
+                      <Badge variant="outline" className="text-amber-700 border-amber-300">
+                        teilbezahlt {geld(r.bezahltBetrag)} / {geld(r.brutto)}
+                      </Badge>
                     ) : (
                       <Badge variant="outline">offen</Badge>
                     )}
@@ -401,9 +413,24 @@ export default function IncomingInvoices() {
                       <FileDown className="h-4 w-4" />
                     </Button>
                     {!r.bezahltAm ? (
-                      <Button variant="outline" size="sm" onClick={() => setBezahlen(r.id)}>
-                        Bezahlen
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost" size="sm" title="Teilzahlung erfassen"
+                          onClick={() => {
+                            const rest = Math.max(0, Number(r.brutto) - Number(r.bezahltBetrag ?? 0));
+                            const eingabe = window.prompt(`Teilzahlung auf ${r.nummer} (offen: ${geld(rest)})\nBetrag in EUR:`, rest.toFixed(2));
+                            if (!eingabe) return;
+                            const betrag = Number(eingabe.replace(/\./g, "").replace(",", "."));
+                            if (!Number.isFinite(betrag) || betrag <= 0) { toast.error("Ungültiger Betrag."); return; }
+                            teilzahlung.mutate({ id: r.id, betrag });
+                          }}
+                        >
+                          <Coins className="h-4 w-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setBezahlen(r.id)}>
+                          Bezahlen
+                        </Button>
+                      </>
                     ) : (
                       <Button variant="ghost" size="sm" onClick={() => unmarkPaid.mutate({ id: r.id })}>
                         ↩

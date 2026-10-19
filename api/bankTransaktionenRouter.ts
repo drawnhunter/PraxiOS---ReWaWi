@@ -356,12 +356,21 @@ async function bucheAufRechnung(invoiceId: number, betrag: number, datum: string
   return verbucht;
 }
 
-async function bucheAufEingangsrechnung(incomingId: number, datum: string): Promise<void> {
+async function bucheAufEingangsrechnung(incomingId: number, datum: string, betrag?: number): Promise<void> {
   const db = getDb();
   const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, incomingId) });
   if (!r) throw new Error("Eingangsrechnung nicht gefunden.");
   if (r.bezahltAm) throw new Error(`Eingangsrechnung ${r.nummer} ist bereits als bezahlt markiert.`);
-  await db.update(incomingInvoices).set({ bezahltAm: datum }).where(eq(incomingInvoices.id, incomingId));
+  // v1.21.4 (Bus #177): Teilzahlungsstand mitführen — übersteigt die Bankbuchung
+  // den Rest, gilt der Beleg als voll bezahlt (Überzahlung = Gutschrift-Thema, UI zeigt offen=0)
+  const brutto = Number(r.brutto);
+  const bisher = Number(r.bezahltBetrag ?? 0);
+  const neu = betrag !== undefined ? Math.min(brutto, bisher + Math.abs(betrag)) : brutto;
+  const voll = neu + 0.004 >= brutto;
+  await db
+    .update(incomingInvoices)
+    .set({ bezahltBetrag: neu.toFixed(2), bezahltAm: voll ? datum : null })
+    .where(eq(incomingInvoices.id, incomingId));
 }
 
 /** Gemeinsame Persistenz + Auto-Match-Vorschau für CSV- und PDF-Import. */
@@ -467,7 +476,15 @@ export async function zuordnungLoesenIntern(transaktionId: number): Promise<{ ok
     }
   }
   if (t.incomingInvoiceId) {
-    await db.update(incomingInvoices).set({ bezahltAm: null }).where(eq(incomingInvoices.id, t.incomingInvoiceId));
+    // v1.21.4: gebuchten Betrag vom Teilzahlungsstand abziehen (wie bei Ausgangsrechnungen)
+    const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, t.incomingInvoiceId) });
+    if (r) {
+      const neu = Math.max(0, Number(r.bezahltBetrag ?? 0) - (gebucht > 0 ? gebucht : Number(r.brutto)));
+      await db
+        .update(incomingInvoices)
+        .set({ bezahltBetrag: neu.toFixed(2), bezahltAm: null })
+        .where(eq(incomingInvoices.id, r.id));
+    }
   }
   await db
     .update(bankTransaktionen)
@@ -514,7 +531,7 @@ export const bankTransaktionenRouter = createRouter({
     .mutation(async ({ input }) => {
       const { liesSumUpKontoauszug } = await import("./lib/sumupKontoauszug");
       const puffer = new Uint8Array(Buffer.from(input.pdfBase64, "base64"));
-      const { zeilen, uebersprungen, meta } = await liesSumUpKontoauszug(puffer);
+      const { zeilen, uebersprungen, uebersprungeneZeilen, meta } = await liesSumUpKontoauszug(puffer);
       const ergebnis = await persistiereUndMatche(
         input.bankAccountId,
         input.dateiname,
@@ -522,7 +539,7 @@ export const bankTransaktionenRouter = createRouter({
         zeilen,
         uebersprungen,
       );
-      return { ...ergebnis, auszugMeta: meta };
+      return { ...ergebnis, uebersprungeneZeilen, auszugMeta: meta };
     }),
 
   /** Schritt 3: Ausgewaehlte Auto-Vorschlaege buchen (Batch). */
@@ -568,12 +585,14 @@ export const bankTransaktionenRouter = createRouter({
         })
         .from(bankTransaktionen)
         .where(eq(bankTransaktionen.bankAccountId, k.id));
-      // Saldo: letzter bekannter saldo_nach (nach Datum+ID), sonst Summe aller Buchungen
+      // Saldo: letzter bekannter saldo_nach — Bus #176/#177: bei Tagesgleichheit
+      // gewinnt der neueste Import (desc importId), darin die niedrigste id
+      // (Importreihenfolge ist „neueste zuerst"), sonst Summe aller Buchungen
       const letzteSaldo = await db
         .select({ saldo: bankTransaktionen.saldoNach })
         .from(bankTransaktionen)
         .where(and(eq(bankTransaktionen.bankAccountId, k.id), sql`${bankTransaktionen.saldoNach} IS NOT NULL`))
-        .orderBy(desc(bankTransaktionen.datum), desc(bankTransaktionen.id))
+        .orderBy(desc(bankTransaktionen.datum), desc(bankTransaktionen.importId), asc(bankTransaktionen.id))
         .limit(1);
       const letzterImport = await db
         .select({ am: bankImporte.createdAt, dateiname: bankImporte.dateiname })
@@ -912,7 +931,7 @@ export async function zuordneIntern(transaktionId: number, typ: "ausgang" | "ein
       .where(eq(bankTransaktionen.id, t.id));
   } else {
     if (Number(t.betrag) >= 0) throw new Error("Nur Ausgaenge koennen Eingangsrechnungen zugeordnet werden.");
-    await bucheAufEingangsrechnung(zielId, t.datum);
+    await bucheAufEingangsrechnung(zielId, t.datum, Math.abs(Number(t.betrag)));
     await db
       .update(bankTransaktionen)
       .set({ status: "zugeordnet", invoiceId: null, incomingInvoiceId: zielId, zugeordneterBetrag: Math.abs(Number(t.betrag)).toFixed(2), zugeordnetAm: new Date() })

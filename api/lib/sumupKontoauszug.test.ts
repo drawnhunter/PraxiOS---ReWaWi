@@ -52,6 +52,37 @@ describe("SumUp-Kontoauszug (PDF-Textebene)", () => {
     expect(zeilen[2].zweck).toContain("Eingehende Banküberweisung");
   });
 
+  it("Bindestrich-Kolonnen (Bus #176): Auszahlungs-/Gebühren-Zeilen mit „-“ werden gelesen", () => {
+    const r = zerlegeAuszugZeilen([
+      "Anfangsguthaben: 1000.00 Endguthaben: 821.00",
+      // Auszahlung: nur ausgehend + Saldo belegt
+      "19.10.26, CKL3ZP9W2M Auszahlung Auf Bankkonto Genehmigt 150.00 - - 850.00",
+      // Gebühr: ausgehend + Gebühr + Saldo
+      "19.10.26, CKL3ZQ7X1N Kartenzahlung Fee SumUp Genehmigt 29.71 - 1.39 820.29",
+      // Eingang ohne Gebühr
+      "19.10.26, CKL3ZR4Y8P POS-Zahlung Kunde Terminal Genehmigt - 0.71 - 821.00",
+    ]);
+    expect(r.uebersprungen).toBe(0);
+    expect(r.zeilen).toHaveLength(3);
+    expect(r.zeilen[0].betrag).toBe(-150);
+    expect(r.zeilen[0].saldo).toBe(850);
+    expect(r.zeilen[1].betrag).toBe(-29.71);
+    expect(r.zeilen[1].gebuehr).toBe(1.39);
+    expect(r.zeilen[2].betrag).toBe(0.71);
+    expect(r.meta.pruefsummeOk).toBe(true); // 1000 − 150 − 29.71 + 0.71 = 821.00
+  });
+
+  it("Übersprungene Rohzeilen werden zur Diagnose mitgeliefert", () => {
+    const r = zerlegeAuszugZeilen([
+      "20.10.26, CKL4AA1B2C POS-Zahlung Unklar Genehmigt nur zwei Zahlen 10.00",
+      "20.10.26, CKL4BB3D4E POS-Zahlung OhneStatus 10.00 0.00 0.00 100.00",
+    ]);
+    expect(r.zeilen).toHaveLength(0);
+    expect(r.uebersprungen).toBe(2);
+    expect(r.uebersprungeneZeilen).toHaveLength(2);
+    expect(r.uebersprungeneZeilen[0]).toContain("CKL4AA1B2C");
+  });
+
   it("Prüfsumme: Anfang + Buchungen = Ende", () => {
     // 100 − 168.03 − 200 + 3798.48 − 43.79 = 3486.66 ≠ 1810.92 (bewusst falsch)
     expect(meta.anfangsSaldo).toBe(100);

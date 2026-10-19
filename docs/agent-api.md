@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.19.2)
+# ReWaWi Agent-API — Leitfaden (Stand v1.21.4)
 
 REST-API für externe Agenten (Kimi Claw). Basis: `https://<host>/api/agent`
 Auth: `Authorization: Bearer ax_…` (Token aus Einstellungen → Agent-API, Klartext nur einmalig).
@@ -33,7 +33,7 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `GET /leistungskatalog` → aktive Produkte (Preise/USt)
 
 ## Banking
-- `GET /kontostand` → je Konto `{kontoId, bankAccountId (Alias), bezeichnung, iban, saldo, quelle}` — **hier findest du die bankAccountId** (SumUp: IBAN beginnt mit IE10SUMU…)
+- `GET /kontostand` → je Konto `{kontoId, bankAccountId (Alias), bezeichnung, iban, saldo, quelle}` — **hier findest du die bankAccountId** (SumUp: IBAN beginnt mit IE10SUMU…). Saldo-Auswahl seit v1.21.4: neuestes Datum → neuester Import → niedrigste ID (Importe werden „neueste zuerst" eingespielt — Bus #176/#177)
 - `GET /bankbuchungen?tage=30&q=&von=&bis=&betragMin=&betragMax=&kontoId=` — q durchsucht Name+Zweck, von/bis (JJJJ-MM-TT) überschreibt tage · `GET /bankbuchung/:id` · `PUT /bankbuchung/:id`
 - `GET /zahlungsabgleich` → offene Buchungen mit Auto-Match-Vorschlag
 - `POST /bankbuchung/:id/zuordnen` `{rechnungId|nummer}` oder `{eingangsrechnungId}`
@@ -52,9 +52,12 @@ DSGVO: Namen erscheinen pseudonymisiert (K-/L-Nummern), Bank-Gegenstellen maskie
 - `POST /beleg` → `{lieferant*, datum*, brutto*, kategorieId?, konto?, nummer?, belegBase64?, belegMime?, bankbuchungId?}` (Alias: `/eingangsrechnung`)
 - `GET /belege?q=` (Alias: `/eingangsrechnungen`; q durchsucht Lieferant/Nummer/**OCR-Text**) · `GET /beleg/:id/datei` · **`GET /beleg/:id/text`** (persistenter OCR-Text; wird on-demand extrahiert + dauerhaft abgelegt, falls noch nicht vorhanden) · **`DELETE /beleg/:id`** (nur unbezahlte; GoBD) · **`POST /beleg/:id/freigabe {zustand: neu|geprueft|freigegeben}`** — Beleg anlegen akzeptiert zusätzlich `typ: "gutschrift"`, `waehrung` (z. B. USD), `betragBank` (EUR-Ist)
 - `POST /beleg/:id/upload` → Datei nachträglich
+- **`POST /beleg/:id/zahlung {betrag?, datum?}`** (v1.21.4) → Teilzahlung zubuchen (Default: voller Rest). `bezahltAm` wird gesetzt, sobald `bezahltBetrag` das Brutto erreicht, bei Teilzahlung entfernt. Antwort: `{zugebucht, bezahltBetrag, offen, bezahltAm}`
+- **`PATCH /beleg/:id {bezahltBetrag?, bezahltAm?, bemerkung?, kategorieId?, konto?, gegenkonto?, faelligkeitsdatum?}`** (v1.21.4) → Zahlungsstand korrigieren (z. B. falsch als „bezahlt" markierter Beleg mit Rest offen: `{bezahltBetrag: 5857.00}` → `bezahltAm` wird automatisch aufgehoben). Nur Datum ohne Betrag = voll bezahlt; `bezahltAm: null` ohne Betrag = komplett unbezahlt
+- `GET /belege` liefert seit v1.21.4 zusätzlich `bezahltBetrag` und `offen` je Beleg
 
 ## Import & Historie
-- `POST /bankimport` **oder Alias `/bankbuchungen/import`** → CSV `{"bankAccountId","dateiname","csvText"}` **oder** `{"bankAccountId","csvBase64"}` (**empfohlen**: Rohbytes, serverseitig UTF-8/Windows-1252-Dekodierung — Umlaute bleiben heil) **oder** PDF `{"bankAccountId","pdfBase64"}` → Dedup (quell_id) + Auto-Match
+- `POST /bankimport` **oder Alias `/bankbuchungen/import`** → CSV `{"bankAccountId","dateiname","csvText"}` **oder** `{"bankAccountId","csvBase64"}` (**empfohlen**: Rohbytes, serverseitig UTF-8/Windows-1252-Dekodierung — Umlaute bleiben heil) **oder** PDF `{"bankAccountId","pdfBase64"}` → Dedup (quell_id) + Auto-Match. PDF-Antwort enthält seit v1.21.4 `uebersprungeneZeilen` (Rohzeilen, die der Parser nicht las — max. 20, zur Diagnose)
 - `GET /bankimporte` · `DELETE /bankimport/:id` · `GET /import-status` → letzte Läufe/Zählstände
 
 ## Beleg-Extraktion (OCR → strukturierte Felder)

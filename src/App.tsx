@@ -1,4 +1,5 @@
 import { Routes, Route } from "react-router";
+import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Statistics from "@/pages/Statistics";
@@ -36,6 +37,8 @@ import NotFound from "./pages/NotFound"
 
 export default function App() {
   return (
+    <>
+    <Toaster position="bottom-right" richColors />
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
@@ -73,5 +76,6 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </>
   );
 }

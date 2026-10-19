@@ -73,6 +73,7 @@ export const einrechnungRouter = createRouter({
         konto: incomingInvoices.konto,
         gegenkonto: incomingInvoices.gegenkonto,
         bezahltAm: incomingInvoices.bezahltAm,
+        bezahltBetrag: incomingInvoices.bezahltBetrag,
         freigabe: incomingInvoices.freigabe,
         freigegebenVon: incomingInvoices.freigegebenVon,
         createdAt: incomingInvoices.createdAt,
@@ -200,9 +201,13 @@ export const einrechnungRouter = createRouter({
   markPaid: authedQuery
     .input(z.object({ id: z.number(), datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
     .mutation(async ({ input }) => {
-      await getDb()
+      const db = getDb();
+      const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, input.id) });
+      if (!r) throw new Error("Beleg nicht gefunden.");
+      // v1.21.4: „bezahlt" heißt voll bezahlt → Teilzahlungsstand auf brutto setzen
+      await db
         .update(incomingInvoices)
-        .set({ bezahltAm: input.datum ?? new Date().toISOString().slice(0, 10) })
+        .set({ bezahltAm: input.datum ?? new Date().toISOString().slice(0, 10), bezahltBetrag: r.brutto })
         .where(eq(incomingInvoices.id, input.id));
       return { ok: true };
     }),
@@ -212,8 +217,36 @@ export const einrechnungRouter = createRouter({
     .mutation(async ({ input }) => {
       await getDb()
         .update(incomingInvoices)
-        .set({ bezahltAm: null })
+        .set({ bezahltAm: null, bezahltBetrag: "0.00" })
         .where(eq(incomingInvoices.id, input.id));
       return { ok: true };
+    }),
+
+  /** Teilzahlung erfassen (v1.21.4, Bus #177): Betrag zubuchen, bezahltAm erst bei Vollzahlung. */
+  teilzahlung: authedQuery
+    .input(z.object({
+      id: z.number(),
+      betrag: z.number().positive(),
+      datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, input.id) });
+      if (!r) throw new Error("Beleg nicht gefunden.");
+      const brutto = Number(r.brutto);
+      const bisher = Math.max(Number(r.bezahltBetrag ?? 0), r.bezahltAm ? brutto : 0);
+      const offen = Math.round((brutto - bisher) * 100) / 100;
+      if (offen <= 0.004) throw new Error(`Beleg ${r.nummer} ist bereits vollständig bezahlt.`);
+      const verbucht = Math.min(input.betrag, offen);
+      const neu = Math.round((bisher + verbucht) * 100) / 100;
+      const voll = neu + 0.004 >= brutto;
+      await db
+        .update(incomingInvoices)
+        .set({
+          bezahltBetrag: neu.toFixed(2),
+          bezahltAm: voll ? (input.datum ?? new Date().toISOString().slice(0, 10)) : null,
+        })
+        .where(eq(incomingInvoices.id, input.id));
+      return { ok: true, zugebucht: verbucht, bezahltBetrag: neu, offen: Math.max(0, Math.round((brutto - neu) * 100) / 100), voll };
     }),
 });

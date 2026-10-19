@@ -282,16 +282,19 @@ app.get("/bankbuchung/:id", async (c) => {
 
 app.get("/kontostand", async (c) => {
   const { bankAccounts, bankTransaktionen } = await import("@db/schema");
-  const { and, desc, sql } = await import("drizzle-orm");
+  const { and, asc, desc, sql } = await import("drizzle-orm");
   const db = getDb();
   const konten = await db.select().from(bankAccounts);
   const aus = [];
   for (const k of konten) {
+    // Bus #176/#177: bei Tagesgleichheit gewinnt der NEUESTE Import (desc importId),
+    // innerhalb eines Imports die NIEDRIGE id — CSV/PDF werden „neueste zuerst"
+    // eingespielt, also trägt die erste Zeile des Tages den jüngsten Saldo.
     const letzteSaldo = await db
       .select({ saldo: bankTransaktionen.saldoNach })
       .from(bankTransaktionen)
       .where(and(eq(bankTransaktionen.bankAccountId, k.id), sql`${bankTransaktionen.saldoNach} IS NOT NULL`))
-      .orderBy(desc(bankTransaktionen.datum), desc(bankTransaktionen.id))
+      .orderBy(desc(bankTransaktionen.datum), desc(bankTransaktionen.importId), asc(bankTransaktionen.id))
       .limit(1);
     const [agg] = await db
       .select({ summe: sql<string>`COALESCE(SUM(${bankTransaktionen.betrag}), 0)` })
@@ -1049,7 +1052,11 @@ app.get("/belege", async (c) => {
       rechnungsdatum: r.e.rechnungsdatum, netto: Number(r.e.netto),
       ust: Number(r.e.ust), brutto: Number(r.e.brutto),
       konto: r.e.konto, kategorieId: r.e.kategorieId, kategorieName: r.kategorieName,
-      bezahltAm: r.e.bezahltAm, hatDatei: Boolean(r.e.belegBase64),
+      bezahltAm: r.e.bezahltAm,
+      // v1.21.4 (Bus #177): Teilzahlungsstand + offener Rest
+      bezahltBetrag: Number(r.e.bezahltBetrag),
+      offen: Math.max(0, Math.round((Number(r.e.brutto) - Number(r.e.bezahltBetrag)) * 100) / 100),
+      hatDatei: Boolean(r.e.belegBase64),
     })),
   });
 });
@@ -1290,6 +1297,128 @@ app.post("/beleg/:id/upload", async (c) => {
     .where(eq(incomingInvoices.id, id));
   await audit("beleg_upload", { id });
   return c.json({ ok: true, id, mime: body.belegMime ?? "application/pdf" });
+});
+
+/**
+ * Teilzahlung auf einen Eingangsbeleg buchen (Bus #177) — analog /rechnung/:id/zahlung.
+ * betrag optional (Default: voller Rest). bezahltAm wird gesetzt, sobald der
+ * bezahlte Betrag das Brutto erreicht, und bei Teilzahlung wieder entfernt.
+ * Korrektur eines falsch gesetzten Stands: PATCH /beleg/:id.
+ */
+app.post("/beleg/:id/zahlung", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c).catch(() => ({} as Record<string, unknown>));
+  const db = getDb();
+  const { incomingInvoices } = await import("@db/schema");
+  const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Beleg nicht gefunden." }, 404);
+  const brutto = Number(r.brutto);
+  // Legacy-Sicherung: bezahltAm ohne bezahltBetrag (vor v1.21.4) = voll bezahlt
+  const bisher = Math.max(Number(r.bezahltBetrag ?? 0), r.bezahltAm ? brutto : 0);
+  const offen = Math.round((brutto - bisher) * 100) / 100;
+  if (offen <= 0.004) {
+    return c.json({ ok: false, fehler: `Beleg ${r.nummer} ist bereits vollständig bezahlt — Korrektur per PATCH /beleg/${id} (bezahltBetrag/bezahltAm).` }, 409);
+  }
+  const betrag = body.betrag !== undefined ? Number(body.betrag) : offen;
+  if (!Number.isFinite(betrag) || betrag <= 0) {
+    return c.json({ ok: false, fehler: "betrag (positive Zahl) fehlt oder ungültig." }, 400);
+  }
+  const datum = body.datum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.datum)) ? String(body.datum) : heute();
+  const verbucht = Math.min(betrag, offen);
+  const neu = Math.round((bisher + verbucht) * 100) / 100;
+  const voll = neu + 0.004 >= brutto;
+  await db
+    .update(incomingInvoices)
+    .set({ bezahltBetrag: neu.toFixed(2), bezahltAm: voll ? datum : null })
+    .where(eq(incomingInvoices.id, id));
+  await audit("beleg_zahlung", { id, betrag: verbucht, datum, voll });
+  return c.json({
+    ok: true, id, zugebucht: verbucht, bezahltBetrag: neu,
+    offen: Math.max(0, Math.round((brutto - neu) * 100) / 100),
+    bezahltAm: voll ? datum : null,
+  });
+});
+
+/**
+ * Zahlungsstand eines Eingangsbelegs korrigieren (Bus #177): bezahltBetrag und/oder
+ * bezahltAm explizit setzen — für Fälle wie „als bezahlt markiert, aber nur Teil
+ * überwiesen". Konsistenz-Regel: erreicht bezahltBetrag das Brutto, wird bezahltAm
+ * gesetzt (Default heute); liegt er darunter, wird bezahltAm entfernt.
+ * Nebenbei korrigierbar: bemerkung, kategorieId, konto, gegenkonto, faelligkeitsdatum.
+ */
+app.patch("/beleg/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c).catch(() => ({} as Record<string, unknown>));
+  const db = getDb();
+  const { incomingInvoices } = await import("@db/schema");
+  const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Beleg nicht gefunden." }, 404);
+
+  const set: Record<string, unknown> = {};
+  const brutto = Number(r.brutto);
+  let neuBetrag = Math.max(Number(r.bezahltBetrag ?? 0), r.bezahltAm ? brutto : 0);
+
+  if (body.bezahltBetrag !== undefined) {
+    const b = Number(body.bezahltBetrag);
+    if (!Number.isFinite(b) || b < 0 || b > brutto + 0.004) {
+      return c.json({ ok: false, fehler: `bezahltBetrag muss zwischen 0 und brutto (${brutto.toFixed(2)}) liegen.` }, 400);
+    }
+    neuBetrag = Math.round(b * 100) / 100;
+    set.bezahltBetrag = neuBetrag.toFixed(2);
+  }
+  if (body.bezahltAm !== undefined) {
+    if (body.bezahltAm === null || body.bezahltAm === "") {
+      set.bezahltAm = null;
+      // explizites Zurücksetzen ohne Betragsangabe = komplett unbezahlt
+      if (body.bezahltBetrag === undefined) { neuBetrag = 0; set.bezahltBetrag = "0.00"; }
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(String(body.bezahltAm))) {
+      set.bezahltAm = String(body.bezahltAm);
+      // nur Datum ohne Betragsangabe = voll bezahlt (wie das bisherige „als bezahlt markieren")
+      if (body.bezahltBetrag === undefined) { neuBetrag = brutto; set.bezahltBetrag = brutto.toFixed(2); }
+    } else {
+      return c.json({ ok: false, fehler: "bezahltAm im Format JJJJ-MM-TT oder null." }, 400);
+    }
+  }
+  // Konsistenz zwischen Betrag und Datum erzwingen
+  const voll = neuBetrag + 0.004 >= brutto;
+  if (!voll && set.bezahltAm) {
+    return c.json({ ok: false, fehler: `Widerspruch: bezahltAm gesetzt, aber bezahltBetrag (${neuBetrag.toFixed(2)}) < brutto (${brutto.toFixed(2)}). Teilzahlung trägt kein bezahltAm.` }, 400);
+  }
+  if (voll && set.bezahltAm === undefined) {
+    set.bezahltAm = r.bezahltAm ?? heute();
+  }
+  if (!voll && set.bezahltAm === undefined && r.bezahltAm) {
+    set.bezahltAm = null; // Teilzahlung → bisheriges „bezahlt am" aufheben
+  }
+
+  for (const feld of ["bemerkung", "konto", "gegenkonto"] as const) {
+    if (body[feld] !== undefined) set[feld] = body[feld] === null ? null : String(body[feld]).slice(0, feld === "bemerkung" ? 60000 : 10);
+  }
+  if (body.kategorieId !== undefined) {
+    if (body.kategorieId === null) set.kategorieId = null;
+    else {
+      const { kategorien } = await import("@db/schema");
+      const kat = await db.query.kategorien.findFirst({ where: eq(kategorien.id, Number(body.kategorieId)) });
+      if (!kat) return c.json({ ok: false, fehler: "Kategorie nicht gefunden." }, 404);
+      set.kategorieId = kat.id;
+    }
+  }
+  if (body.faelligkeitsdatum !== undefined) {
+    if (body.faelligkeitsdatum === null) set.faelligkeitsdatum = null;
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(String(body.faelligkeitsdatum))) set.faelligkeitsdatum = String(body.faelligkeitsdatum);
+    else return c.json({ ok: false, fehler: "faelligkeitsdatum im Format JJJJ-MM-TT oder null." }, 400);
+  }
+
+  if (Object.keys(set).length === 0) return c.json({ ok: false, fehler: "Keine änderbaren Felder übergeben (bezahltBetrag, bezahltAm, bemerkung, kategorieId, konto, gegenkonto, faelligkeitsdatum)." }, 400);
+  await db.update(incomingInvoices).set(set).where(eq(incomingInvoices.id, id));
+  await audit("beleg_korrigiert", { id, felder: Object.keys(set) });
+  const frisch = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
+  return c.json({
+    ok: true, id,
+    bezahltBetrag: Number(frisch!.bezahltBetrag),
+    bezahltAm: frisch!.bezahltAm,
+    offen: Math.max(0, Math.round((Number(frisch!.brutto) - Number(frisch!.bezahltBetrag)) * 100) / 100),
+  });
 });
 
 // ── Rechnung: Zahlung registrieren + Stornieren ────────────────────────────
@@ -1707,12 +1836,12 @@ app.post("/bankimport", async (c) => {
   if (body.pdfBase64) {
     const { liesSumUpKontoauszug } = await import("./lib/sumupKontoauszug");
     const { persistiereUndMatche } = await import("./bankTransaktionenRouter");
-    const { zeilen, uebersprungen, meta } = await liesSumUpKontoauszug(
+    const { zeilen, uebersprungen, uebersprungeneZeilen, meta } = await liesSumUpKontoauszug(
       new Uint8Array(Buffer.from(String(body.pdfBase64), "base64")),
     );
     const ergebnis = await persistiereUndMatche(bankAccountId, dateiname, "SumUp Kontoauszug (PDF)", zeilen, uebersprungen);
     await audit("bankimport_pdf", { bankAccountId, importiert: ergebnis.importiert, duplikate: ergebnis.duplikate });
-    return c.json({ ok: true, ...ergebnis, auszugMeta: meta });
+    return c.json({ ok: true, ...ergebnis, uebersprungeneZeilen, auszugMeta: meta });
   }
 
   // csvBase64: Rohbytes serverseitig dekodieren (UTF-8 strikt, Fallback Windows-1252) —
