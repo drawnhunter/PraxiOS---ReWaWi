@@ -336,6 +336,16 @@ export const mailPostfachRouter = createRouter({
     return getDb().select().from(mailEntwuerfe).orderBy(desc(mailEntwuerfe.updatedAt)).limit(20);
   }),
 
+  /** Einzelner Entwurf (v1.21.5: gelöstes Browser-Fenster lädt daraus). */
+  entwurfEinzel: authedQuery
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const { mailEntwuerfe } = await import("@db/schema");
+      const e = await getDb().query.mailEntwuerfe.findFirst({ where: eq(mailEntwuerfe.id, input.id) });
+      if (!e) throw new Error("Entwurf nicht gefunden.");
+      return e;
+    }),
+
   entwurfSpeichern: authedQuery
     .input(
       z.object({

@@ -7,6 +7,7 @@ import { eq, desc } from "drizzle-orm";
 import { analysiereXrechnung } from "./xrechnungEinlesen";
 import { extrahiereXmlAusPdf } from "./zugferdPdf";
 import { bucheEingangsrechnungAusXml } from "./lib/einrechnung";
+import { heuteBerlin } from "./lib/datum";
 
 const xmlInput = z.object({ xml: z.string().min(20) });
 
@@ -98,7 +99,7 @@ export const einrechnungRouter = createRouter({
       const { incomingInvoices, companySettings } = await import("@db/schema");
       const dezimal = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
       let lieferant = input.dateiname.replace(/\.(pdf|jpe?g|png)$/i, "").slice(0, 255);
-      let datum = new Date().toISOString().slice(0, 10);
+      let datum = heuteBerlin();
       let nummer: string | null = null;
       let nettoS = "0.00", ustS = "0.00", bruttoS = "0.00";
       let auto = "";
@@ -207,7 +208,7 @@ export const einrechnungRouter = createRouter({
       // v1.21.4: „bezahlt" heißt voll bezahlt → Teilzahlungsstand auf brutto setzen
       await db
         .update(incomingInvoices)
-        .set({ bezahltAm: input.datum ?? new Date().toISOString().slice(0, 10), bezahltBetrag: r.brutto })
+        .set({ bezahltAm: input.datum ?? heuteBerlin(), bezahltBetrag: r.brutto })
         .where(eq(incomingInvoices.id, input.id));
       return { ok: true };
     }),
@@ -244,7 +245,7 @@ export const einrechnungRouter = createRouter({
         .update(incomingInvoices)
         .set({
           bezahltBetrag: neu.toFixed(2),
-          bezahltAm: voll ? (input.datum ?? new Date().toISOString().slice(0, 10)) : null,
+          bezahltAm: voll ? (input.datum ?? heuteBerlin()) : null,
         })
         .where(eq(incomingInvoices.id, input.id));
       return { ok: true, zugebucht: verbucht, bezahltBetrag: neu, offen: Math.max(0, Math.round((brutto - neu) * 100) / 100), voll };

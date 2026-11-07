@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import RechnungsPanel from "@/components/RechnungsPanel";
-import { geld, datum } from "@/lib/format";
+import { geld, datum , heuteLokal} from "@/lib/format";
 import { STATUS_LABELS, type InvoiceStatus } from "@contracts/invoicing";
 import { Link, useNavigate } from "react-router";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +76,7 @@ export default function Invoices() {
         : { status: statusFilter as InvoiceStatus, archiviert: false },
   );
 
-  const heute = new Date().toISOString().slice(0, 10);
+  const heute = heuteLokal();
   const zeilenRoh = (liste.data ?? []).filter((r) => {
     const passtStatus =
       statusFilter === "ueberfaellig"

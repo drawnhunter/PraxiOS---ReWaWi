@@ -10,6 +10,7 @@ import {
   companySettings,
 } from "@db/schema";
 import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { heuteBerlin } from "./lib/datum";
 
 const PAGE_W = 595.28;
 const MARGIN = 46;
@@ -216,7 +217,7 @@ export async function erstelleKontoauszugPdf(
     firmaName: firma?.name ?? "",
     von,
     bis,
-    erstelltAm: new Date().toISOString().slice(0, 10),
+    erstelltAm: heuteBerlin(),
     zeilen,
     summeEin,
     summeAus,

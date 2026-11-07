@@ -43,3 +43,20 @@ export function parseMengeInput(input: string): string {
   if (Number.isNaN(n)) return "0";
   return String(n);
 }
+
+// ── v1.21.5 (#191): lokale Kalenderdaten statt UTC (Vortag-Falle) ──────────
+/** Date → JJJJ-MM-TT in der lokalen Zeitzone des Browsers. */
+export function datumLokal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+/** Heute lokal als JJJJ-MM-TT. */
+export function heuteLokal(): string {
+  return datumLokal(new Date());
+}
+/** Reine Kalender-Arithmetik (UTC-Mittag — DST-sicher), JJJJ-MM-TT + n Tage. */
+export function tagePlus(iso: string, tage: number): string {
+  const [j, m, t] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(j, m - 1, t, 12));
+  d.setUTCDate(d.getUTCDate() + tage);
+  return d.toISOString().slice(0, 10);
+}

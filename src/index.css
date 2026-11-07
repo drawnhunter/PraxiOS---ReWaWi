@@ -83,3 +83,18 @@
   70% { box-shadow: 0 0 0 10px rgb(15 118 110 / 0); }
   100% { box-shadow: 0 0 0 0 rgb(15 118 110 / 0); }
 }
+
+/* v1.21.5: Listen im Mail-Editor sichtbar machen — Tailwind-Preflight entfernt
+   list-style/padding, sonst erzeugt insertUn-/OrderedList unsichtbare Listen */
+.mail-inhalt ul { list-style: disc; padding-left: 1.6em; margin: 0.2em 0; }
+.mail-inhalt ol { list-style: decimal; padding-left: 1.6em; margin: 0.2em 0; }
+.mail-inhalt ul ul { list-style: circle; }
+.mail-inhalt ul ul ul { list-style: square; }
+.mail-inhalt li { margin: 0.1em 0; }
+.mail-inhalt blockquote { border-left: 3px solid #d6d3d1; padding-left: 0.8em; color: #57534e; margin: 0.3em 0; }
+/* Anhang-Vorschau: SheetJS-Tabellen lesbar machen */
+.anhang-tabelle table { border-collapse: collapse; width: 100%; }
+.anhang-tabelle td, .anhang-tabelle th { border: 1px solid #e7e5e4; padding: 2px 8px; white-space: nowrap; }
+.anhang-tabelle tr:nth-child(even) { background: #fafaf9; }
+/* docx-preview Wrapper darf nicht kleben */
+.docx-huelle .docx-wrapper { padding: 8px; }

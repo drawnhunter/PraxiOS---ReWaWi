@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { heuteLokal } from "@/lib/format";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,11 +8,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, Pin, PinOff,
+  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, PinOff,
   Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy, ChevronDown,
 } from "lucide-react";
 import { Link } from "react-router";
 import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
+import { AnhangVorschauDialog } from "@/components/AnhangVorschauDialog";
 import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 
 function datumFmt(d: string | Date | null): string {
@@ -26,8 +28,8 @@ type FilterWahl = "alle" | "ungelesen" | "gelesen" | "markiert" | "gesendet" | "
 type SortWahl = "datum_desc" | "datum_asc" | "absender_asc" | "absender_desc" | "groesse_desc" | "groesse_asc";
 
 type Tab =
-  | { typ: "mail"; id: number; betreff: string; geloest?: { x: number; y: number } }
-  | { typ: "verfassen"; schluessel: number; start: VerfassenStart; geloest?: { x: number; y: number } };
+  | { typ: "mail"; id: number; betreff: string }
+  | { typ: "verfassen"; schluessel: number; start: VerfassenStart };
 
 function ladeBreite(key: string, fallback: number): number {
   try {
@@ -91,20 +93,14 @@ export default function MailPostfach() {
   const [filter, setFilter] = useState<FilterWahl>("alle");
   const [sortWahl, setSortWahl] = useState<SortWahl>("datum_desc");
   const [seite, setSeite] = useState(1);
+  const [fehlerPopup, setFehlerPopup] = useState(false);
+  // v1.21.5: Live-Zustände der Verfassen-Tabs (Dirty-Flag + Inhalt fürs Lösen)
+  const verfassenZustaende = useRef(new Map<number, VerfassenStart & { unsaved: boolean }>());
+  const utils = trpc.useUtils();
 
   const oeffneTab = (id: number, betreff: string) => {
-    // Schon (gelöst) offen? → wieder andocken statt Doppelansicht
     const vorhanden = tabs.find((x) => x.typ === "mail" && x.id === id);
-    if (vorhanden) {
-      if (vorhanden.geloest) {
-        const angedockt = { ...vorhanden, geloest: undefined };
-        setTabs((t) => t.map((x) => (x === vorhanden ? angedockt : x)));
-        setAktiv(angedockt);
-      } else {
-        setAktiv(vorhanden);
-      }
-      return;
-    }
+    if (vorhanden) { setAktiv(vorhanden); return; }
     const tab: Tab = { typ: "mail", id, betreff };
     setTabs((t) => [...t, tab]);
     setAktiv(tab);
@@ -116,13 +112,74 @@ export default function MailPostfach() {
   };
   const schliesseTab = (tab: Tab) => {
     if (tab.typ === "verfassen") {
-      // Bei Verfassen-Tabs immer erst fragen (Löschen / Entwurf / Senden)
-      setSchliessenDialog(tab.schluessel);
+      // v1.21.5: Nur fragen, wenn es UNGESPEICHERTE Änderungen gibt —
+      // ein unveränderter gespeicherter Entwurf schließt ohne Dialog.
+      const z = verfassenZustaende.current.get(tab.schluessel);
+      if (z?.unsaved) { setSchliessenDialog(tab.schluessel); return; }
+      verfassenZustaende.current.delete(tab.schluessel);
+      setTabs((t) => t.filter((x) => !gleicherTab(x, tab)));
+      if (aktiv && gleicherTab(aktiv, tab)) setAktiv(null);
       return;
     }
     setTabs((t) => t.filter((x) => !gleicherTab(x, tab)));
     if (aktiv && gleicherTab(aktiv, tab)) setAktiv(null);
   };
+
+  /** v1.21.5: Lösen = ECHTES Browser-Fenster. Der Tab wandert komplett —
+   *  Entwurf wird vorher gespeichert, das Popup lädt ihn frisch vom Server.
+   *  Beim Schließen des Popups landet er wieder als Tab hier (Storage-Signal). */
+  const loeseFenster = async (t: Tab) => {
+    if (t.typ === "mail") {
+      window.open(`/mail-fenster?typ=mail&id=${t.id}`, "_blank", "width=1100,height=850");
+      setTabs((alle) => alle.filter((x) => !gleicherTab(x, t)));
+      if (aktiv && gleicherTab(aktiv, t)) setAktiv(null);
+      return;
+    }
+    const z = verfassenZustaende.current.get(t.schluessel) ?? { ...t.start, unsaved: true };
+    try {
+      const r = await utils.client.postfach.entwurfSpeichern.mutate({
+        id: z.entwurfId ?? undefined,
+        empfaenger: z.empfaenger ?? "", cc: z.cc ?? "", bcc: z.bcc ?? "",
+        kontoId: z.kontoId ?? undefined, betreff: z.betreff ?? "",
+        text: z.html ?? "", anhaenge: z.anhaenge?.length ? z.anhaenge : undefined,
+      });
+      const w = window.open(`/mail-fenster?typ=verfassen&id=${r.id}`, "_blank", "width=1100,height=850");
+      if (!w) { setFehlerPopup(true); return; }
+      verfassenZustaende.current.delete(t.schluessel);
+      setTabs((alle) => alle.filter((x) => !gleicherTab(x, t)));
+      if (aktiv && gleicherTab(aktiv, t)) setAktiv(null);
+      utils.postfach.entwuerfe.invalidate();
+    } catch (e) {
+      alert(`Fenster konnte nicht gelöst werden: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // Rückkehr aus dem gelösten Fenster: Entwurf/Mail wieder als Tab öffnen
+  useEffect(() => {
+    const beiStorage = (ev: StorageEvent) => {
+      if (ev.key !== "rewawi-mailfenster" || !ev.newValue) return;
+      try {
+        const d = JSON.parse(ev.newValue) as { typ?: string; id?: number; aktion?: string };
+        if (d.aktion === "zurueck" && d.typ === "verfassen" && d.id) {
+          utils.postfach.entwurfEinzel.fetch({ id: d.id }).then((e) => {
+            let anhaengeParsed: { dateiname: string; base64: string; mime: string }[] = [];
+            try { anhaengeParsed = e.anhaenge ? JSON.parse(e.anhaenge) : []; } catch { /* egal */ }
+            oeffneVerfassen({
+              empfaenger: e.empfaenger ?? "", cc: e.cc ?? "", bcc: e.bcc ?? "",
+              betreff: e.betreff ?? "", html: e.text ?? "<p><br></p>",
+              kontoId: e.kontoId ?? null, entwurfId: e.id, anhaenge: anhaengeParsed,
+            });
+          }).catch(() => undefined);
+          utils.postfach.entwuerfe.invalidate();
+        }
+        if (d.aktion === "zurueck" && d.typ === "mail" && d.id) oeffneTab(d.id, "");
+        if (d.aktion === "geschlossen") { utils.postfach.entwuerfe.invalidate(); utils.postfach.liste.invalidate(); }
+      } catch { /* ungültiges Signal ignorieren */ }
+    };
+    window.addEventListener("storage", beiStorage);
+    return () => window.removeEventListener("storage", beiStorage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
 
   // Konsistenz-Wache: aktiv darf nie auf einen nicht mehr existierenden Tab zeigen
   useEffect(() => {
@@ -168,26 +225,15 @@ export default function MailPostfach() {
             return (
               <div
                 key={key}
-                className={`flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${istAktiv && !t.geloest ? "border-neutral-300 bg-white font-medium" : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
+                className={`flex shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${istAktiv ? "border-neutral-300 bg-white font-medium" : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
               >
-                <button onClick={() => { if (!t.geloest) setAktiv(t); }} className="max-w-40 truncate" title={t.geloest ? "Als Fenster gelöst" : label}>{label}</button>
+                <button onClick={() => setAktiv(t)} className="max-w-40 truncate" title={label}>{label}</button>
                 <button
-                  onClick={() => {
-                    if (t.geloest) {
-                      // Wieder anbinden
-                      setTabs((alle) => alle.map((x) => (x === t ? { ...x, geloest: undefined } : x)));
-                      setAktiv({ ...t, geloest: undefined });
-                    } else {
-                      // Als eigenes Fenster lösen
-                      const pos = { x: 140 + tabs.indexOf(t) * 36, y: 110 + tabs.indexOf(t) * 28 };
-                      setTabs((alle) => alle.map((x) => (x === t ? { ...x, geloest: pos } : x)));
-                      if (aktiv === t) setAktiv(null);
-                    }
-                  }}
+                  onClick={() => loeseFenster(t)}
                   className="rounded p-0.5 hover:bg-neutral-300"
-                  title={t.geloest ? "Wieder anbinden" : "Als eigenes Fenster lösen"}
+                  title="Als eigenes Browser-Fenster lösen (Tab wandert ins Popup)"
                 >
-                  {t.geloest ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+                  <PinOff className="h-3 w-3" />
                 </button>
                 <button onClick={() => schliesseTab(t)} className="rounded p-0.5 hover:bg-neutral-300"><X className="h-3 w-3" /></button>
               </div>
@@ -284,9 +330,9 @@ export default function MailPostfach() {
         </div>
 
         {/* Angedockte Tabs: KEEP-ALIVE — alle bleiben gemountet (State/Scroll/Text bleibt),
-            nur der aktive ist sichtbar. Gelöste Tabs rendern als Schwebefenster. */}
-        {tabs.filter((t) => !t.geloest).map((t) => {
-          const istAktiv = aktiv !== null && !t.geloest && (
+            nur der aktive ist sichtbar. Gelöste Tabs leben als echte Browser-Fenster. */}
+        {tabs.map((t) => {
+          const istAktiv = aktiv !== null && (
             (aktiv.typ === "mail" && t.typ === "mail" && aktiv.id === t.id) ||
             (aktiv.typ === "verfassen" && t.typ === "verfassen" && aktiv.schluessel === t.schluessel)
           );
@@ -299,7 +345,9 @@ export default function MailPostfach() {
                 <MailVerfassen
                   start={t.start}
                   abschlussAktion={aktionZiel === t.schluessel ? abschlussAktion : null}
+                  onZustand={(z) => { verfassenZustaende.current.set(t.schluessel, z); }}
                   onAktionErledigt={() => {
+                    verfassenZustaende.current.delete(t.schluessel);
                     setTabs((alle) => alle.filter((x) => !gleicherTab(x, t)));
                     if (istAktiv) setAktiv(null);
                     setAbschlussAktion(null);
@@ -312,38 +360,12 @@ export default function MailPostfach() {
         })}
       </div>
 
-      {/* ── Gelöste Tabs als schwebende Fenster ── */}
-      {tabs.filter((t) => t.geloest).map((t) => {
-        const key = t.typ === "mail" ? `m${t.id}` : `v${t.schluessel}`;
-        const titel = t.typ === "mail" ? (t.betreff || "(kein Betreff)") : "✉ Verfassen";
-        return (
-          <Schwebefenster
-            key={key}
-            titel={titel}
-            start={t.geloest!}
-            onAnbinden={() => {
-              setTabs((alle) => alle.map((x) => (x === t ? { ...x, geloest: undefined } : x)));
-              setAktiv({ ...t, geloest: undefined });
-            }}
-            onSchliessen={() => schliesseTab(t)}
-          >
-            {t.typ === "mail" ? (
-              <MailDetail key={`f${t.id}`} id={t.id} kompakt={false} onAntworten={oeffneVerfassen} onTabOeffnen={oeffneTab} />
-            ) : (
-              <MailVerfassen
-                key={`f${t.schluessel}`}
-                start={t.start}
-                abschlussAktion={aktionZiel === t.schluessel ? abschlussAktion : null}
-                onAktionErledigt={() => {
-                  setTabs((alle) => alle.filter((x) => !gleicherTab(x, t)));
-                  setAbschlussAktion(null);
-                  setAktionZiel(null);
-                }}
-              />
-            )}
-          </Schwebefenster>
-        );
-      })}
+      {fehlerPopup && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-xl">
+          Der Browser hat das Popup blockiert. Bitte Popups für diese Seite erlauben und erneut „Lösen" klicken.
+          <button className="ml-2 font-medium underline" onClick={() => setFehlerPopup(false)}>OK</button>
+        </div>
+      )}
 
       {schliessenDialog !== null && (() => {
         const dlg = tabs.find((t) => t.typ === "verfassen" && t.schluessel === schliessenDialog);
@@ -355,51 +377,6 @@ export default function MailPostfach() {
           />
         ) : null;
       })()}
-    </div>
-  );
-}
-
-/* ═══ Schwebendes Fenster für gelöste Tabs (verschiebbar, anbindbar) ═══ */
-function Schwebefenster({ titel, start, onAnbinden, onSchliessen, children }: {
-  titel: string;
-  start: { x: number; y: number };
-  onAnbinden: () => void;
-  onSchliessen: () => void;
-  children: React.ReactNode;
-}) {
-  const [pos, setPos] = useState(start);
-  const ziehen = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const dx = e.clientX - pos.x;
-    const dy = e.clientY - pos.y;
-    const bewegen = (ev: MouseEvent) => {
-      setPos({ x: Math.max(0, ev.clientX - dx), y: Math.max(0, ev.clientY - dy) });
-    };
-    const ende = () => {
-      window.removeEventListener("mousemove", bewegen);
-      window.removeEventListener("mouseup", ende);
-    };
-    window.addEventListener("mousemove", bewegen);
-    window.addEventListener("mouseup", ende);
-  };
-  return (
-    <div
-      className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-2xl"
-      style={{ left: pos.x, top: pos.y, width: "min(820px, 90vw)", height: "min(74vh, 900px)" }}
-    >
-      <div
-        onMouseDown={ziehen}
-        className="flex shrink-0 cursor-move items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2 select-none"
-      >
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{titel}</span>
-        <button onClick={onAnbinden} className="rounded p-1 text-neutral-500 hover:bg-neutral-200" title="Wieder anbinden">
-          <Pin className="h-4 w-4" />
-        </button>
-        <button onClick={onSchliessen} className="rounded p-1 text-neutral-500 hover:bg-neutral-200" title="Schließen">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col p-2">{children}</div>
     </div>
   );
 }
@@ -1128,7 +1105,7 @@ function zitatBlock(m: { betreff?: string | null; absenderName?: string | null; 
 }
 
 /* ═══ Spalte 3: Detail / Vorschau ═══ */
-function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSchliessen, onZurueck }: {
+export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSchliessen, onZurueck }: {
   id: number;
   kompakt: boolean;
   onAntworten: (m: VerfassenStart) => void;
@@ -1144,33 +1121,24 @@ function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSc
   const [belegOk, setBelegOk] = useState<string | null>(null);
   const [adressDialog, setAdressDialog] = useState<{ name: string | null; adresse: string } | null>(null);
   // #128.2: Anhangsvorschau (Overlay vor Download)
-  const [vorschau, setVorschau] = useState<{ index: number; name: string; mime: string; url: string } | null>(null);
+  const [vorschau, setVorschau] = useState<{ index: number; name: string; mime: string; base64: string } | null>(null);
   // #128.6: Bilderblocker (externe Bilder standardmäßig blockiert)
   const [bilderErlaubt, setBilderErlaubt] = useState(false);
   const terminAnlegen = trpc.kalender.anlegen.useMutation();
 
-  const anhangBlobUrl = async (index: number): Promise<{ url: string; dateiname: string; mime: string }> => {
+  const anhangInhalt = async (index: number): Promise<{ base64: string; dateiname: string; mime: string }> => {
     const meta = mail.data?.anhaengeMeta?.[index] as { inhalt?: string; name?: string; mime?: string } | undefined;
-    const r = meta?.inhalt
-      ? { base64: meta.inhalt, dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream" }
-      : await utils.postfach.anhang.fetch({ mailId: id, index });
-    const blob = new Blob([Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0))], { type: r.mime });
-    return { url: URL.createObjectURL(blob), dateiname: r.dateiname, mime: r.mime };
+    if (meta?.inhalt) {
+      return { base64: meta.inhalt, dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream" };
+    }
+    return utils.postfach.anhang.fetch({ mailId: id, index });
   };
 
-  const anhangLaden = async (index: number) => {
-    const r = await anhangBlobUrl(index);
-    const a = document.createElement("a");
-    a.href = r.url;
-    a.download = r.dateiname;
-    a.click();
-  };
-
-  // #128.2: Anhang-Klick → Vorschau-Overlay (PDF/Bild/Text), Download per Button
+  // #128.2: Anhang-Klick → Vorschau-Overlay (PDF/Bild/Text/Office), Download per Button
   const anhangVorschau = async (index: number) => {
     const meta = mail.data?.anhaengeMeta?.[index] as { name?: string; mime?: string } | undefined;
-    const r = await anhangBlobUrl(index);
-    setVorschau({ index, name: meta?.name ?? r.dateiname, mime: r.mime, url: r.url });
+    const r = await anhangInhalt(index);
+    setVorschau({ index, name: meta?.name ?? r.dateiname, mime: r.mime, base64: r.base64 });
   };
 
   if (mail.isLoading) return <div className="flex-1 rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-400">Lade …</div>;
@@ -1417,33 +1385,14 @@ ${inhalt}
         )}
       </div>
 
-      {/* #128.2: Anhangsvorschau-Overlay */}
+      {/* #128.2 + v1.21.5: Anhangsvorschau-Overlay (gemeinsame Komponente, auch Office) */}
       {vorschau && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={() => setVorschau(null)}>
-          <div className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 border-b border-neutral-200 px-4 py-2.5">
-              <Paperclip className="h-4 w-4 text-neutral-500" />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{vorschau.name}</span>
-              <Button size="sm" variant="outline" onClick={() => anhangLaden(vorschau.index)}>Herunterladen</Button>
-              <Button size="sm" variant="ghost" onClick={() => setVorschau(null)}><X className="h-4 w-4" /></Button>
-            </div>
-            <div className="min-h-0 flex-1 bg-neutral-50">
-              {vorschau.mime === "application/pdf" || /^text\//.test(vorschau.mime) ? (
-                <iframe src={vorschau.url} title="Anhang-Vorschau" className="h-full w-full bg-white" />
-              ) : /^image\//.test(vorschau.mime) ? (
-                <div className="flex h-full items-center justify-center p-4">
-                  <img src={vorschau.url} alt={vorschau.name} className="max-h-full max-w-full rounded-md object-contain" />
-                </div>
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-neutral-500">
-                  <Paperclip className="h-10 w-10 text-neutral-300" />
-                  <p>Keine Vorschau für diesen Dateityp ({vorschau.mime}).</p>
-                  <Button variant="outline" onClick={() => anhangLaden(vorschau.index)}>Herunterladen</Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <AnhangVorschauDialog
+          dateiname={vorschau.name}
+          mime={vorschau.mime}
+          base64={vorschau.base64}
+          onSchliessen={() => setVorschau(null)}
+        />
       )}
     </div>
 
@@ -1512,7 +1461,7 @@ function ICalKarte({ mailId, textPlain, textHtml, anhaenge, onTermin }: {
                 const m = e.beginn.match(/^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?/);
                 const ende = e.ende?.match(/^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?/);
                 onTermin({
-                  datum: m ? m[1] : new Date().toISOString().slice(0, 10),
+                  datum: m ? m[1] : heuteLokal(),
                   startZeit: m?.[2] ?? null,
                   endZeit: ende?.[2] ?? null,
                   titel: e.titel,

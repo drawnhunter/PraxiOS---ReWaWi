@@ -9,6 +9,7 @@ import {
 } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { computeTotals, centToDecimal, nextNumber } from "./queries/invoicing";
+import { heuteBerlin } from "./lib/datum";
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format: JJJJ-MM-TT");
 
@@ -82,7 +83,7 @@ export const purchaseOrderRouter = createRouter({
       });
       if (!lieferant) throw new Error("Lieferant nicht gefunden.");
 
-      const heute = new Date().toISOString().slice(0, 10);
+      const heute = heuteBerlin();
       const [{ id }] = await db
         .insert(purchaseOrders)
         .values({
@@ -223,7 +224,7 @@ export const purchaseOrderRouter = createRouter({
           status: input.status,
           geliefertAm:
             input.status === "geliefert"
-              ? (input.datum ?? new Date().toISOString().slice(0, 10))
+              ? (input.datum ?? heuteBerlin())
               : null,
         })
         .where(eq(purchaseOrders.id, input.id));

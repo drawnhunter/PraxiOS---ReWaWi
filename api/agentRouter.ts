@@ -13,6 +13,7 @@ import {
   customers, invoices, invoiceItems, reminders, bankImporte,
 } from "@db/schema";
 import { APP_VERSION } from "./lib/version";
+import { heuteBerlin, tageAddieren } from "./lib/datum";
 import { computeTotals, centToDecimal } from "./queries/invoicing";
 import { besterTreffer } from "@contracts/fuzzy";
 
@@ -117,7 +118,8 @@ async function autonomie(): Promise<"vorschlag" | "vollautomatik"> {
   return s?.agentAutonomie === "vollautomatik" ? "vollautomatik" : "vorschlag";
 }
 
-const heute = () => new Date().toISOString().slice(0, 10);
+// #191: fachliches Kalenderdatum in Europe/Berlin, nicht UTC (Vortag-Falle nach Mitternacht)
+const heute = heuteBerlin;
 
 // ── Lesen ──────────────────────────────────────────────────────────────────
 app.get("/status", async (c) => {
@@ -754,9 +756,12 @@ app.post("/rechnung-entwurf", async (c) => {
 
   const settings = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
   const zielTage = kunde.zahlungszielTage ?? settings?.standardZahlungsziel ?? 14;
-  const heuteD = new Date();
-  const faellig = new Date(heuteD.getTime() + zielTage * 86400000);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  // #191: Kalenderdatum Berlin + reine Kalender-Arithmetik — „sofort" (0 Tage) ergibt
+  // garantiert rechnungsdatum === faelligkeitsdatum, kein Vortag mehr.
+  // Optional explizit: rechnungsdatum/faelligkeitsdatum (sofort = beide identisch)
+  const heuteD = body.rechnungsdatum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.rechnungsdatum)) ? String(body.rechnungsdatum) : heute();
+  const faellig = body.faelligkeitsdatum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.faelligkeitsdatum)) ? String(body.faelligkeitsdatum) : tageAddieren(heuteD, zielTage);
+  if (faellig < heuteD) return c.json({ ok: false, fehler: `faelligkeitsdatum (${faellig}) darf nicht vor rechnungsdatum (${heuteD}) liegen.` }, 400);
   const standardBank = await db.query.bankAccounts.findFirst({ where: (b, { eq: e }) => e(b.istStandard, true) });
 
   const totals = computeTotals(positionen);
@@ -767,8 +772,8 @@ app.post("/rechnung-entwurf", async (c) => {
     .values({
       typ: istProforma ? "proforma" : "rechnung",
       customerId: kunde.id,
-      rechnungsdatum: fmt(heuteD),
-      faelligkeitsdatum: fmt(faellig),
+      rechnungsdatum: heuteD,
+      faelligkeitsdatum: faellig,
       bankAccountId: standardBank?.id ?? null,
       kundeName: kunde.name,
       kundeZusatz: kunde.zusatz,
@@ -2722,9 +2727,15 @@ app.patch("/rechnung-entwurf/:id", async (c) => {
   if (body.rechnungsdatum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.rechnungsdatum))) patch.rechnungsdatum = String(body.rechnungsdatum);
   if (body.faelligkeitsdatum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.faelligkeitsdatum))) patch.faelligkeitsdatum = String(body.faelligkeitsdatum);
   if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "rechnungsdatum und/oder faelligkeitsdatum (JJJJ-MM-TT) angeben." }, 400);
+  // #191: fachliche Validierung — Fälligkeit nie vor dem Rechnungsdatum
+  const rd = (patch.rechnungsdatum as string | undefined) ?? r.rechnungsdatum;
+  const fd = (patch.faelligkeitsdatum as string | undefined) ?? r.faelligkeitsdatum;
+  if (fd < rd) {
+    return c.json({ ok: false, fehler: `faelligkeitsdatum (${fd}) darf nicht vor rechnungsdatum (${rd}) liegen. Für „sofort zahlbar" beide Daten identisch setzen.` }, 400);
+  }
   await db.update(invoices).set(patch).where(eq(invoices.id, id));
   await audit("entwurf_korrigiert", { id, ...patch });
-  return c.json({ ok: true, id, ...patch });
+  return c.json({ ok: true, id, rechnungsdatum: rd, faelligkeitsdatum: fd });
 });
 
 /** Beleg-Freigabe setzen (neu/geprueft/freigegeben) — audit-logged, GoBD-nachvollziehbar. */

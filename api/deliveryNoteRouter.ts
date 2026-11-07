@@ -12,6 +12,7 @@ import {
 } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { nextNumber } from "./queries/invoicing";
+import { heuteBerlin } from "./lib/datum";
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format: JJJJ-MM-TT");
 
@@ -94,7 +95,7 @@ export const deliveryNoteRouter = createRouter({
         .insert(deliveryNotes)
         .values({
           customerId: kunde.id,
-          datum: new Date().toISOString().slice(0, 10),
+          datum: heuteBerlin(),
           kundeName: kunde.name,
           kundeZusatz: kunde.zusatz,
           kundeStrasse: kunde.strasse,
@@ -296,7 +297,7 @@ export const deliveryNoteRouter = createRouter({
         .values({
           customerId: rechnung.customerId,
           invoiceId: rechnung.id,
-          datum: new Date().toISOString().slice(0, 10),
+          datum: heuteBerlin(),
           kundeName: rechnung.kundeName,
           kundeZusatz: rechnung.kundeZusatz,
           kundeStrasse: rechnung.kundeStrasse,

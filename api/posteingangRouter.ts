@@ -7,6 +7,7 @@ import { incomingInvoices, kategorien, postEingang, suppliers } from "@db/schema
 import { erzeugePostEingang, mimeAusName } from "./lib/posteingang";
 import { duplikatEingangsrechnung } from "./lib/einrechnung";
 import { extrahiereFelder, ocrBeleg } from "./ocr";
+import { heuteBerlin } from "./lib/datum";
 
 const datumSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -266,7 +267,7 @@ export const posteingangRouter = createRouter({
   /** Zahlungsziele: offene Eingangsrechnungen + Wiedervorlagen + ungebuchte Posts. */
   zahlungsziele: authedQuery.query(async () => {
     const db = getDb();
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = heuteBerlin();
 
     const offeneRechnungen = await db
       .select({

@@ -19,6 +19,7 @@ import {
   nextNumber,
   formatInvoiceNumber,
 } from "./queries/invoicing";
+import { heuteBerlin, tageAddieren } from "./lib/datum";
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format: JJJJ-MM-TT");
 
@@ -115,10 +116,9 @@ export const invoiceRouter = createRouter({
       const zielTage =
         kunde.zahlungszielTage ?? settings?.standardZahlungsziel ?? 14;
 
-      const heute = new Date();
-      const faellig = new Date(heute);
-      faellig.setDate(faellig.getDate() + zielTage);
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      // #191: Kalenderdatum Europe/Berlin + reine Kalender-Arithmetik (kein UTC-Vortag)
+      const heute = heuteBerlin();
+      const faellig = tageAddieren(heute, zielTage);
 
       const standardBank = await db.query.bankAccounts.findFirst({
         where: eq(bankAccounts.istStandard, true),
@@ -128,8 +128,8 @@ export const invoiceRouter = createRouter({
         .insert(invoices)
         .values({
           customerId: kunde.id,
-          rechnungsdatum: fmt(heute),
-          faelligkeitsdatum: fmt(faellig),
+          rechnungsdatum: heute,
+          faelligkeitsdatum: faellig,
           bankAccountId: standardBank?.id ?? null,
           kundeName: kunde.name,
           kundeZusatz: kunde.zusatz,
@@ -323,7 +323,7 @@ export const invoiceRouter = createRouter({
         .update(invoices)
         .set({
           bezahltBetrag: input.betrag ?? rechnung.brutto,
-          bezahltAm: input.datum ?? new Date().toISOString().slice(0, 10),
+          bezahltAm: input.datum ?? heuteBerlin(),
         })
         .where(eq(invoices.id, input.id));
       return { ok: true };
@@ -371,7 +371,7 @@ export const invoiceRouter = createRouter({
         with: { items: true },
       });
       if (!r) throw new Error("Rechnung nicht gefunden.");
-      const heute = new Date().toISOString().slice(0, 10);
+      const heute = heuteBerlin();
       const [{ id }] = await db
         .insert(invoices)
         .values({
@@ -476,7 +476,7 @@ export const invoiceRouter = createRouter({
         throw new Error("Nur finalisierte Rechnungen können storniert werden.");
       }
 
-      const heute = new Date().toISOString().slice(0, 10);
+      const heute = heuteBerlin();
       const [{ id }] = await db
         .insert(creditNotes)
         .values({

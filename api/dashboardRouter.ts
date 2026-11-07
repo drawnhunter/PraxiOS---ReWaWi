@@ -2,6 +2,7 @@ import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { invoices, reminders } from "@db/schema";
 import { gte } from "drizzle-orm";
+import { heuteBerlin } from "./lib/datum";
 
 export const dashboardRouter = createRouter({
   stats: authedQuery.query(async () => {
@@ -9,7 +10,7 @@ export const dashboardRouter = createRouter({
     const alle = await db.select().from(invoices);
 
     const finalisiert = alle.filter((r) => r.status !== "entwurf");
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = heuteBerlin();
     const monatStart = heute.slice(0, 7) + "-01";
 
     const offene = finalisiert.filter((r) => {
@@ -50,7 +51,7 @@ export const dashboardRouter = createRouter({
   /** Mahnungen fällig: überfällige Rechnungen + nächste fällige Mahnstufe. */
   mahnFaellig: authedQuery.query(async () => {
     const db = getDb();
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = heuteBerlin();
     const alle = await db.select().from(invoices);
     const alleMahnungen = await db.select().from(reminders);
 

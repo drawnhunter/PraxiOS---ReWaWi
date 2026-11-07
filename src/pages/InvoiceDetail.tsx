@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import BankZuordnung from "@/components/BankZuordnung";
-import { geld, datum, parseGeldInput, parseMengeInput, mengeFmt } from "@/lib/format";
+import { geld, datum, parseGeldInput, parseMengeInput, mengeFmt, tagePlus } from "@/lib/format";
 import {
   computeTotals,
   ZAHLUNGSZIELE_TAGE,
@@ -79,11 +79,7 @@ interface EditKopf {
   rabattAddieren: boolean;
 }
 
-function addTage(iso: string, tage: number): string {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + tage);
-  return d.toISOString().slice(0, 10);
-}
+const addTage = tagePlus;
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();

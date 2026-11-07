@@ -7,7 +7,7 @@ import { deZahl } from "@/lib/downloads";
 import { trpc } from "@/providers/trpc";
 import { toast } from "sonner";
 import { useSortierung } from "@/lib/sortierung";
-import { geld, datum as fmtDatum } from "@/lib/format";
+import { geld, datum as fmtDatum , heuteLokal} from "@/lib/format";
 import { textHerunterladen } from "@/lib/downloads";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,7 +158,7 @@ export default function IncomingInvoices() {
       n.set("tab", t);
       return n;
     }, { replace: true });
-  const heute = new Date().toISOString().slice(0, 10);
+  const heute = heuteLokal();
   const offeneListe = (liste.data ?? []).filter((r) => !r.bezahltAm);
   const summeOffen = offeneListe.reduce((a, r) => a + Number(r.brutto), 0);
   const ueberfaelligListe = offeneListe.filter((r) => r.faelligkeitsdatum && r.faelligkeitsdatum < heute);

@@ -9,7 +9,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { MailEditor } from "@/components/MailEditor";
-import { Paperclip, Send, Save, Trash2, X, UploadCloud, Clock } from "lucide-react";
+import { AnhangVorschauDialog } from "@/components/AnhangVorschauDialog";
+import { Paperclip, Send, Save, Trash2, X, UploadCloud, Clock, Eye } from "lucide-react";
 
 export interface VerfassenStart {
   empfaenger?: string;
@@ -95,10 +96,12 @@ function EmpfaengerFeld({ wert, onWert, placeholder }: {
 }
 
 /** Der „Mail verfassen"-Tab: volles Paket (RTE, Von/An/CC/BCC, Anhänge, Entwurf). */
-export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
+export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZustand }: {
   start: VerfassenStart;
   abschlussAktion: "loeschen" | "entwurf" | "senden" | "aenderungVerwerfen" | null;
   onAktionErledigt: () => void;
+  /** v1.21.5: aktueller Zustand + Ungespeichert-Flag nach außen (Schließen-Dialog + Fenster-Lösen) */
+  onZustand?: (z: VerfassenStart & { unsaved: boolean }) => void;
 }) {
   /** Entwurf wirklich verwerfen: DB-Löschung (falls gespeichert) + Tab zu. */
   const entwurfVerwerfen = () => {
@@ -145,6 +148,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
   const [editorKey, setEditorKey] = useState(0); // Remount für „Zurücksetzen"
   const [gespeichert, setGespeichert] = useState<string | null>(null);
   const [fehler, setFehler] = useState("");
+  const [anhangVorschau, setAnhangVorschau] = useState<Anhang | null>(null);
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const einstellungen = trpc.settings.get.useQuery();
   const bausteine = trpc.postfach.bausteine.useQuery();
@@ -196,6 +200,10 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
 
   // Autosave (#104): alle 8 s nach Änderung still sichern — kein Entwurf geht mehr verloren
   const letzteAuto = useRef("");
+  // v1.21.5: Hash des zuletzt gespeicherten/geladenen Zustands — „unsaved" nur bei echten Änderungen
+  const gespeichertHash = useRef(
+    JSON.stringify([start.empfaenger ?? "", start.cc ?? "", start.bcc ?? "", start.betreff ?? "", start.html ?? "<p><br></p>", (start.anhaenge ?? []).length]),
+  );
   useEffect(() => {
     const t = setInterval(() => {
       const jetzt = JSON.stringify([empfaenger, cc, bcc, betreff, html, anhaenge.length]);
@@ -205,12 +213,26 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
       letzteAuto.current = jetzt;
       entwurfSpeichern.mutate(
         { id: entwurfId ?? undefined, empfaenger, cc, bcc, kontoId: kontoId ?? undefined, betreff, text: html, anhaenge: anhaenge.length ? anhaenge : undefined },
-        { onSuccess: (r) => { setEntwurfId(r.id); utils.postfach.entwuerfe.invalidate(); } },
+        { onSuccess: (r) => { setEntwurfId(r.id); gespeichertHash.current = jetzt; utils.postfach.entwuerfe.invalidate(); } },
       );
     }, 8000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empfaenger, cc, bcc, betreff, html, anhaenge, entwurfId]);
+
+  // Zustand nach außen melden (Schließen-Logik im Hauptfenster + Fenster-Lösen)
+  const zustandRef = useRef(onZustand);
+  zustandRef.current = onZustand;
+  useEffect(() => {
+    const jetzt = JSON.stringify([empfaenger, cc, bcc, betreff, html, anhaenge.length]);
+    zustandRef.current?.({
+      empfaenger, cc, bcc, betreff, html,
+      inReplyTo: start.inReplyTo, references: start.references,
+      kontoId, entwurfId, anhaenge,
+      unsaved: jetzt !== gespeichertHash.current,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empfaenger, cc, bcc, betreff, html, anhaenge, entwurfId, kontoId]);
 
   const dateiHinzufuegen = (dateien: FileList | null) => {
     if (!dateien) return;
@@ -231,6 +253,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
       {
         onSuccess: (r) => {
           setEntwurfId(r.id);
+          gespeichertHash.current = JSON.stringify([empfaenger, cc, bcc, betreff, html, anhaenge.length]);
           utils.postfach.entwuerfe.invalidate(); // Seitenleiste sofort aktuell
           if (schliessenDanach) onAktionErledigt();
           else setGespeichert(new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }));
@@ -337,8 +360,16 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
           </label>
           {anhaenge.map((a, i) => (
             <span key={i} className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs">
-              {a.dateiname}
-              <button onClick={() => setAnhaenge(anhaenge.filter((_, x) => x !== i))}><X className="h-3 w-3" /></button>
+              <button
+                type="button"
+                className="flex items-center gap-1 hover:text-teal-700 hover:underline"
+                title="Anhang prüfen (Vorschau)"
+                onClick={() => setAnhangVorschau(a)}
+              >
+                <Eye className="h-3 w-3 text-neutral-400" />
+                <span className="max-w-48 truncate">{a.dateiname}</span>
+              </button>
+              <button type="button" title="Anhang entfernen" onClick={() => setAnhaenge(anhaenge.filter((_, x) => x !== i))}><X className="h-3 w-3" /></button>
             </span>
           ))}
         </div>
@@ -405,6 +436,16 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt }: {
           </Button>
         </div>
       </div>
+
+      {/* v1.21.5: Anhänge auch beim Verfassen prüfen (PDF/Bild/Office/Text) */}
+      {anhangVorschau && (
+        <AnhangVorschauDialog
+          dateiname={anhangVorschau.dateiname}
+          mime={anhangVorschau.mime}
+          base64={anhangVorschau.base64}
+          onSchliessen={() => setAnhangVorschau(null)}
+        />
+      )}
     </div>
   );
 }

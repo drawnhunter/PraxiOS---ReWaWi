@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { useSortierung } from "@/lib/sortierung";
 import { Input } from "@/components/ui/input";
-import { geld, datum as fmtDatum } from "@/lib/format";
+import { geld, datum as fmtDatum , datumLokal} from "@/lib/format";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +75,7 @@ export default function Zahlungsziele() {
   }, [eintraege.data]);
 
   const raster = monatsRaster(jahrMonat.jahr, jahrMonat.monat);
-  const heuteIso = heute.toISOString().slice(0, 10);
+  const heuteIso = datumLokal(heute);
   const monatName = new Date(Date.UTC(jahrMonat.jahr, jahrMonat.monat, 1)).toLocaleDateString("de-DE", {
     month: "long",
     year: "numeric",

@@ -1,3 +1,4 @@
+import { heuteLokal } from "@/lib/format";
 import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ export default function Kalender() {
   const erster = new Date(jahr, monatNr - 1, 1);
   const startWochentag = (erster.getDay() + 6) % 7; // Mo=0
   const tageImMonat = new Date(jahr, monatNr, 0).getDate();
-  const heute = new Date().toISOString().slice(0, 10);
+  const heute = heuteLokal();
   const zellen: (number | null)[] = [
     ...Array(startWochentag).fill(null),
     ...Array.from({ length: tageImMonat }, (_, i) => i + 1),

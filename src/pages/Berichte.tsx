@@ -1,3 +1,4 @@
+import { datumLokal } from "@/lib/format";
 import { useMemo, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ function zeitraumPreset(p: Preset): { von: string; bis: string } {
   const jetzt = new Date();
   const j = jetzt.getFullYear();
   const m = jetzt.getMonth();
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const fmt = (d: Date) => datumLokal(d);
   switch (p) {
     case "monat":
       return { von: fmt(new Date(j, m, 1)), bis: fmt(jetzt) };

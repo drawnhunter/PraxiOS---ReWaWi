@@ -6,11 +6,12 @@ import { reminders, invoices } from "@db/schema";
 import { eq, asc, desc } from "drizzle-orm";
 import { renderMahnungPdf, MAHN_STUFEN } from "./pdf";
 import { ladeFirmaLive } from "./pdfBelege";
+import { heuteBerlin } from "./lib/datum";
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format: JJJJ-MM-TT");
 
 function heute(): string {
-  return new Date().toISOString().slice(0, 10);
+  return heuteBerlin();
 }
 
 function plusTage(iso: string, tage: number): string {

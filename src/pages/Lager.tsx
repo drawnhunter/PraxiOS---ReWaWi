@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/providers/trpc";
-import { geld, datum as fmtDatum } from "@/lib/format";
+import { geld, datum as fmtDatum , heuteLokal} from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -69,7 +69,7 @@ function BuchungsDialog({
             onClick={() =>
               buchen.mutate({
                 productId: zeile.id, typ, menge: Number(menge),
-                datum: new Date().toISOString().slice(0, 10),
+                datum: heuteLokal(),
                 bemerkung: bemerkung || undefined,
               })
             }

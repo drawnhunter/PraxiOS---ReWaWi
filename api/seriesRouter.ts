@@ -8,6 +8,7 @@ import { getDb } from "./queries/connection";
 import { invoiceSeries, invoices, invoiceItems, customers, companySettings, bankAccounts } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { computeTotals, centToDecimal } from "@contracts/invoicing";
+import { heuteBerlin } from "./lib/datum";
 
 const itemInput = z.object({
   bezeichnung: z.string().min(1),
@@ -32,7 +33,7 @@ export const seriesRouter = createRouter({
       db.select().from(customers),
     ]);
     const kMap = new Map(kundenListe.map((k) => [k.id, k.name]));
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = heuteBerlin();
     return reihen.map((s) => ({
       ...s,
       kundeName: kMap.get(s.customerId) ?? "—",
@@ -122,7 +123,7 @@ export const seriesRouter = createRouter({
 
       const items = JSON.parse(s.itemsJson) as z.infer<typeof itemInput>[];
       const totals = computeTotals(items.map((it) => ({ ...it, beschreibung: it.beschreibung ?? null })));
-      const heute = new Date().toISOString().slice(0, 10);
+      const heute = heuteBerlin();
       const ziel = kunde.zahlungszielTage ?? settings?.standardZahlungsziel ?? 14;
 
       const [res] = await db.insert(invoices).values({
@@ -184,7 +185,7 @@ export const seriesRouter = createRouter({
 
   faelligAnzahl: authedQuery.query(async () => {
     const reihen = await getDb().select().from(invoiceSeries);
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = heuteBerlin();
     return { anzahl: reihen.filter((s) => s.aktiv && s.naechsteFaellig <= heute).length };
   }),
 });

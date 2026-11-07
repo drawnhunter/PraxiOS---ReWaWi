@@ -4,6 +4,7 @@ import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { termine } from "@db/schema";
 import { and, asc, eq, gte, lte, or } from "drizzle-orm";
+import { heuteBerlin } from "./lib/datum";
 
 const terminInput = z.object({
   datum: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -39,7 +40,7 @@ export interface QuellEintrag {
 /** Quell-Eintraege (Zahlungsziele + Mahnungen + offene Rechnungen) fuer einen Zeitraum. */
 export async function ladeQuellEintraege(von: string, bis: string): Promise<QuellEintrag[]> {
   const db = getDb();
-  const heute = new Date().toISOString().slice(0, 10);
+  const heute = heuteBerlin();
   const { invoices, incomingInvoices, reminders, postEingang, suppliers } = await import("@db/schema");
   const { isNull, isNotNull } = await import("drizzle-orm");
 

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
-import { geld, datum as fmtDatum } from "@/lib/format";
+import { geld, datum as fmtDatum , heuteLokal} from "@/lib/format";
 import { pdfHerunterladen } from "@/lib/downloads";
 import { PdfVorschau } from "@/components/PdfVorschau";
 // statusBadge lokal (kein Import aus pages/Invoices — vermeidet Modul-Zyklus)
@@ -63,7 +63,7 @@ export default function RechnungsPanel({
   const r = rechnung.data;
   const a = akt.data;
   const offen = r && r.status === "finalisiert" ? Number(r.brutto) - Number(r.bezahltBetrag) : 0;
-  const ueberfaellig = offen > 0.004 && r && r.faelligkeitsdatum < new Date().toISOString().slice(0, 10);
+  const ueberfaellig = offen > 0.004 && r && r.faelligkeitsdatum < heuteLokal();
 
   // Timeline aufbauen (chronologisch)
   const schritte: { zeit: string; label: string; detail?: string; icon: "entwurf" | "final" | "mail" | "zahlung" | "gs" }[] = [];

@@ -8,6 +8,7 @@ import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { invoices, invoiceItems, customers, products, bankAccounts } from "@db/schema";
 import { computeTotals, centToDecimal } from "@contracts/invoicing";
+import { heuteBerlin } from "./lib/datum";
 
 function parseCsv(csvText: string): Record<string, string>[] {
   const res = Papa.parse<Record<string, string>>(csvText.replace(/^﻿/, ""), {
@@ -42,7 +43,7 @@ function kwEnde(zeitraum: string): string {
     sonntag.setUTCDate(montagKw1.getUTCDate() + (woche - 1) * 7 + 6);
     return sonntag.toISOString().slice(0, 10);
   }
-  return new Date().toISOString().slice(0, 10);
+  return heuteBerlin();
 }
 
 interface NachweisZeile {

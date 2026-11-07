@@ -384,15 +384,32 @@ export function MailEditor({
         onMouseUp={beiMouseUp}
         onKeyDown={(e) => {
           if (e.key === " " && (beiZeilenTrigger() || beiLeerzeichen())) { e.preventDefault(); return; }
-          if (e.key === "Tab" && beiTab(e)) return;
+          if (e.key === "Tab") {
+            if (beiTab(e)) return; // Textbaustein per Kürzel+Tab hat Vorrang
+            // v1.21.5: Tab = echter Einzug (volle Tastatur-Arbeit), kein Fokus-Sprung
+            const knoten = window.getSelection()?.anchorNode;
+            const li = knoten instanceof Element ? knoten.closest("li") : knoten?.parentElement?.closest("li");
+            if (li) {
+              e.preventDefault();
+              befehl(e.shiftKey ? "outdent" : "indent");
+              return;
+            }
+            if (!e.shiftKey) {
+              e.preventDefault();
+              document.execCommand("insertText", false, "\t");
+              melden();
+              return;
+            }
+            // Shift+Tab außerhalb von Listen: Fokus zurück — der Ausweg aus dem Editor
+          }
           if (e.key === "Enter" && beiEnter(e)) return;
           if (e.key === "Escape") { setEmoji(null); setHilfe(false); }
         }}
         onKeyUp={(e) => { zustandLesen(); if (e.key === "Escape") setBubble(null); }}
         onPaste={beiPaste}
         onBlur={() => { setBubble(null); setEmoji(null); }}
-        className="min-h-0 w-full flex-1 overflow-y-auto px-3 py-2 text-sm outline-none"
-        style={{ minHeight }}
+        className="mail-inhalt min-h-0 w-full flex-1 overflow-y-auto px-3 py-2 text-sm outline-none"
+        style={{ minHeight, whiteSpace: "pre-wrap" }}
       />
 
       {/* ── Emoji-Popup („:" + Suche) ── */}

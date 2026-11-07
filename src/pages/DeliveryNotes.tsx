@@ -2,7 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { useSortierung } from "@/lib/sortierung";
 import { Input } from "@/components/ui/input";
-import { datum } from "@/lib/format";
+import { datum , heuteLokal} from "@/lib/format";
 import { type InvoiceStatus } from "@contracts/invoicing";
 import { statusBadge } from "./Invoices";
 import { Link, useNavigate } from "react-router";
@@ -287,7 +287,7 @@ export default function DeliveryNotes() {
                     const d = vorschau.data!;
                     anlegen.mutate({
                       customerId: Number(importKunde),
-                      datum: new Date().toISOString().slice(0, 10),
+                      datum: heuteLokal(),
                       phase: d.phase ?? undefined,
                       dokName: d.name ?? undefined,
                       dateiname: importDatei,

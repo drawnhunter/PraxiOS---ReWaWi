@@ -6,6 +6,7 @@ import { z } from "zod";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { invoices, invoiceItems, incomingInvoices, companySettings } from "@db/schema";
+import { heuteBerlin } from "./lib/datum";
 
 const zodMonat = z.object({ monat: z.string().regex(/^\d{4}-\d{2}$/) });
 
@@ -14,7 +15,7 @@ export const statsRouter = createRouter({
     const db = getDb();
     const finale = await db.select().from(invoices).where(eq(invoices.status, "finalisiert"));
 
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = heuteBerlin();
     const jahr = heute.slice(0, 4);
     const monat = heute.slice(0, 7);
     const summe = (arr: typeof finale, f: (r: (typeof finale)[number]) => number) =>
@@ -53,7 +54,7 @@ export const statsRouter = createRouter({
     .query(async ({ input }) => {
       const db = getDb();
       const jahr = String(input.jahr);
-      const heute = new Date().toISOString().slice(0, 10);
+      const heute = heuteBerlin();
       const laufenderMonat = heute.slice(0, 7);
 
       const finale = await db.select().from(invoices).where(eq(invoices.status, "finalisiert"));

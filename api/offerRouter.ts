@@ -13,6 +13,7 @@ import {
   centToDecimal,
   nextNumber,
 } from "./queries/invoicing";
+import { heuteBerlin, tageAddieren } from "./lib/datum";
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format: JJJJ-MM-TT");
 
@@ -72,17 +73,15 @@ export const offerRouter = createRouter({
       });
       if (!kunde) throw new Error("Kunde nicht gefunden.");
 
-      const heute = new Date();
-      const gueltig = new Date(heute);
-      gueltig.setDate(gueltig.getDate() + 30);
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const heute = heuteBerlin();
+      const gueltig = tageAddieren(heute, 30);
 
       const [{ id }] = await db
         .insert(offers)
         .values({
           customerId: kunde.id,
-          datum: fmt(heute),
-          gueltigBis: fmt(gueltig),
+          datum: heute,
+          gueltigBis: gueltig,
           kundeName: kunde.name,
           kundeZusatz: kunde.zusatz,
           kundeStrasse: kunde.strasse,
@@ -232,7 +231,7 @@ export const offerRouter = createRouter({
       }
 
       const { invoices, invoiceItems } = await import("@db/schema");
-      const heute = new Date();
+      const heute = heuteBerlin();
       const kunde = await db.query.customers.findFirst({
         where: eq(customers.id, a.customerId),
       });
@@ -240,17 +239,15 @@ export const offerRouter = createRouter({
         where: eq(companySettings.id, 1),
       });
       const zielTage = kunde?.zahlungszielTage ?? settings?.standardZahlungsziel ?? 14;
-      const faellig = new Date(heute);
-      faellig.setDate(faellig.getDate() + zielTage);
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const faellig = tageAddieren(heute, zielTage);
 
       const rechnungId = await db.transaction(async (tx) => {
         const [{ id: rid }] = await tx
           .insert(invoices)
           .values({
             customerId: a.customerId,
-            rechnungsdatum: fmt(heute),
-            faelligkeitsdatum: fmt(faellig),
+            rechnungsdatum: heute,
+            faelligkeitsdatum: faellig,
             kundeName: a.kundeName,
             kundeZusatz: a.kundeZusatz,
             kundeStrasse: a.kundeStrasse,

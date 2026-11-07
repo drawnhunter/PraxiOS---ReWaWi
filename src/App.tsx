@@ -32,6 +32,7 @@ import Zahlungsziele from "@/pages/Zahlungsziele";
 import SettingsPage from "@/pages/Settings";
 import Unternehmen from "@/pages/Unternehmen";
 import Zeit from "@/pages/Zeit";
+import MailFenster from "./pages/MailFenster"
 import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
 
@@ -40,6 +41,8 @@ export default function App() {
     <>
     <Toaster position="bottom-right" richColors />
     <Routes>
+      {/* v1.21.5: gelöstes Mail-Fenster — eigenständig, ohne App-Layout */}
+      <Route path="/mail-fenster" element={<MailFenster />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/statistik" element={<Statistics />} />
