@@ -5,7 +5,7 @@ import { z } from "zod";
 import { authedQuery, createRouter } from "./middleware";
 import { getDb } from "./queries/connection";
 import { mailMails, emailKonten, postEingang } from "@db/schema";
-import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 
 /** Sichtbare Konto-IDs des Benutzers (users.mailKontoIds JSON; null = alle). */
 async function sichtbareKontoIds(user: { id?: number } | undefined): Promise<number[] | null> {
@@ -53,7 +53,7 @@ export const mailPostfachRouter = createRouter({
           ungelesen: sql<string>`SUM(CASE WHEN ${mailMails.gelesen} = 0 THEN 1 ELSE 0 END)`,
         })
         .from(mailMails)
-        .where(eq(mailMails.kontoId, k.id))
+        .where(and(eq(mailMails.kontoId, k.id), isNull(mailMails.geloeschtAm)))
         .groupBy(mailMails.ordner);
       // Entdeckte Fächer (ordnerListe) mit einblenden — auch ohne Mails darin
       const stats = new Map(ordner.map((o) => [o.ordner, { anzahl: Number(o.anzahl), ungelesen: Number(o.ungelesen) }]));
@@ -103,6 +103,8 @@ export const mailPostfachRouter = createRouter({
       if (input.kontoId) await pruefeSichtbarkeit(ctx.user, input.kontoId);
       const sichtbar = await sichtbareKontoIds(ctx.user);
       const bedingungen = [];
+      // v1.21.7: Papierkorb-Einträge tauchen in der normalen Liste nie auf
+      bedingungen.push(isNull(mailMails.geloeschtAm));
       if (input.kontoId) bedingungen.push(eq(mailMails.kontoId, input.kontoId));
       else if (sichtbar) bedingungen.push(sql`${mailMails.kontoId} IN (${sql.join(sichtbar.map((i) => sql`${i}`), sql`, `)})`);
       if (input.ordner) bedingungen.push(eq(mailMails.ordner, input.ordner));
@@ -332,8 +334,26 @@ export const mailPostfachRouter = createRouter({
   /** Entwürfe beim Verfassen. */
   entwuerfe: authedQuery.query(async () => {
     const { mailEntwuerfe } = await import("@db/schema");
-    const { desc } = await import("drizzle-orm");
-    return getDb().select().from(mailEntwuerfe).orderBy(desc(mailEntwuerfe.updatedAt)).limit(20);
+    const { desc, isNull, ne, and } = await import("drizzle-orm");
+    // v1.21.7: Papierkorb-Einträge und versendete Entwürfe haben eigene Listen
+    return getDb()
+      .select()
+      .from(mailEntwuerfe)
+      .where(and(isNull(mailEntwuerfe.geloeschtAm), ne(mailEntwuerfe.status, "gesendet")))
+      .orderBy(desc(mailEntwuerfe.updatedAt))
+      .limit(40);
+  }),
+
+  /** Versendete Entwürfe (v1.21.7): bleiben als Versand-Beleg erhalten — nichts geht mehr verloren. */
+  entwuerfeGesendet: authedQuery.query(async () => {
+    const { mailEntwuerfe } = await import("@db/schema");
+    const { desc, isNull, eq, and } = await import("drizzle-orm");
+    return getDb()
+      .select()
+      .from(mailEntwuerfe)
+      .where(and(isNull(mailEntwuerfe.geloeschtAm), eq(mailEntwuerfe.status, "gesendet")))
+      .orderBy(desc(mailEntwuerfe.updatedAt))
+      .limit(20);
   }),
 
   /** Einzelner Entwurf (v1.21.5: gelöstes Browser-Fenster lädt daraus). */
@@ -383,8 +403,9 @@ export const mailPostfachRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const { mailEntwuerfe } = await import("@db/schema");
-      await getDb().delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, input.id));
-      return { ok: true };
+      // v1.21.7: weiches Löschen — Entwürfe landen im Papierkorb statt im Nirgendwo
+      await getDb().update(mailEntwuerfe).set({ geloeschtAm: new Date() }).where(eq(mailEntwuerfe.id, input.id));
+      return { ok: true, papierkorb: true };
     }),
 
   /**
@@ -508,10 +529,71 @@ export const mailPostfachRouter = createRouter({
       const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
       if (!m) throw new Error("Mail nicht gefunden.");
       await pruefeSichtbarkeit(ctx.user, m.kontoId);
-      const { loescheMailNotfall } = await import("./imapDienst");
-      const r = await loescheMailNotfall(input.mailId);
-      if (!r.ok) throw new Error(r.fehler);
-      return r;
+      // v1.21.7: WEICHES Löschen in den Papierkorb (Retention papierkorb_tage).
+      // Erst „Endgültig löschen" im Papierkorb ruft loescheMailNotfall (IMAP + DB).
+      await getDb()
+        .update(mailMails)
+        .set({ geloeschtAm: new Date() })
+        .where(eq(mailMails.id, input.mailId));
+      return { ok: true, papierkorb: true };
+    }),
+
+  /** Papierkorb: weich gelöschte Mails + Entwürfe (v1.21.7). */
+  papierkorb: authedQuery.query(async ({ ctx }) => {
+    const { mailEntwuerfe } = await import("@db/schema");
+    const sichtbar = await sichtbareKontoIds(ctx.user);
+    const bedingungen = [sql`${mailMails.geloeschtAm} IS NOT NULL`];
+    if (sichtbar) bedingungen.push(sql`${mailMails.kontoId} IN (${sql.join(sichtbar.map((i) => sql`${i}`), sql`, `)})`);
+    const mails = await getDb()
+      .select({ id: mailMails.id, betreff: mailMails.betreff, absenderName: mailMails.absenderName, datum: mailMails.datum, geloeschtAm: mailMails.geloeschtAm })
+      .from(mailMails)
+      .where(and(...bedingungen))
+      .orderBy(desc(mailMails.geloeschtAm))
+      .limit(200);
+    const entwuerfe = await getDb()
+      .select({ id: mailEntwuerfe.id, betreff: mailEntwuerfe.betreff, empfaenger: mailEntwuerfe.empfaenger, updatedAt: mailEntwuerfe.updatedAt, geloeschtAm: mailEntwuerfe.geloeschtAm })
+      .from(mailEntwuerfe)
+      .where(sql`${mailEntwuerfe.geloeschtAm} IS NOT NULL`)
+      .orderBy(desc(mailEntwuerfe.geloeschtAm))
+      .limit(100);
+    return {
+      mails: mails.map((m) => ({ ...m, typ: "mail" as const })),
+      entwuerfe: entwuerfe.map((e) => ({ ...e, typ: "entwurf" as const })),
+    };
+  }),
+
+  /** Wiederherstellen aus dem Papierkorb (Mail oder Entwurf). */
+  wiederherstellen: authedQuery
+    .input(z.object({ typ: z.enum(["mail", "entwurf"]), id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.typ === "mail") {
+        const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, input.id) });
+        if (!m) throw new Error("Mail nicht gefunden.");
+        await pruefeSichtbarkeit(ctx.user, m.kontoId);
+        await getDb().update(mailMails).set({ geloeschtAm: null }).where(eq(mailMails.id, input.id));
+      } else {
+        const { mailEntwuerfe } = await import("@db/schema");
+        await getDb().update(mailEntwuerfe).set({ geloeschtAm: null }).where(eq(mailEntwuerfe.id, input.id));
+      }
+      return { ok: true };
+    }),
+
+  /** Endgültig löschen (Mail: IMAP + lokal via Notfall-Pfad; Entwurf: DB-Delete). */
+  endgueltigLoeschen: authedQuery
+    .input(z.object({ typ: z.enum(["mail", "entwurf"]), id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.typ === "mail") {
+        const m = await getDb().query.mailMails.findFirst({ where: eq(mailMails.id, input.id) });
+        if (!m) throw new Error("Mail nicht gefunden.");
+        await pruefeSichtbarkeit(ctx.user, m.kontoId);
+        const { loescheMailNotfall } = await import("./imapDienst");
+        const r = await loescheMailNotfall(input.id);
+        if (!r.ok) throw new Error(r.fehler);
+        return { ok: true };
+      }
+      const { mailEntwuerfe } = await import("@db/schema");
+      await getDb().delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, input.id));
+      return { ok: true };
     }),
 
   // ── Textbausteine (Kürzel + TAB im Editor) ─────────────────────────────────

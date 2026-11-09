@@ -80,6 +80,8 @@ export const companySettings = mysqlTable("company_settings", {
   // Notfall-Loeschordner (v1.20.5, Bus #104): geloeschte Mails wandern erst hierhin
   notfallOrdnerAktiv: boolean("notfall_ordner_aktiv").notNull().default(true),
   notfallStunden: int("notfall_stunden").notNull().default(24),
+  // Papierkorb-Aufbewahrung in Tagen (v1.21.7) — danach automatisch endgültig löschen
+  papierkorbTage: int("papierkorb_tage").notNull().default(14),
   // Standard-Absenderkonto (v1.21.2, Bus #172): getrennt vom E-Rechnungs-Empfangskonto
   standardKontoId: bigint("standard_konto_id", { mode: "number", unsigned: true }),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
@@ -855,6 +857,8 @@ export const mailMails = mysqlTable("mail_mails", {
   anhaenge: text("anhaenge"), // JSON: [{name, mime, groesse, postEingangId?}]
   gelesen: boolean("gelesen").notNull().default(false),
   markiert: boolean("markiert").notNull().default(false),
+  // Papierkorb (v1.21.7): weiches Löschen — gesetzt = im Papierkorb, NULL = aktiv
+  geloeschtAm: timestamp("geloescht_am"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 },
   (t) => [
@@ -897,6 +901,8 @@ export const mailEntwuerfe = mysqlTable("mail_entwuerfe", {
   // Geplante Zustellung (v1.20): Undo-Send (Sekunden) + Senden-Später (Datum/Zeit)
   geplantesSendenAm: timestamp("geplantes_senden_am"),
   versandVersuche: int("versand_versuche").notNull().default(0), // Retry-Zaehler (v1.20.4)
+  // Papierkorb (v1.21.7): weiches Löschen auch für Entwürfe
+  geloeschtAm: timestamp("geloescht_am"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

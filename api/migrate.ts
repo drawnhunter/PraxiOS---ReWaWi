@@ -134,6 +134,10 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "company_settings", spalte: "standard_konto_id", ddl: "ALTER TABLE company_settings ADD COLUMN standard_konto_id BIGINT UNSIGNED NULL AFTER notfall_stunden" },
   // ── v1.21.4: Beleg-Teilzahlung (Bus #177) ──
   { tabelle: "incoming_invoices", spalte: "bezahlt_betrag", ddl: "ALTER TABLE incoming_invoices ADD COLUMN bezahlt_betrag DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER bezahlt_am" },
+  // ── v1.21.7: Papierkorb (weiches Löschen) ──
+  { tabelle: "mail_mails", spalte: "geloescht_am", ddl: "ALTER TABLE mail_mails ADD COLUMN geloescht_am DATETIME NULL AFTER markiert" },
+  { tabelle: "mail_entwuerfe", spalte: "geloescht_am", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN geloescht_am DATETIME NULL AFTER versand_versuche" },
+  { tabelle: "company_settings", spalte: "papierkorb_tage", ddl: "ALTER TABLE company_settings ADD COLUMN papierkorb_tage INT NOT NULL DEFAULT 14 AFTER notfall_stunden" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

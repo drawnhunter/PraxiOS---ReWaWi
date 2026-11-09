@@ -2217,9 +2217,19 @@ app.patch("/mail-entwurf/:id", async (c) => {
 app.delete("/mail-entwurf/:id", async (c) => {
   const { mailEntwuerfe } = await import("@db/schema");
   const id = Number(c.req.param("id"));
-  await getDb().delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, id));
-  await audit("mail_entwurf_verworfen", { id });
-  return c.json({ ok: true, verworfen: id });
+  // v1.21.7: weiches Löschen in den Papierkorb (Retention papierkorb_tage) statt DB-Delete
+  await getDb().update(mailEntwuerfe).set({ geloeschtAm: new Date() }).where(eq(mailEntwuerfe.id, id));
+  await audit("mail_entwurf_verworfen", { id, modus: "papierkorb" });
+  return c.json({ ok: true, verworfen: id, papierkorb: true });
+});
+
+/** Entwurf aus dem Papierkorb zurückholen (v1.21.7). */
+app.post("/mail-entwurf/:id/wiederherstellen", async (c) => {
+  const { mailEntwuerfe } = await import("@db/schema");
+  const id = Number(c.req.param("id"));
+  await getDb().update(mailEntwuerfe).set({ geloeschtAm: null }).where(eq(mailEntwuerfe.id, id));
+  await audit("mail_entwurf_wiederhergestellt", { id });
+  return c.json({ ok: true, id });
 });
 
 /** Entwurf direkt senden (Gate: vollautomatik ODER Token-Freigabeliste deckt alle Empfänger). */
@@ -3036,14 +3046,33 @@ app.post("/mail/:id/markierung", async (c) => {
   return c.json({ ok: true, id, markiert: status });
 });
 
-/** Mail löschen — über den Notfall-Loeschordner (24 h Aufbewahrung, konfigurierbar) statt endgueltig. */
+/** Mail löschen — v1.21.7: WEICH in den Papierkorb (Retention papierkorb_tage, Default 14 Tage).
+ *  Endgültiges Löschen (IMAP + lokal) nur noch über /mail/:id/endgueltig-loeschen. */
 app.post("/mail/:id/loeschen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { mailMails } = await import("@db/schema");
+  await getDb().update(mailMails).set({ geloeschtAm: new Date() }).where(eq(mailMails.id, id));
+  await audit("mail_geloescht", { id, modus: "papierkorb" });
+  return c.json({ ok: true, papierkorb: true });
+});
+
+/** Mail ENDGÜLTIG löschen (IMAP + lokal) — bisheriges Verhalten via Notfall-Pfad. */
+app.post("/mail/:id/endgueltig-loeschen", async (c) => {
   const id = Number(c.req.param("id"));
   const { loescheMailNotfall } = await import("./imapDienst");
   const r = await loescheMailNotfall(id);
   if (!r.ok) return c.json({ ok: false, fehler: r.fehler }, 502);
-  await audit("mail_geloescht", { id, modus: r.modus });
+  await audit("mail_endgueltig_geloescht", { id, modus: r.modus });
   return c.json({ ok: true, modus: r.modus });
+});
+
+/** Mail aus dem Papierkorb zurückholen (v1.21.7). */
+app.post("/mail/:id/wiederherstellen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const { mailMails } = await import("@db/schema");
+  await getDb().update(mailMails).set({ geloeschtAm: null }).where(eq(mailMails.id, id));
+  await audit("mail_wiederhergestellt", { id });
+  return c.json({ ok: true, id });
 });
 
 /** Mail in anderen IMAP-Ordner verschieben (Server-Move + lokale Aktualisierung). */

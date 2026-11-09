@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.21.5)
+# ReWaWi Agent-API — Leitfaden (Stand v1.21.7)
 
 Vollständige Endpunkt-Referenz der REST-API für externe Agenten (Kimi Claw).
 
@@ -457,8 +457,16 @@ Echter IMAP-Move in einen anderen Ordner.
 **Antwort:** `{ok: true, id, ordner}`
 
 ### POST /mail/:id/loeschen
-Löschen über den Notfall-Löschordner (24 h Aufbewahrung, konfigurierbar) — kein endgültiges Löschen.
+**v1.21.7: weiches Löschen in den Papierkorb** (Aufbewahrung `papierkorb_tage`, Default 14 Tage). Mail bleibt lokal + auf dem Server erhalten und ist wiederherstellbar.
+**Antwort:** `{ok: true, papierkorb: true}`
+
+### POST /mail/:id/endgueltig-loeschen (v1.21.7)
+Endgültiges Löschen (IMAP + lokal, über den Notfall-Pfad) — erst nach bewusster Entscheidung.
 **Antwort:** `{ok: true, modus}`
+
+### POST /mail/:id/wiederherstellen (v1.21.7)
+Mail aus dem Papierkorb zurückholen (`geloeschtAm` → NULL).
+**Antwort:** `{ok: true, id}`
 
 ### POST /mail/:id/als-termin
 Kalender-Termin direkt aus einer Mail — **idempotent per mailId** (zweiter Call liefert `bereitsVorhanden: true` statt Duplikat).
@@ -501,11 +509,15 @@ Entwurf korrigieren (**Merge** — nur übergebene Felder ändern sich; Bus #169
 **Antwort:** `{ok: true, id, aktualisiert: [felder]}`
 
 ### DELETE /mail-entwurf/:id
-Entwurf verwerfen.
-**Antwort:** `{ok: true, verworfen: id}`
+Entwurf verwerfen — **v1.21.7: weich in den Papierkorb** (wiederherstellbar, kein DB-Delete mehr).
+**Antwort:** `{ok: true, verworfen: id, papierkorb: true}`
+
+### POST /mail-entwurf/:id/wiederherstellen (v1.21.7)
+Entwurf aus dem Papierkorb zurückholen.
+**Antwort:** `{ok: true, id}`
 
 ### POST /mail-entwurf/:id/senden
-Entwurf direkt senden (Gate: vollautomatik ODER Freigabeliste deckt alle Empfänger — sonst 403, Entwurf bleibt). Danach ist der Entwurf gelöscht und die Mail liegt per IMAP-Append im Gesendet-Ordner.
+Entwurf direkt senden (Gate: vollautomatik ODER Freigabeliste deckt alle Empfänger — sonst 403, Entwurf bleibt). **Seit v1.21.7 bleibt der Entwurf als `status=gesendet` mit komplettem Inhalt + Anhängen als Versand-Beleg erhalten** (kein Datenverlust mehr, auch wenn die IMAP-Gesendet-Ablage scheitert). Zusätzlich liegt die Mail per IMAP-Append im Gesendet-Ordner.
 **Antwort:** `{ok: true, via, gesendetAn: […]}`
 
 ### GET /versand-log

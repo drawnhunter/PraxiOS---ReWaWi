@@ -58,6 +58,7 @@ interface FirmenForm {
   oeffentlicheUrl: string;
   notfallOrdnerAktiv: boolean;
   notfallStunden: number;
+  papierkorbTage: number;
   standardKontoId: number | null;
   smtpHost: string;
   smtpPort: number;
@@ -146,6 +147,7 @@ export default function SettingsPage() {
       oeffentlicheUrl: s.oeffentlicheUrl ?? "",
       notfallOrdnerAktiv: s.notfallOrdnerAktiv ?? true,
       notfallStunden: s.notfallStunden ?? 24,
+      papierkorbTage: s.papierkorbTage ?? 14,
       standardKontoId: s.standardKontoId ?? null,
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
@@ -350,6 +352,7 @@ export default function SettingsPage() {
                 oeffentlicheUrl: firma.oeffentlicheUrl || null,
                 notfallOrdnerAktiv: firma.notfallOrdnerAktiv,
                 notfallStunden: firma.notfallStunden,
+                papierkorbTage: firma.papierkorbTage,
                 standardKontoId: firma.standardKontoId ?? null,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
@@ -575,6 +578,16 @@ export default function SettingsPage() {
                 onChange={(e) => setFirma({ ...firma, notfallStunden: Number(e.target.value) || 24 })}
               />
               <span className="text-xs text-neutral-400">Stunden (danach endgültig gelöscht)</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-600">
+              Papierkorb-Aufbewahrung:
+              <Input
+                type="number" min={1} max={365}
+                className="h-8 w-20 text-xs"
+                value={firma.papierkorbTage}
+                onChange={(e) => setFirma({ ...firma, papierkorbTage: Number(e.target.value) || 14 })}
+              />
+              <span className="text-xs text-neutral-400">Tage — gelöschte Mails + Entwürfe sind so lange wiederherstellbar</span>
             </label>
           </div>
         </div>

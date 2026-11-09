@@ -7,6 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, PinOff,
   Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy, ChevronDown,
@@ -204,6 +209,13 @@ export default function MailPostfach() {
             kontoId: e.kontoId ?? kontoId, entwurfId: e.id,
             anhaenge: e.anhaengeParsed,
           })}
+          onGesendetKopie={(e) => oeffneVerfassen({
+            // Versand-Beleg bleibt unangetastet: immer als KOPIE öffnen (neuer Entwurf)
+            empfaenger: e.empfaenger ?? "", cc: e.cc ?? "", bcc: e.bcc ?? "",
+            betreff: e.betreff ?? "", html: e.text ?? "<p><br></p>",
+            kontoId: e.kontoId ?? kontoId, entwurfId: null,
+            anhaenge: e.anhaengeParsed,
+          })}
         />
       </div>
       <Resizer onDrag={(dx) => setLinksBreite(linksBreite + dx)} />
@@ -397,11 +409,12 @@ function ladeJson<T>(key: string, fallback: T): T {
   }
 }
 
-function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onVerfassen, onEntwurfOeffnen }: {
+function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onVerfassen, onEntwurfOeffnen, onGesendetKopie }: {
   kontoId: number | null; setKontoId: (v: number | null) => void;
   ordner: string | null; setOrdner: (v: string | null) => void;
   onVerfassen: () => void;
   onEntwurfOeffnen: (e: EntwurfEintrag) => void;
+  onGesendetKopie: (e: EntwurfEintrag) => void;
 }) {
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const sync = trpc.postfach.syncJetzt.useMutation({ onSuccess: () => postfaecher.refetch() });
@@ -549,6 +562,8 @@ function Seitenleiste({ kontoId, setKontoId, ordner, setOrdner, onVerfassen, onE
       )}
       <EntwuerfeSektion onOeffnen={onEntwurfOeffnen} />
       <AusgangSektion />
+      <GesendetSektion onKopie={onGesendetKopie} />
+      <PapierkorbSektion />
       <RegelnSektion />
 
       {/* ── Rechtsklick-Menü (Favoriten + Ordner-Aktionen) ── */}
@@ -749,6 +764,123 @@ function EntwuerfeSektion({ onOeffnen }: { onOeffnen: (e: EntwurfEintrag) => voi
 }
 
 /* ═══ Ausgang (Zwischenpforte: Versand läuft / fehlgeschlagen) ═══ */
+/** v1.21.7: Versendete Entwürfe = Versand-Belege (nichts geht mehr nach „Senden" verloren).
+ *  Öffnen immer als Kopie — der Beleg selbst bleibt unverändert. */
+function GesendetSektion({ onKopie }: { onKopie: (e: EntwurfEintrag) => void }) {
+  const liste = trpc.postfach.entwuerfeGesendet.useQuery(undefined, { refetchInterval: 30000 });
+  const [offen, setOffen] = useState(false);
+  const eintraege = (liste.data ?? []) as EntwurfEintrag[];
+  if (eintraege.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-neutral-100 pt-2">
+      <button className="flex w-full items-center gap-1 text-xs font-medium uppercase tracking-wide text-teal-700" onClick={() => setOffen(!offen)}>
+        <ChevronDown className={`h-3 w-3 transition-transform ${offen ? "" : "-rotate-90"}`} />
+        Gesendet ({eintraege.length})
+      </button>
+      {offen && (
+        <div className="mt-1 space-y-0.5">
+          {eintraege.map((e) => {
+            let anhaengeParsed: EntwurfEintrag["anhaengeParsed"] = [];
+            try { anhaengeParsed = e.anhaenge ? JSON.parse(e.anhaenge) : []; } catch { /* egal */ }
+            return (
+              <button
+                key={e.id}
+                className="w-full rounded-md bg-teal-50/50 px-2 py-1.5 text-left text-xs hover:bg-teal-50"
+                title={`Versendet ${new Date(e.updatedAt).toLocaleString("de-DE")} — als Kopie erneut verwenden`}
+                onClick={() => onKopie({ ...e, anhaengeParsed })}
+              >
+                <span className="block truncate font-medium">{e.betreff || "(kein Betreff)"}</span>
+                <span className="block truncate text-neutral-500">an {e.empfaenger || "—"} · {new Date(e.updatedAt).toLocaleDateString("de-DE")}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** v1.21.7: Papierkorb — weich gelöschte Mails + Entwürfe, mit Wiederherstellen. */
+function PapierkorbSektion() {
+  const utils = trpc.useUtils();
+  const [offen, setOffen] = useState(false);
+  const [bestaetigen, setBestaetigen] = useState<{ typ: "mail" | "entwurf"; id: number; betreff: string } | null>(null);
+  const liste = trpc.postfach.papierkorb.useQuery(undefined, { refetchInterval: 30000 });
+  const wiederherstellen = trpc.postfach.wiederherstellen.useMutation({
+    onSuccess: () => { utils.postfach.papierkorb.invalidate(); utils.postfach.liste.invalidate(); utils.postfach.entwuerfe.invalidate(); utils.postfach.postfaecher.invalidate(); },
+  });
+  const endgueltig = trpc.postfach.endgueltigLoeschen.useMutation({
+    onSuccess: () => { utils.postfach.papierkorb.invalidate(); },
+  });
+  const anzahl = (liste.data?.mails.length ?? 0) + (liste.data?.entwuerfe.length ?? 0);
+  return (
+    <div className="mt-3 border-t border-neutral-100 pt-2">
+      <button
+        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium ${anzahl > 0 ? "text-neutral-700 hover:bg-neutral-100" : "text-neutral-400"}`}
+        onClick={() => setOffen(true)}
+        title="Weich gelöschte Mails und Entwürfe — wiederherstellen oder endgültig löschen"
+      >
+        <Trash2 className="h-3.5 w-3.5" /> Papierkorb{anzahl > 0 ? ` (${anzahl})` : ""}
+      </button>
+      <Dialog open={offen} onOpenChange={setOffen}>
+        <DialogContent className="flex max-h-[80vh] max-w-2xl flex-col">
+          <DialogHeader>
+            <DialogTitle>Papierkorb</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-neutral-500">
+            Gelöschte Mails und Entwürfe bleiben hier erhalten (Aufbewahrung: Einstellungen → Mail).
+            „Wiederherstellen" holt sie zurück, „Endgültig löschen" entfernt sie auch vom Mailserver.
+          </p>
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+            {anzahl === 0 && <p className="py-8 text-center text-sm text-neutral-400">Der Papierkorb ist leer.</p>}
+            {(liste.data?.entwuerfe ?? []).map((e) => (
+              <div key={`e${e.id}`} className="flex items-center gap-2 rounded-md border border-neutral-100 px-3 py-2 text-sm">
+                <Pencil className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{e.betreff || "(kein Betreff)"} <span className="text-xs text-neutral-400">(Entwurf)</span></span>
+                  <span className="block truncate text-xs text-neutral-500">an {e.empfaenger || "—"} · gelöscht {e.geloeschtAm ? new Date(e.geloeschtAm).toLocaleString("de-DE") : "—"}</span>
+                </div>
+                <Button size="sm" variant="outline" disabled={wiederherstellen.isPending} onClick={() => wiederherstellen.mutate({ typ: "entwurf", id: e.id })}>Wiederherstellen</Button>
+                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setBestaetigen({ typ: "entwurf", id: e.id, betreff: e.betreff || "(kein Betreff)" })}>Endgültig</Button>
+              </div>
+            ))}
+            {(liste.data?.mails ?? []).map((m) => (
+              <div key={`m${m.id}`} className="flex items-center gap-2 rounded-md border border-neutral-100 px-3 py-2 text-sm">
+                <Paperclip className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{m.betreff || "(kein Betreff)"}</span>
+                  <span className="block truncate text-xs text-neutral-500">{m.absenderName || "—"} · gelöscht {m.geloeschtAm ? new Date(m.geloeschtAm).toLocaleString("de-DE") : "—"}</span>
+                </div>
+                <Button size="sm" variant="outline" disabled={wiederherstellen.isPending} onClick={() => wiederherstellen.mutate({ typ: "mail", id: m.id })}>Wiederherstellen</Button>
+                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setBestaetigen({ typ: "mail", id: m.id, betreff: m.betreff || "(kein Betreff)" })}>Endgültig</Button>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={bestaetigen !== null} onOpenChange={(o) => !o && setBestaetigen(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Endgültig löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              „{bestaetigen?.betreff}" wird endgültig entfernt{bestaetigen?.typ === "mail" ? " — auch vom Mailserver" : ""}. Das kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => { if (bestaetigen) endgueltig.mutate({ typ: bestaetigen.typ, id: bestaetigen.id }); setBestaetigen(null); }}
+            >
+              Endgültig löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 function AusgangSektion() {
   const utils = trpc.useUtils();
   const entwuerfe = trpc.postfach.entwuerfe.useQuery(undefined, { refetchInterval: 10000 });
@@ -760,7 +892,9 @@ function AusgangSektion() {
   if (liste.length === 0) return null;
   return (
     <div className="mt-3 border-t border-neutral-100 pt-2">
-      <span className="text-xs font-medium uppercase tracking-wide text-amber-600">Ausgang ({liste.length})</span>
+      <span className={`text-xs font-medium uppercase tracking-wide ${liste.some((e) => e.versandFehler) ? "text-red-600" : "text-amber-600"}`}>
+        Ausgang ({liste.length}){liste.some((e) => e.versandFehler) ? " — Versandfehler!" : ""}
+      </span>
       <div className="mt-1 space-y-0.5">
         {liste.map((e) => (
           <div key={e.id} className="rounded-md bg-amber-50/70 px-2 py-1.5 text-xs">

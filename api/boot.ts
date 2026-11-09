@@ -119,6 +119,9 @@ if (env.isProduction) {
     // Sende-Queue (Undo-Send + Senden-Später): fällige Ausgang-Entwürfe versenden
     const { starteEntwurfQueue } = await import("./lib/entwurfQueue");
     starteEntwurfQueue();
+    // Papierkorb (v1.21.7): Aufbewahrungsfrist überwachen (Boot + 6 h)
+    const { startePapierkorbPurge } = await import("./lib/papierkorb");
+    startePapierkorbPurge();
     // Notfall-Loeschordner-Bereinigung (30 min): ueberfaellige Eintraege endgueltig loeschen
     setInterval(async () => {
       try {

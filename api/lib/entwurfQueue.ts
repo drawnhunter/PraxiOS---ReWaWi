@@ -45,7 +45,14 @@ export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: 
       await fehlerMitBackoff(id, r.fehler ?? "Unbekannter Fehler");
       return { ok: false, fehler: r.fehler };
     }
-    await db.delete(mailEntwuerfe).where(eq(mailEntwuerfe.id, id));
+    // v1.21.7: NIE mehr hart löschen — der Entwurf bleibt als status=gesendet
+    // mit komplettem Inhalt + Anhängen als Versand-Beleg erhalten. Fängt auch den
+    // Fall ab, dass die IMAP-Gesendet-Ablage scheitert: die Mail bleibt lokal
+    // sichtbar (Sidebar „Gesendet"), statt nur noch beim Empfänger zu existieren.
+    await db
+      .update(mailEntwuerfe)
+      .set({ status: "gesendet", versandFehler: null, geplantesSendenAm: null })
+      .where(eq(mailEntwuerfe.id, id));
     return { ok: true };
   } catch (err) {
     // Exceptions (z. B. fehlende SMTP-Zugangsdaten, Netz down) dürfen nie versanden —
