@@ -583,6 +583,7 @@ function BelegDropzone({ onFertig }: { onFertig: () => void }) {
   return (
     <div
       className={`mb-3 rounded-lg border-2 border-dashed p-3 transition-colors ${drag ? "border-teal-400 bg-teal-50" : "border-neutral-200 bg-white"}`}
+      data-drop-erlaubt
       onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => { e.preventDefault(); setDrag(false); verarbeiten(e.dataTransfer.files); }}

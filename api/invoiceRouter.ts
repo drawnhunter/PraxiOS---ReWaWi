@@ -144,7 +144,11 @@ export const invoiceRouter = createRouter({
 
   /** Entwurf speichern (Kopf + Positionen). Nicht-finalisierte Belege only. */
   updateDraft: authedQuery
-    .input(z.object({ id: z.number(), kopf: kopfInput, items: z.array(itemInput) }))
+    .input(z.object({
+      id: z.number(), kopf: kopfInput, items: z.array(itemInput),
+      // v1.21.8: Optimistic Locking — Version = updatedAt beim Laden des Formulars
+      version: z.string().optional(), erzwingen: z.boolean().optional(),
+    }))
     .mutation(async ({ input }) => {
       const db = getDb();
       const rechnung = await db.query.invoices.findFirst({
@@ -154,6 +158,8 @@ export const invoiceRouter = createRouter({
       if (rechnung.status !== "entwurf") {
         throw new Error("Nur Entwürfe können bearbeitet werden (GoBD).");
       }
+      const { pruefeVersion } = await import("./lib/konflikt");
+      pruefeVersion(rechnung, input.version, input.erzwingen);
 
       const totals = computeTotals(
         input.items,
@@ -199,7 +205,9 @@ export const invoiceRouter = createRouter({
           );
         }
       });
-      return { ok: true };
+      // Frische Version zurückgeben — Folge-Saves ohne Reload bleiben konfliktfrei
+      const frisch = await db.query.invoices.findFirst({ where: eq(invoices.id, input.id) });
+      return { ok: true, id: input.id, updatedAt: frisch?.updatedAt ?? null };
     }),
 
   /** Finalisieren: Nummer vergeben, Snapshots einfrieren. Danach unveränderbar. */

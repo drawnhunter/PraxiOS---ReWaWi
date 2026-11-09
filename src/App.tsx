@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Routes, Route } from "react-router";
+import { installDropGuard } from "@/lib/dropGuard";
 import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
@@ -37,6 +39,8 @@ import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
 
 export default function App() {
+  // v1.21.8 (#193): Datei-Drops außerhalb markierter Zonen dürfen die App nie ersetzen
+  useEffect(() => { installDropGuard(); }, []);
   return (
     <>
     <Toaster position="bottom-right" richColors />

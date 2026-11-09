@@ -220,6 +220,21 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empfaenger, cc, bcc, betreff, html, anhaenge, entwurfId]);
 
+  // v1.21.8 (#193): Ungespeichert-Warnung bei Reload/Navigation — egal, was sie auslöst
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => {
+      const jetzt = JSON.stringify([empfaenger, cc, bcc, betreff, html, anhaenge.length]);
+      if (jetzt === gespeichertHash.current) return;
+      const hatInhalt = html.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim().length >= 3;
+      if (!hatInhalt && !empfaenger.trim() && !betreff.trim()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empfaenger, cc, bcc, betreff, html, anhaenge]);
+
   // Zustand nach außen melden (Schließen-Logik im Hauptfenster + Fenster-Lösen)
   const zustandRef = useRef(onZustand);
   zustandRef.current = onZustand;
@@ -302,7 +317,8 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
       className={`flex min-h-0 flex-1 flex-col rounded-lg border bg-white transition-colors ${drag ? "border-teal-400 ring-2 ring-teal-300" : "border-neutral-200"}`}
       onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes("Files")) setDrag(true); }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDrag(false); }}
-      onDrop={(e) => { e.preventDefault(); setDrag(false); dateiHinzufuegen(e.dataTransfer.files); }}
+      data-drop-erlaubt
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDrag(false); dateiHinzufuegen(e.dataTransfer.files); }}
     >
       {/* Kompakter Kopfblock: 5 Zeilen, Pille links, Feld rechts */}
       <div className="space-y-1 border-b border-neutral-200 px-3 py-2">

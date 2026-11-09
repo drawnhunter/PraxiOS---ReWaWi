@@ -124,6 +124,7 @@ export default function Import() {
           e.preventDefault();
           setZiehen(true);
         }}
+        data-drop-erlaubt
         onDragLeave={() => setZiehen(false)}
         onDrop={(e) => {
           e.preventDefault();

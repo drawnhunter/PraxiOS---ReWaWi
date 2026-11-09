@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { KonfliktDialog } from "@/components/KonfliktDialog";
 import { trpc } from "@/providers/trpc";
 import { geld, parseGeldInput } from "@/lib/format";
 import { UST_SAETZE, EINHEITEN } from "@contracts/invoicing";
@@ -52,6 +53,9 @@ export default function Products() {
   const [suche, setSuche] = useState("");
   const [dialogOffen, setDialogOffen] = useState(false);
   const [form, setForm] = useState<FormState>(leeresFormular);
+  // v1.21.8: Optimistic Locking
+  const versionRef = useRef<string | null>(null);
+  const [konflikt, setKonflikt] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
   const liste = trpc.products.list.useQuery({ suche: suche || undefined });
@@ -69,16 +73,19 @@ export default function Products() {
     },
   });
   const aktualisieren = trpc.products.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (res) => {
+      if (res?.updatedAt) versionRef.current = String(res.updatedAt);
       utils.products.list.invalidate();
       setDialogOffen(false);
     },
+    onError: (e) => { if (e.message.startsWith("KONFLIKT:")) setKonflikt(e.message); },
   });
   const setAktiv = trpc.products.setAktiv.useMutation({
     onSuccess: () => utils.products.list.invalidate(),
   });
 
   const oeffneBearbeiten = (p: NonNullable<typeof liste.data>[number]) => {
+    versionRef.current = p.updatedAt ? String(p.updatedAt) : null;
     setForm({
       id: p.id,
       name: p.name,
@@ -98,6 +105,24 @@ export default function Products() {
     setDialogOffen(true);
   };
 
+  const absendenErzwingen = () => {
+    if (!form.id) return;
+    aktualisieren.mutate({
+      id: form.id,
+      data: {
+        name: form.name,
+        artikelnummer: form.artikelnummer || null,
+        beschreibung: form.beschreibung || null,
+        einheit: form.einheit,
+        preisNetto: parseGeldInput(form.preisNetto),
+        ekPreisNetto: form.ekPreisNetto ? parseGeldInput(form.ekPreisNetto) : null,
+        ustSatz: form.ustSatz,
+      },
+      version: versionRef.current ?? undefined,
+      erzwingen: true,
+    });
+  };
+
   const absenden = () => {
     const daten = {
       name: form.name,
@@ -109,7 +134,7 @@ export default function Products() {
       ustSatz: form.ustSatz,
     };
     if (form.id) {
-      aktualisieren.mutate({ id: form.id, data: daten });
+      aktualisieren.mutate({ id: form.id, data: daten, version: versionRef.current ?? undefined });
     } else {
       speichern.mutate(daten);
     }
@@ -311,6 +336,19 @@ export default function Products() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <KonfliktDialog
+        fehler={konflikt}
+        onAbbrechen={() => setKonflikt(null)}
+        onNeuLaden={() => {
+          setKonflikt(null);
+          setDialogOffen(false);
+          utils.products.list.invalidate();
+        }}
+        onErzwingen={() => {
+          setKonflikt(null);
+          absendenErzwingen();
+        }}
+      />
     </div>
   );
 }

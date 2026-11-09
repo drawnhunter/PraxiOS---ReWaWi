@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { KonfliktDialog } from "@/components/KonfliktDialog";
 import { useNavigate, useParams } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { geld, datum, parseGeldInput, parseMengeInput, mengeFmt } from "@/lib/format";
@@ -54,6 +55,9 @@ export default function PurchaseOrderDetail() {
   const [bemerkung, setBemerkung] = useState("");
   const [items, setItems] = useState<EditItem[]>([]);
   const [geladen, setGeladen] = useState(false);
+  // v1.21.8: Optimistic Locking
+  const versionRef = useRef<string | null>(null);
+  const [konflikt, setKonflikt] = useState<string | null>(null);
   const [fehler, setFehler] = useState("");
 
   const b = bestellung.data;
@@ -61,6 +65,7 @@ export default function PurchaseOrderDetail() {
 
   useEffect(() => {
     if (!b || geladen) return;
+    versionRef.current = b.updatedAt ? String(b.updatedAt) : null;
     setBestelldatum(b.bestelldatum);
     setLieferdatum(b.lieferdatum ?? "");
     setPdfNotiz(b.pdfNotiz ?? "");
@@ -99,7 +104,12 @@ export default function PurchaseOrderDetail() {
     utils.purchaseOrders.list.invalidate();
   };
 
-  const speichern = trpc.purchaseOrders.updateDraft.useMutation({ onSuccess: inval });
+  const speichern = trpc.purchaseOrders.updateDraft.useMutation({
+    onSuccess: (res) => {
+      if (res?.updatedAt) versionRef.current = String(res.updatedAt);
+      inval();
+    },
+  });
   const abschicken = trpc.purchaseOrders.bestellen.useMutation({ onSuccess: inval });
   const lieferstatus = trpc.purchaseOrders.setLieferstatus.useMutation({ onSuccess: inval });
   const stornieren = trpc.purchaseOrders.stornieren.useMutation({ onSuccess: inval });
@@ -114,6 +124,7 @@ export default function PurchaseOrderDetail() {
 
   const bauePayload = () => ({
     id: b.id,
+    version: versionRef.current ?? undefined,
     kopf: {
       supplierId: b.supplierId,
       bestelldatum,
@@ -145,7 +156,8 @@ export default function PurchaseOrderDetail() {
       await speichern.mutateAsync(bauePayload());
       await abschicken.mutateAsync({ id: b.id });
     } catch (e) {
-      setFehler(e instanceof Error ? e.message : "Fehler beim Abschicken");
+      const msg = e instanceof Error ? e.message : "Fehler beim Abschicken";
+      if (msg.startsWith("KONFLIKT:")) setKonflikt(msg); else setFehler(msg);
     }
   };
 
@@ -551,7 +563,9 @@ export default function PurchaseOrderDetail() {
           <Button
             variant="outline"
             onClick={() =>
-              speichern.mutate(bauePayload(), { onError: (e) => setFehler(e.message) })
+              speichern.mutate(bauePayload(), {
+              onError: (e) => { if (e.message.startsWith("KONFLIKT:")) setKonflikt(e.message); else setFehler(e.message); },
+            })
             }
             disabled={speichern.isPending}
           >
@@ -582,6 +596,23 @@ export default function PurchaseOrderDetail() {
           </AlertDialog>
         </div>
       )}
+      <KonfliktDialog
+        fehler={konflikt}
+        onAbbrechen={() => setKonflikt(null)}
+        onNeuLaden={() => {
+          setKonflikt(null);
+          setGeladen(false);
+          setItems([]);
+          versionRef.current = null;
+          bestellung.refetch();
+        }}
+        onErzwingen={() => {
+          setKonflikt(null);
+          speichern.mutate({ ...bauePayload(), erzwingen: true }, {
+            onError: (e) => setFehler(e.message),
+          });
+        }}
+      />
     </div>
   );
 }

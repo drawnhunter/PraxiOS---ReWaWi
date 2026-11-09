@@ -141,6 +141,8 @@ export const products = mysqlTable("products", {
   lagerAktiv: boolean("lager_aktiv").notNull().default(false),
   ustSatz: int("ust_satz").notNull().default(19),
   aktiv: boolean("aktiv").notNull().default(true),
+  // Optimistic Locking (v1.21.8): jede Änderung stempelt um — Konflikte werden sichtbar
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -221,6 +223,7 @@ export const invoices = mysqlTable(
     archiviert: boolean("archiviert").notNull().default(false),
     finalizedAt: timestamp("finalized_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
   (t) => ({
@@ -375,6 +378,7 @@ export const purchaseOrders = mysqlTable(
     bestelltAt: timestamp("bestellt_at"),
     geliefertAm: date("geliefert_am", { mode: "string" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
   (t) => ({

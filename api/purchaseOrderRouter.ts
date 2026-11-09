@@ -101,7 +101,10 @@ export const purchaseOrderRouter = createRouter({
     }),
 
   updateDraft: authedQuery
-    .input(z.object({ id: z.number(), kopf: kopfInput, items: z.array(itemInput) }))
+    .input(z.object({
+      id: z.number(), kopf: kopfInput, items: z.array(itemInput),
+      version: z.string().optional(), erzwingen: z.boolean().optional(), // v1.21.8 Optimistic Locking
+    }))
     .mutation(async ({ input }) => {
       const db = getDb();
       const bestellung = await db.query.purchaseOrders.findFirst({
@@ -111,6 +114,8 @@ export const purchaseOrderRouter = createRouter({
       if (bestellung.status !== "entwurf") {
         throw new Error("Nur Entwürfe können bearbeitet werden.");
       }
+      const { pruefeVersion } = await import("./lib/konflikt");
+      pruefeVersion(bestellung, input.version, input.erzwingen);
 
       const totals = computeTotals(input.items);
 
@@ -145,7 +150,8 @@ export const purchaseOrderRouter = createRouter({
           );
         }
       });
-      return { ok: true };
+      const frisch = await db.query.purchaseOrders.findFirst({ where: eq(purchaseOrders.id, input.id) });
+      return { ok: true, id: input.id, updatedAt: frisch?.updatedAt ?? null };
     }),
 
   /** Abschicken: Nummer vergeben, einfrieren. */

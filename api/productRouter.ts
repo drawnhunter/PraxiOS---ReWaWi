@@ -43,13 +43,22 @@ export const productRouter = createRouter({
   }),
 
   update: authedQuery
-    .input(z.object({ id: z.number(), data: productInput }))
+    .input(z.object({
+      id: z.number(), data: productInput,
+      version: z.string().optional(), erzwingen: z.boolean().optional(), // v1.21.8 Optimistic Locking
+    }))
     .mutation(async ({ input }) => {
-      await getDb()
+      const db = getDb();
+      const vorhanden = await db.query.products.findFirst({ where: eq(products.id, input.id) });
+      if (!vorhanden) throw new Error("Produkt nicht gefunden.");
+      const { pruefeVersion } = await import("./lib/konflikt");
+      pruefeVersion(vorhanden, input.version, input.erzwingen);
+      await db
         .update(products)
         .set(input.data)
         .where(eq(products.id, input.id));
-      return { ok: true };
+      const frisch = await db.query.products.findFirst({ where: eq(products.id, input.id) });
+      return { ok: true, id: input.id, updatedAt: frisch?.updatedAt ?? null };
     }),
 
   setAktiv: authedQuery

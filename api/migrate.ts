@@ -138,6 +138,10 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "mail_mails", spalte: "geloescht_am", ddl: "ALTER TABLE mail_mails ADD COLUMN geloescht_am DATETIME NULL AFTER markiert" },
   { tabelle: "mail_entwuerfe", spalte: "geloescht_am", ddl: "ALTER TABLE mail_entwuerfe ADD COLUMN geloescht_am DATETIME NULL AFTER versand_versuche" },
   { tabelle: "company_settings", spalte: "papierkorb_tage", ddl: "ALTER TABLE company_settings ADD COLUMN papierkorb_tage INT NOT NULL DEFAULT 14 AFTER notfall_stunden" },
+  // ── v1.21.8: Optimistic Locking (Versionsstempel gegen stillen Überschreib-Verlust) ──
+  { tabelle: "invoices", spalte: "updated_at", ddl: "ALTER TABLE invoices ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
+  { tabelle: "products", spalte: "updated_at", ddl: "ALTER TABLE products ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
+  { tabelle: "purchase_orders", spalte: "updated_at", ddl: "ALTER TABLE purchase_orders ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

@@ -98,6 +98,7 @@ export function DateiImport() {
           e.preventDefault();
           setZiehen(true);
         }}
+        data-drop-erlaubt
         onDragLeave={() => setZiehen(false)}
         onDrop={(e) => {
           e.preventDefault();

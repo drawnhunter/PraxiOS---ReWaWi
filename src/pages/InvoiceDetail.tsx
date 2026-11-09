@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { KonfliktDialog } from "@/components/KonfliktDialog";
 import { useNavigate, useParams, Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import BankZuordnung from "@/components/BankZuordnung";
@@ -99,6 +100,9 @@ export default function InvoiceDetail() {
   const [zahlbetrag, setZahlbetrag] = useState("");
   const [fehler, setFehler] = useState<string>("");
   const [adressDialog, setAdressDialog] = useState<null | "speichern" | "finalisieren">(null);
+  // v1.21.8: Optimistic Locking — Version des geladenen Datensatzes + Konflikt-Dialog
+  const versionRef = useRef<string | null>(null);
+  const [konflikt, setKonflikt] = useState<string | null>(null);
 
   const r = rechnung.data;
   const istEntwurf = r?.status === "entwurf";
@@ -115,6 +119,7 @@ export default function InvoiceDetail() {
   // Edit-State aus geladenen Daten befüllen (einmalig je Beleg)
   useEffect(() => {
     if (!r || kopf) return;
+    versionRef.current = r.updatedAt ? String(r.updatedAt) : null;
     setKopf({
       rechnungsdatum: r.rechnungsdatum,
       faelligkeitsdatum: r.faelligkeitsdatum,
@@ -179,7 +184,12 @@ export default function InvoiceDetail() {
     utils.dashboard.stats.invalidate();
   };
 
-  const speichern = trpc.invoices.updateDraft.useMutation({ onSuccess: inval });
+  const speichern = trpc.invoices.updateDraft.useMutation({
+    onSuccess: (res) => {
+      if (res?.updatedAt) versionRef.current = String(res.updatedAt);
+      inval();
+    },
+  });
   const finalisieren = trpc.invoices.finalize.useMutation({ onSuccess: inval });
   const loeschen = trpc.invoices.delete.useMutation({
     onSuccess: () => navigate("/rechnungen"),
@@ -202,6 +212,7 @@ export default function InvoiceDetail() {
 
   const bauePayload = () => ({
     id: r.id,
+    version: versionRef.current ?? undefined,
     kopf: {
       customerId: r.customerId,
       rechnungsdatum: kopf.rechnungsdatum,
@@ -241,7 +252,9 @@ export default function InvoiceDetail() {
       setAdressDialog("speichern");
       return;
     }
-    speichern.mutate(bauePayload(), { onError: (e) => setFehler(e.message) });
+    speichern.mutate(bauePayload(), {
+      onError: (e) => { if (e.message.startsWith("KONFLIKT:")) setKonflikt(e.message); else setFehler(e.message); },
+    });
   };
 
   const speichernUndFinalisieren = async () => {
@@ -254,7 +267,8 @@ export default function InvoiceDetail() {
       await speichern.mutateAsync(bauePayload());
       await finalisieren.mutateAsync({ id: r.id });
     } catch (e) {
-      setFehler(e instanceof Error ? e.message : "Fehler beim Finalisieren");
+      const msg = e instanceof Error ? e.message : "Fehler beim Finalisieren";
+      if (msg.startsWith("KONFLIKT:")) setKonflikt(msg); else setFehler(msg);
     }
   };
 
@@ -302,7 +316,8 @@ export default function InvoiceDetail() {
         await finalisieren.mutateAsync({ id: r.id });
       }
     } catch (e) {
-      setFehler(e instanceof Error ? e.message : "Fehler beim Speichern");
+      const msg = e instanceof Error ? e.message : "Fehler beim Speichern";
+      if (msg.startsWith("KONFLIKT:")) setKonflikt(msg); else setFehler(msg);
     }
   };
 
@@ -1177,6 +1192,24 @@ export default function InvoiceDetail() {
         vorschlagTitel={`Serie ${r.kundeName}`}
         offen={serieOffen}
         onSchliessen={() => setSerieOffen(false)}
+      />
+      {/* v1.21.8: Konflikt-Dialog (Optimistic Locking) */}
+      <KonfliktDialog
+        fehler={konflikt}
+        onAbbrechen={() => setKonflikt(null)}
+        onNeuLaden={() => {
+          setKonflikt(null);
+          setKopf(null);
+          setItems([]);
+          versionRef.current = null;
+          rechnung.refetch();
+        }}
+        onErzwingen={() => {
+          setKonflikt(null);
+          speichern.mutate({ ...bauePayload(), erzwingen: true }, {
+            onError: (e) => setFehler(e.message),
+          });
+        }}
       />
     </div>
   );
