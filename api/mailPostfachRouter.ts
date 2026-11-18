@@ -224,6 +224,51 @@ export const mailPostfachRouter = createRouter({
       };
     }),
 
+  /**
+   * Mail als .eml exportieren (v1.21.9): vollständige MIME-Datei inkl. Anhängen —
+   * zum Download und zum Drag-out in andere Programme (Explorer, Chats, Outlook).
+   */
+  eml: authedQuery
+    .input(z.object({ mailId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const db = getDb();
+      const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
+      if (!m) throw new Error("Mail nicht gefunden.");
+      await pruefeSichtbarkeit(ctx.user, m.kontoId);
+
+      // Anhang-Inhalte auflösen: direkt im Meta (gesendete) oder über den Post Manager
+      const anhaengeRoh = metaLesen(m.anhaenge) as { name: string; mime: string; postEingangId: number | null; inhalt?: string }[];
+      const anhaenge = [] as { filename: string; content: Buffer; contentType: string }[];
+      for (const a of anhaengeRoh) {
+        let base64: string | null = a.inhalt ?? null;
+        if (!base64 && a.postEingangId) {
+          const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, a.postEingangId) });
+          base64 = beleg?.dateiInhalt ?? null;
+        }
+        if (base64) {
+          anhaenge.push({ filename: a.name, content: Buffer.from(base64, "base64"), contentType: a.mime });
+        }
+      }
+
+      const MailComposer = (await import("nodemailer/lib/mail-composer/index.js")).default;
+      const mail = new MailComposer({
+        from: m.absenderAdresse ? `${(m.absenderName ?? "").replace(/"/g, "")} <${m.absenderAdresse}>` : undefined,
+        to: m.empfaenger ?? undefined,
+        subject: m.betreff ?? "(kein Betreff)",
+        date: m.datum ?? new Date(),
+        messageId: m.messageId ?? undefined,
+        text: m.textPlain ?? "",
+        html: m.textHtml ?? undefined,
+        attachments: anhaenge,
+      } as ConstructorParameters<typeof MailComposer>[0]);
+      const roh = await new Promise<Buffer>((resolve, reject) => {
+        mail.compile().build((err: Error | null, message: Buffer) => (err ? reject(err) : resolve(message)));
+      });
+
+      const name = (m.betreff || "mail").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+      return { dateiname: `${name}.eml`, mime: "message/rfc822", base64: roh.toString("base64") };
+    }),
+
   /** Manueller Sync eines Kontos. */
   syncJetzt: authedQuery
     .input(z.object({ kontoId: z.number() }))

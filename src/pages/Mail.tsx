@@ -13,7 +13,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, PinOff,
+  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, PinOff, FileDown,
   Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy, ChevronDown,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -1084,6 +1084,27 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl,
   const gelesenSetzen = trpc.postfach.gelesenSetzen.useMutation({ onSuccess: () => liste.refetch() });
   const verschieben = trpc.postfach.mailVerschieben.useMutation({ onSuccess: () => { liste.refetch(); setKontext(null); } });
   const loeschen = trpc.postfach.mailLoeschen.useMutation({ onSuccess: () => { liste.refetch(); setKontext(null); } });
+  // v1.21.9: .eml-Export + Drag-out (DownloadURL = Chromium-Datei-Download)
+  const utils = trpc.useUtils();
+  const emlCache = useRef(new Map<number, { dateiname: string; base64: string } | "lädt">());
+  const emlVorbereiten = async (mailId: number) => {
+    if (emlCache.current.has(mailId)) return;
+    emlCache.current.set(mailId, "lädt");
+    try {
+      const r = await utils.postfach.eml.fetch({ mailId });
+      emlCache.current.set(mailId, { dateiname: r.dateiname, base64: r.base64 });
+    } catch { emlCache.current.delete(mailId); }
+  };
+  const emlDragStart = (e: React.DragEvent, m: { id: number; betreff: string | null }) => {
+    e.dataTransfer.effectAllowed = "copy";
+    const c = emlCache.current.get(m.id);
+    if (c && c !== "lädt") {
+      e.dataTransfer.setData("DownloadURL", `message/rfc822:${c.dateiname}:data:message/rfc822;base64,${c.base64}`);
+    } else {
+      void emlVorbereiten(m.id); // beim nächsten Ziehen ist die Datei fertig
+    }
+    e.dataTransfer.setData("text/plain", m.betreff ?? "(kein Betreff)");
+  };
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white">
@@ -1107,6 +1128,10 @@ function MailListe({ kontoId, ordner, vorschau, onVorschau, q, filter, sortWahl,
         {(liste.data?.mails ?? []).map((m) => (
           <button
             key={m.id}
+            draggable
+            onPointerEnter={() => { void emlVorbereiten(m.id); }}
+            onDragStart={(e) => emlDragStart(e, m)}
+            title="Klick = Vorschau · Ziehen = als .eml in andere Programme exportieren"
             onClick={() => onVorschau(vorschau === m.id ? null : m.id)}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setKontext({ x: e.clientX, y: e.clientY, mail: m }); }}
             className={`flex w-full flex-col border-b border-neutral-100 px-3 py-2 text-left hover:bg-neutral-50 ${vorschau === m.id ? "bg-teal-50 border-l-2 border-l-teal-600" : ""} ${!m.gelesen ? "bg-teal-50/30" : ""}`}
@@ -1441,6 +1466,19 @@ ${inhalt}
           >
             <Printer className="mr-1.5 h-4 w-4" /> Drucken / PDF
           </Button>
+          <Button
+            size="sm" variant="outline"
+            title="Als .eml-Datei herunterladen (inkl. Anhänge) — zum Archivieren oder Weitergeben"
+            onClick={async () => {
+              const r = await utils.postfach.eml.fetch({ mailId: id });
+              const a = document.createElement("a");
+              a.href = `data:message/rfc822;base64,${r.base64}`;
+              a.download = r.dateiname;
+              a.click();
+            }}
+          >
+            <FileDown className="mr-1.5 h-4 w-4" /> Export .eml
+          </Button>
         </div>
         {belegOk && <p className="mt-2 rounded-md bg-green-50 px-3 py-1.5 text-xs text-green-800">{belegOk} — Betrag in Eingangsbelege nachtragen.</p>}
         {alsBeleg.error && <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{alsBeleg.error.message}</p>}
@@ -1514,8 +1552,16 @@ ${inhalt}
             }
             className="h-full min-h-[380px] w-full rounded-md border border-neutral-100"
           />
+        ) : (m.textPlain ?? "").trim() ? (
+          <pre className="whitespace-pre-wrap font-sans text-sm text-neutral-800">{(m.textPlain ?? "").replace(/\t/g, "    ")}</pre>
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-sm text-neutral-800">{(m.textPlain ?? "").replace(/\t/g, "    ") || "(kein Text)"}</pre>
+          // v1.21.9: reine Anhang-/Kalender-Mails haben keinen Textkörper — Hinweis statt Leere
+          <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 rounded-md border border-dashed border-neutral-200 p-6 text-center">
+            <Paperclip className="h-8 w-8 text-neutral-300" />
+            <p className="max-w-sm text-sm text-neutral-500">
+              Diese Nachricht hat keinen Textkörper — der Inhalt steckt in der Termin-Einladung (siehe Karte oben) bzw. den Anhängen.
+            </p>
+          </div>
         )}
       </div>
 
@@ -1558,14 +1604,27 @@ function ICalKarte({ mailId, textPlain, textHtml, anhaenge, onTermin }: {
         roh = div.textContent ?? null;
       }
       if (!roh) {
-        const idx = anhaenge.findIndex((a) => a.mime === "text/calendar");
-        if (idx >= 0) {
-          const meta = anhaenge[idx] as { inhalt?: string };
-          if (meta.inhalt) roh = atob(meta.inhalt);
-          else {
-            const r = await utils.postfach.anhang.fetch({ mailId, index: idx }).catch(() => null);
-            if (r?.base64) roh = atob(r.base64);
+        // v1.21.9: Kalender-Teile heißen oft nur „anhang" und tragen keinen sauberen
+        // MIME-Typ — deshalb Kandidaten auch per Inhalt sniffen (BEGIN:VCALENDAR)
+        const kandidaten = anhaenge
+          .map((a, i) => ({ a, i }))
+          .filter(({ a }) =>
+            a.mime === "text/calendar" || a.mime === "application/ics" || a.mime === "text/ical" ||
+            (a.name ?? "").toLowerCase().endsWith(".ics") ||
+            (a.mime?.startsWith("text/") || a.mime === "application/octet-stream" || !a.mime),
+          );
+        for (const { a, i } of kandidaten) {
+          const meta = a as { inhalt?: string };
+          let rohBytes: string | null = meta.inhalt ?? null;
+          if (!rohBytes) {
+            const r = await utils.postfach.anhang.fetch({ mailId, index: i }).catch(() => null);
+            rohBytes = r?.base64 ?? null;
           }
+          if (rohBytes) {
+            const dekodiert = new TextDecoder("utf-8", { fatal: false }).decode(Uint8Array.from(atob(rohBytes), (c) => c.charCodeAt(0)));
+            if (/BEGIN:VCALENDAR/i.test(dekodiert)) { roh = dekodiert; break; }
+          }
+          if (!aktiv) return;
         }
       }
       if (aktiv && roh && enthaeltICal(roh, anhaenge)) setDaten(parseICal(roh));

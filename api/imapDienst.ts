@@ -57,7 +57,18 @@ async function speichereMail(
       // Datum niemals null: Header-Date → IMAP-Envelope → Jetzt (alte Papierkorb-Mails
       // haben oft keinen lesbaren Date-Header, Zeitreihen brauchen aber einen Wert)
       datum: geparst.date ?? umschlagDatum ?? new Date(),
-      textPlain: geparst.text ? geparst.text.slice(0, 4_000_000) : null,
+      // v1.21.9: reine Kalender-Mails haben keinen Textkörper — dann den
+      // text/calendar-Teil als textPlain ablegen (Vorschau/Suche/ICalKarte greift)
+      textPlain: geparst.text
+        ? geparst.text.slice(0, 4_000_000)
+        : (() => {
+            if (geparst.html) return null;
+            const cal = (geparst.attachments ?? []).find((a) =>
+              a.contentType === "text/calendar" ||
+              (a.content && a.content.length < 65536 && a.content.toString("utf-8").includes("BEGIN:VCALENDAR")),
+            );
+            return cal?.content ? cal.content.toString("utf-8").slice(0, 200_000) : null;
+          })(),
       textHtml: typeof geparst.html === "string" ? geparst.html.slice(0, 4_000_000) : null,
       anhaenge: JSON.stringify(anhaenge),
     })
