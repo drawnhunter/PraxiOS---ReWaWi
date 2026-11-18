@@ -33,6 +33,9 @@ async function speichereMail(
     mime: mimeAusName(a.filename || "anhang", a.contentType),
     groesse: a.size ?? a.content?.length ?? 0,
     postEingangId: null as number | null,
+    // v1.21.10: kleine Anhänge (Kalender, Text, ics …) komplett lokal vorhalten —
+    // ohne Inhalt kann weder die Termin-Karte noch die Vorschau/der Export lesen
+    ...(a.content && a.content.length <= 262144 ? { inhalt: a.content.toString("base64") } : {}),
   }));
   const [{ id }] = await db
     .insert(mailMails)
@@ -649,4 +652,49 @@ export function starteImapDienst(): void {
     setInterval(() => void tick(), 60 * 1000);
   }, 15 * 1000);
   console.log("[imap] E-Mail-Abruf-Dienst gestartet (minuetlicher Takt)");
+}
+
+/**
+ * Anhang-Inhalt on-demand vom IMAP-Server nachladen (v1.21.10) — für Mails aus der
+ * Zeit vor dem Inline-Speichern. Schreibt den Inhalt ins Meta zurück (persistiert),
+ * danach ist er lokal verfügbar (Termin-Karte, Vorschau, .eml-Export).
+ */
+export async function ladeAnhangInhalt(
+  mailId: number,
+  index: number,
+): Promise<{ base64: string; dateiname: string; mime: string } | null> {
+  const db = getDb();
+  const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, mailId) });
+  if (!m?.anhaenge) return null;
+  const meta = JSON.parse(m.anhaenge) as { name: string; mime: string; inhalt?: string }[];
+  const eintrag = meta[index];
+  if (!eintrag) return null;
+  if (eintrag.inhalt) return { base64: eintrag.inhalt, dateiname: eintrag.name, mime: eintrag.mime };
+
+  const konto = await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, m.kontoId) });
+  if (!konto) return null;
+  const passwort = entschluesseln(konto.passwortEnc);
+  if (!passwort) return null;
+  const client = new ImapFlow({
+    host: konto.host, port: konto.port, secure: konto.tls,
+    auth: { user: konto.benutzer, pass: passwort },
+    logger: false, socketTimeout: 30000, greetingTimeout: 15000,
+  });
+  try {
+    await client.connect();
+    await client.mailboxOpen(m.ordner);
+    const nachricht = (await client.fetchOne(m.uid, { source: true }, { uid: true })) as { source?: Buffer } | false;
+    if (!nachricht || !nachricht.source) return null;
+    const geparst = await simpleParser(nachricht.source);
+    const a = geparst.attachments?.[index];
+    if (!a?.content) return null;
+    const base64 = a.content.toString("base64");
+    meta[index].inhalt = base64;
+    await db.update(mailMails).set({ anhaenge: JSON.stringify(meta) }).where(eq(mailMails.id, mailId));
+    return { base64, dateiname: eintrag.name, mime: mimeAusName(eintrag.name, a.contentType) };
+  } catch {
+    return null;
+  } finally {
+    try { await client.logout(); } catch { /* ok */ }
+  }
 }

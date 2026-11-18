@@ -209,19 +209,24 @@ export const mailPostfachRouter = createRouter({
       const db = getDb();
       const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
       if (!m) throw new Error("Mail nicht gefunden.");
-      const meta = metaLesen(m.anhaenge)[input.index];
+      const meta = metaLesen(m.anhaenge)[input.index] as { inhalt?: string; name?: string; mime?: string; postEingangId?: number | null } | undefined;
       if (!meta) throw new Error("Anhang nicht gefunden.");
-      if (!meta.postEingangId) {
-        throw new Error("Dieser Anhangtyp wird nur als Metadaten gefuehrt (kein Download — nur PDF/JPG/PNG landen im Post Manager).");
+      // 1) Inline-Inhalt (v1.21.10: kleine Anhänge liegen lokal vor)
+      if (meta.inhalt) {
+        return { dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream", base64: meta.inhalt, postEingangId: null };
       }
-      const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
-      if (!beleg?.dateiInhalt) throw new Error("Anhang-Datei nicht mehr vorhanden.");
-      return {
-        dateiname: beleg.originalname,
-        mime: beleg.mime,
-        base64: beleg.dateiInhalt,
-        postEingangId: meta.postEingangId,
-      };
+      // 2) Post-Manager-Beleg (PDF/JPG/PNG)
+      if (meta.postEingangId) {
+        const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
+        if (beleg?.dateiInhalt) {
+          return { dateiname: beleg.originalname, mime: beleg.mime, base64: beleg.dateiInhalt, postEingangId: meta.postEingangId };
+        }
+      }
+      // 3) On-demand vom IMAP-Server nachladen (alte Mails) + persistieren
+      const { ladeAnhangInhalt } = await import("./imapDienst");
+      const r = await ladeAnhangInhalt(input.mailId, input.index);
+      if (r) return { ...r, postEingangId: null };
+      throw new Error("Anhang-Inhalt ist nicht verfügbar (weder lokal noch auf dem Server auffindbar).");
     }),
 
   /**

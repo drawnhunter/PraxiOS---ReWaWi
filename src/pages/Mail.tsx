@@ -1541,7 +1541,16 @@ ${inhalt}
       })()}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
-        {m.textHtml ? (
+        {m.textHtml && (() => {
+          // v1.21.10: HTML-Hüllen ohne sichtbaren Text (nur &nbsp;/Styles) zählen als leer
+          const sichtbar = m.textHtml
+            .replace(/<style[\s\S]*?<\/style>/gi, "")
+            .replace(/<[^>]+>/g, "")
+            .replace(/&nbsp;/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          return sichtbar.length > 0;
+        })() ? (
           <iframe
             sandbox=""
             title="Mail-Inhalt"
