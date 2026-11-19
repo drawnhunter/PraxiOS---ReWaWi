@@ -35,6 +35,7 @@ import SettingsPage from "@/pages/Settings";
 import Unternehmen from "@/pages/Unternehmen";
 import Zeit from "@/pages/Zeit";
 import MailFenster from "./pages/MailFenster"
+import Kanzlei from "./pages/Kanzlei"
 import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
 
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/statistik" element={<Statistics />} />
         <Route path="/berichte" element={<Berichte />} />
+        <Route path="/kanzlei" element={<Kanzlei />} />
         <Route path="/klaerungen" element={<Klaerungen />} />
         <Route path="/import" element={<Import />} />
         <Route path="/posteingang" element={<Posteingang />} />

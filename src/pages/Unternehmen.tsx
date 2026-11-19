@@ -12,6 +12,8 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Building2, Plus, Pencil, Trash2, FileText, ExternalLink } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Stammdaten } from "@/components/Stammdaten";
 
 /** Company Control (v1.6): Alle registrierten Kennnummern an einem Ort —
  *  strukturierte Felder + freie Kennwerte mit Beleg-Verknuepfung. */
@@ -33,6 +35,8 @@ type Freier = { id?: number; name: string; wert: string; postEingangId: number |
 
 export default function Unternehmen() {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const istKanzlei = user?.role === "kanzlei";
   const settings = trpc.settings.get.useQuery();
   const kennwerte = trpc.unternehmen.kennwerte.useQuery();
   const belege = trpc.unternehmen.belegAuswahl.useQuery();
@@ -85,15 +89,29 @@ export default function Unternehmen() {
         </p>
       )}
 
+      {/* ── Firmen-Stammdaten (SB-Sicht, read-only) ── */}
+      {settings.data && (
+        <section className="rounded-lg border border-neutral-200 bg-white p-5">
+          <h2 className="mb-3 text-sm font-medium text-neutral-700">Firmen-Stammdaten</h2>
+          <Stammdaten daten={settings.data as unknown as Record<string, unknown>} />
+        </section>
+      )}
+
       {/* ── Strukturierte Kennnummern ── */}
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-medium text-neutral-700">Registrierte Kennnummern</h2>
-          <Button size="sm" onClick={speichernKlick} disabled={!form || speichern.isPending}>
-            {speichern.isPending ? "Speichere …" : "Speichern"}
-          </Button>
+          {!istKanzlei && (
+            <Button size="sm" onClick={speichernKlick} disabled={!form || speichern.isPending}>
+              {speichern.isPending ? "Speichere …" : "Speichern"}
+            </Button>
+          )}
         </div>
-        {!form ? settings.isLoading ? (
+        {settings.error ? (
+          <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+            Firmendaten konnten nicht geladen werden: {settings.error.message}
+          </p>
+        ) : !form ? settings.isLoading ? (
           <p className="text-sm text-neutral-400">Lade …</p>
         ) : (
           <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -112,6 +130,7 @@ export default function Unternehmen() {
                   value={(form[f.key] as string) ?? ""}
                   onChange={(e) => setForm({ ...form, [f.key]: e.target.value || null })}
                   placeholder="—"
+                  readOnly={istKanzlei}
                 />
               </div>
             ))}
@@ -125,9 +144,11 @@ export default function Unternehmen() {
       <section className="rounded-lg border border-neutral-200 bg-white">
         <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-3">
           <h2 className="text-sm font-medium text-neutral-700">Weitere Kennwerte</h2>
-          <Button size="sm" variant="outline" onClick={() => setDialog({ name: "", wert: "", postEingangId: null, sortierung: 0 })}>
-            <Plus className="mr-1.5 h-4 w-4" /> Hinzufügen
-          </Button>
+          {!istKanzlei && (
+            <Button size="sm" variant="outline" onClick={() => setDialog({ name: "", wert: "", postEingangId: null, sortierung: 0 })}>
+              <Plus className="mr-1.5 h-4 w-4" /> Hinzufügen
+            </Button>
+          )}
         </div>
         <table className="w-full text-sm">
           <tbody>
@@ -149,15 +170,19 @@ export default function Unternehmen() {
                   )}
                 </td>
                 <td className="px-5 py-2.5 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => setDialog({ ...k.k })}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => confirm(`„${k.k.name}" wirklich löschen?`) && loeschen.mutate({ id: k.k.id })}
-                  >
-                    <Trash2 className="h-4 w-4 text-red-600" />
-                  </Button>
+                  {!istKanzlei && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => setDialog({ ...k.k })}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => confirm(`„${k.k.name}" wirklich löschen?`) && loeschen.mutate({ id: k.k.id })}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}

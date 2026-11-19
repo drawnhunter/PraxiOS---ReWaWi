@@ -44,6 +44,7 @@ const OBEN: NavEintrag[] = [
   { to: "/", label: "Übersicht", icon: LayoutDashboard, end: true },
   { to: "/statistik", label: "Statistik", icon: ChartColumn },
   { to: "/berichte", label: "Berichte", icon: FileBarChart2 },
+  { to: "/kanzlei", label: "Kanzlei", icon: Landmark },
   { to: "/klaerungen", label: "Klärungsfälle", icon: MessageCircleQuestion },
       { to: "/kalender", label: "Kalender", icon: CalendarDays },
       { to: "/zeit", label: "Zeiterfassung", icon: Clock },
@@ -125,7 +126,7 @@ export default function Layout() {
   };
   // Kanzlei-Rolle: nur Buchhaltungs-Lesebereiche + Klärungsfälle
   const istKanzlei = user?.role === "kanzlei";
-  const KANZLEI_PFADE = ["/berichte", "/rechnungen", "/e-rechnungen", "/bank", "/klaerungen"];
+  const KANZLEI_PFADE = ["/kanzlei", "/berichte", "/rechnungen", "/e-rechnungen", "/bank", "/klaerungen", "/unternehmen"];
   const gruppen = GRUPPEN
     .map((g) => ({
       ...g,
@@ -165,7 +166,7 @@ export default function Layout() {
 
   // Kanzlei landet nach dem Login direkt in den Berichten
   if (user.role === "kanzlei" && location.pathname === "/") {
-    return <Navigate to="/berichte" replace />;
+    return <Navigate to="/kanzlei" replace />;
   }
 
   const eintrag = (item: NavEintrag) => (
@@ -225,7 +226,7 @@ export default function Layout() {
             {!zugeklappt[g.id] && g.eintraege.map(eintrag)}
           </div>
         ))}
-        <div className="mt-1 border-t border-neutral-100 pt-1">{UNTEN.map(eintrag)}</div>
+        <div className="mt-1 border-t border-neutral-100 pt-1">{UNTEN.filter((e) => !istKanzlei || e.to === "/unternehmen").map(eintrag)}</div>
       </nav>
 
       <div className="border-t border-neutral-200 p-3">

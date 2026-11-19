@@ -3,8 +3,9 @@ import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FileSpreadsheet, Loader2 } from "lucide-react";
+import { FileSpreadsheet, Loader2, Package, ChevronDown } from "lucide-react";
 import { textHerunterladen } from "@/lib/downloads";
+import { KontierungsUebersicht } from "./KontierungsUebersicht";
 
 /** DATEV-Buchungsstapel für einen Zeitraum erzeugen und herunterladen. */
 export function DatevExport() {
@@ -16,6 +17,26 @@ export function DatevExport() {
   const [ergebnis, setErgebnis] = useState<{ anzahl: number; belege: number; hinweise: string[] } | null>(null);
   const [nurFreigegebene, setNurFreigegebene] = useState(false);
   const [fehler, setFehler] = useState("");
+  const [zipLaedt, setZipLaedt] = useState(false);
+  const [kontierungenOffen, setKontierungenOffen] = useState(false);
+
+  /** v1.21.12: komplettes Kanzlei-Paket als eine ZIP (Stapel + Belege + Berichte). */
+  const paketHerunterladen = async () => {
+    setZipLaedt(true);
+    setFehler("");
+    try {
+      const r = await utils.client.export.stbPaketZip.query({ von, bis });
+      const bytes = Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0));
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+      a.download = r.dateiname;
+      a.click();
+    } catch (e) {
+      setFehler(e instanceof Error ? e.message : "Paket-Export fehlgeschlagen.");
+    } finally {
+      setZipLaedt(false);
+    }
+  };
 
   const klick = async () => {
     setLaedt(true);
@@ -64,7 +85,20 @@ export function DatevExport() {
           )}
           Buchungsstapel exportieren
         </Button>
+        <Button onClick={paketHerunterladen} disabled={zipLaedt || !von || !bis} title="Komplettes Kanzlei-Paket: DATEV-Stapel + Belegbilder + EÜR/OP-Listen als eine ZIP">
+          {zipLaedt ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Package className="mr-1.5 h-4 w-4" />}
+          Kanzlei-Paket als ZIP
+        </Button>
+        <Button variant="ghost" onClick={() => setKontierungenOffen(!kontierungenOffen)} title="Verwendete SKR-Konten mit Summen im Zeitraum">
+          <ChevronDown className={`mr-1 h-4 w-4 transition-transform ${kontierungenOffen ? "" : "-rotate-90"}`} />
+          Kontierungsübersicht
+        </Button>
       </div>
+      {kontierungenOffen && (
+        <div className="mt-3 rounded-md border border-neutral-200 bg-white p-3">
+          <KontierungsUebersicht von={von} bis={bis} />
+        </div>
+      )}
       {fehler && <p className="mt-2 text-sm text-red-600">{fehler}</p>}
       {ergebnis && (
         <div className="mt-2 text-sm text-neutral-600">

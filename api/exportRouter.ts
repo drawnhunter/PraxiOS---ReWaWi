@@ -405,4 +405,45 @@ export const exportRouter = createRouter({
         hinweise: stapel.hinweise,
       };
     }),
+
+  /**
+   * Kanzlei-Paket als EINE ZIP-Datei zum Direkt-Download (v1.21.12):
+   * DATEV-Buchungsstapel CSV + Belegbilder-ZIP + EÜR/Debitoren/Kreditoren PDFs.
+   * Gleicher Inhalt wie stbPaket (Mail-Weg), aber ohne Mail-Entwurf.
+   */
+  stbPaketZip: authedQuery
+    .input(
+      z.object({
+        von: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        bis: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      }),
+    )
+    .query(async ({ input }) => {
+      const anhaenge: { dateiname: string; base64: string; mime: string }[] = [];
+      const stapel = await baueDatevStapel(input.von, input.bis);
+      anhaenge.push({ dateiname: stapel.dateiname, base64: Buffer.from(stapel.csv, "utf8").toString("base64"), mime: "text/csv" });
+      if (stapel.belegeZipBase64 && stapel.belegeDateiname) {
+        anhaenge.push({ dateiname: stapel.belegeDateiname, base64: stapel.belegeZipBase64, mime: "application/zip" });
+      }
+      const { baueBericht } = await import("./lib/berichte");
+      const { renderBerichtPdf } = await import("./lib/berichtPdf");
+      for (const id of ["euer", "debitoren", "kreditoren"] as const) {
+        try {
+          const b = await baueBericht(id, { von: input.von, bis: input.bis });
+          const pdf = await renderBerichtPdf(b);
+          anhaenge.push({ dateiname: `${id}_${input.von}_${input.bis}.pdf`, base64: pdf.toString("base64"), mime: "application/pdf" });
+        } catch { /* einzelner Bericht optional */ }
+      }
+      const { baueZip } = await import("./lib/zipWriter");
+      const zip = baueZip(anhaenge.map((a) => ({
+        name: a.dateiname,
+        inhalt: Buffer.from(a.base64, "base64"),
+      })));
+      return {
+        dateiname: `Kanzlei-Paket_${input.von}_${input.bis}.zip`,
+        base64: zip.toString("base64"),
+        anzahlBuchungen: stapel.anzahlBuchungen,
+        hinweise: stapel.hinweise,
+      };
+    }),
 });

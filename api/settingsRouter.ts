@@ -58,13 +58,24 @@ const settingsInput = z.object({
 });
 
 export const settingsRouter = createRouter({
-  get: authedQuery.query(async () => {
+  get: authedQuery.query(async ({ ctx }) => {
     const row = await getDb().query.companySettings.findFirst({
       where: eq(companySettings.id, 1),
     });
     if (!row) return null;
     // Passwort niemals ausliefern — nur den Status
-    const { smtpPasswortEnc, ...rest } = row;
+    const { smtpPasswortEnc, supportSchluessel, ...rest } = row;
+    void supportSchluessel;
+    void smtpPasswortEnc;
+    // Kanzlei (v1.21.12): zusätzlich ALLE Geheimnisfelder maskieren (read-only Rolle)
+    if (ctx.user?.role === "kanzlei") {
+      const sauber: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rest)) {
+        if (/enc$|hash|schluessel|token|secret|passwort/i.test(k)) continue;
+        sauber[k] = v;
+      }
+      return { ...(sauber as typeof rest), smtpPasswortGesetzt: false };
+    }
     return { ...rest, smtpPasswortGesetzt: !!smtpPasswortEnc };
   }),
 

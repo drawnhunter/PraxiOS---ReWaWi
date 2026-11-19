@@ -52,8 +52,10 @@ const KANZLEI_ERLAUBT: string[] = [
   "einrechnung.list", "einrechnung.get", "einrechnung.xml",
   "bankTrans.liste", "bankTrans.kontenUebersicht", "bankTrans.offeneZiele",
   "stats.uebersicht", "stats.verlauf", "stats.top", "stats.liquiditaet", "stats.ustva",
-  "berichte.katalog", "berichte.bericht", "berichte.pdf", "berichte.konten",
-  "export.datevBuchungsstapel",
+  "berichte.katalog", "berichte.bericht", "berichte.pdf", "berichte.konten", "berichte.kontierungen",
+  "export.datevBuchungsstapel", "export.stbPaketZip",
+  // v1.21.12: Kanzlei-Stammdaten lesen (Unternehmen-Seite + Kanzlei-Cockpit)
+  "settings.get", "unternehmen.kennwerte", "unternehmen.belegAuswahl",
   "customers.list", "customers.get",
   "klaerungen.", // der Schreibbereich der Kanzlei (Rückfragen-Workflow)
 ];
