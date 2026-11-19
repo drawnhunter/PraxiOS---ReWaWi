@@ -161,6 +161,7 @@ app.get("/entwuerfe", async (c) => {
     entwuerfe: rows.map((r) => ({
       id: r.id, kunde: agentName(karte, r.customerId, r.kundeName), kundenId: r.customerId,
       netto: Number(r.netto), brutto: Number(r.brutto), datum: r.rechnungsdatum,
+      pdfNotiz: r.pdfNotiz ?? null, leistungsdatum: r.leistungsdatum ?? null, // v1.21.11 (#195)
     })),
   });
 });
@@ -497,6 +498,9 @@ app.get("/rechnung/:id", async (c) => {
     id: r.id, nummer: r.nummer, status: r.status,
     kunde: agentName(karte, r.customerId, r.kundeName), kundenId: r.customerId,
     rechnungsdatum: r.rechnungsdatum, faelligkeitsdatum: r.faelligkeitsdatum,
+    // v1.21.11 (#195): Notiz + Leistungszeitraum für Agenten-Verifikation ausliefern
+    pdfNotiz: r.pdfNotiz ?? null,
+    leistungsdatum: r.leistungsdatum ?? null,
     netto: Number(r.netto), ust: Number(r.ust), brutto: Number(r.brutto),
     bezahltBetrag: Number(r.bezahltBetrag),
     positionen: r.items.map((it) => ({
@@ -725,6 +729,20 @@ app.post("/rechnung-entwurf", async (c) => {
     }, 400);
   }
 
+  // v1.21.11 (#195): unbekannte Felder nicht mehr still verwerfen — 400 mit Klartext,
+  // damit Tippfehler/Phantasie-Felder nicht unbemerkt untergehen
+  const ERLAUBTE_FELDER = new Set([
+    "kundenId", "id", "kunde", "items", "positionen", "zielTage", "pdfNotiz", "typ",
+    "rechnungsdatum", "faelligkeitsdatum", "leistungsdatum", "behandlungszeitraum",
+  ]);
+  const unbekannt = Object.keys(body).filter((k) => !ERLAUBTE_FELDER.has(k));
+  if (unbekannt.length > 0) {
+    return c.json({
+      ok: false,
+      fehler: `Unbekannte(s) Feld(er): ${unbekannt.join(", ")}. Erlaubt: ${[...ERLAUBTE_FELDER].join(", ")}. Für den Leistungszeitraum: leistungsdatum oder Alias behandlungszeitraum (kommt aufs PDF).`,
+    }, 400);
+  }
+
   // Kunde: per ID, per ID im Feld kundenId, oder per Namen (Fuzzy)
   let kunde: typeof customers.$inferSelect | undefined;
   const idKandidat = body.kundenId ?? body.id;
@@ -774,6 +792,8 @@ app.post("/rechnung-entwurf", async (c) => {
       customerId: kunde.id,
       rechnungsdatum: heuteD,
       faelligkeitsdatum: faellig,
+      // v1.21.11 (#195): Leistungszeitraum auch annehmen (Alias behandlungszeitraum)
+      leistungsdatum: String(body.leistungsdatum ?? body.behandlungszeitraum ?? "").slice(0, 120) || null,
       bankAccountId: standardBank?.id ?? null,
       kundeName: kunde.name,
       kundeZusatz: kunde.zusatz,
@@ -1434,7 +1454,20 @@ app.post("/rechnung/:id/zahlung", async (c) => {
   const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
   if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
   if (r.status === "entwurf") return c.json({ ok: false, fehler: "Entwurf — erst finalisieren." }, 409);
-  const betrag = body.betrag ? Number(body.betrag) : Number(r.brutto) - Number(r.bezahltBetrag);
+  // v1.21.11 (#199): Doppelbuchung sperren — ohne Cap konnte bezahltBetrag > brutto werden
+  const brutto = Number(r.brutto);
+  const offen = Math.round((brutto - Number(r.bezahltBetrag)) * 100) / 100;
+  if (offen <= 0.004) {
+    return c.json({
+      ok: false,
+      fehler: `Rechnung ${r.nummer ?? id} ist bereits vollständig bezahlt (bezahltBetrag ${Number(r.bezahltBetrag).toFixed(2)} bei brutto ${brutto.toFixed(2)}). Doppelbuchung verhindert — Zahlungsstand korrigieren per PATCH /rechnung/${id}/zahlungsstand.`,
+    }, 409);
+  }
+  const gewuenscht = body.betrag ? Number(body.betrag) : offen;
+  if (!Number.isFinite(gewuenscht) || gewuenscht <= 0) {
+    return c.json({ ok: false, fehler: "betrag (positive Zahl) ungültig." }, 400);
+  }
+  const betrag = Math.min(gewuenscht, offen); // Cap: nie mehr als der Rest
   const datum = body.datum && /^\d{4}-\d{2}-\d{2}$/.test(String(body.datum)) ? String(body.datum) : heute();
   await db
     .update(invoices)
@@ -1444,7 +1477,39 @@ app.post("/rechnung/:id/zahlung", async (c) => {
     })
     .where(eq(invoices.id, id));
   await audit("rechnung_zahlung", { id, betrag, datum });
-  return c.json({ ok: true, id, zugebucht: betrag, datum });
+  return c.json({ ok: true, id, zugebucht: betrag, datum, gekappt: betrag < gewuenscht });
+});
+
+/**
+ * Zahlungsstand korrigieren (v1.21.11, Bus #199): expliziter Wert statt Aufaddieren —
+ * für Fälle wie „bezahltBetrag = 2× brutto" durch frühere Doppelbuchung.
+ * Erlaubt: 0 ≤ bezahltBetrag ≤ brutto. bezahltAm wird bei 0 entfernt, sonst beibehalten
+ * bzw. per Feld gesetzt.
+ */
+app.patch("/rechnung/:id/zahlungsstand", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await bodyLesen(c);
+  const db = getDb();
+  const r = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!r) return c.json({ ok: false, fehler: "Rechnung nicht gefunden." }, 404);
+  if (body.bezahltBetrag === undefined) return c.json({ ok: false, fehler: "bezahltBetrag (Zahl) erforderlich." }, 400);
+  const b = Number(body.bezahltBetrag);
+  const brutto = Number(r.brutto);
+  if (!Number.isFinite(b) || b < 0 || b > brutto + 0.004) {
+    return c.json({ ok: false, fehler: `bezahltBetrag muss zwischen 0 und brutto (${brutto.toFixed(2)}) liegen — aktuell ${Number(r.bezahltBetrag).toFixed(2)}.` }, 400);
+  }
+  const patch: Record<string, unknown> = { bezahltBetrag: b.toFixed(2) };
+  if (b <= 0.004) patch.bezahltAm = null;
+  else if (body.bezahltAm && /^\d{4}-\d{2}-\d{2}$/.test(String(body.bezahltAm))) patch.bezahltAm = String(body.bezahltAm);
+  else if (!r.bezahltAm) patch.bezahltAm = heute();
+  await db.update(invoices).set(patch).where(eq(invoices.id, id));
+  await audit("rechnung_zahlungsstand_korrigiert", { id, vorher: Number(r.bezahltBetrag), nachher: b });
+  return c.json({
+    ok: true, id,
+    bezahltBetrag: b,
+    bezahltAm: patch.bezahltAm !== undefined ? patch.bezahltAm : r.bezahltAm,
+    offen: Math.max(0, Math.round((brutto - b) * 100) / 100),
+  });
 });
 
 /**
@@ -2090,10 +2155,18 @@ app.get("/mail/:id/anhang/:index", async (c) => {
   if (!meta.postEingangId && meta.inhalt) {
     return c.json({ ok: true, dateiname: meta.name ?? "anhang", mime: meta.mime ?? "application/octet-stream", base64: meta.inhalt });
   }
-  if (!meta.postEingangId) return c.json({ ok: false, fehler: "Anhangtyp nur als Metadaten (kein Download)." }, 404);
-  const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
-  if (!beleg?.dateiInhalt) return c.json({ ok: false, fehler: "Anhang-Datei nicht vorhanden." }, 404);
-  return c.json({ ok: true, dateiname: beleg.originalname, mime: beleg.mime, base64: beleg.dateiInhalt });
+  if (meta.postEingangId) {
+    const beleg = await db.query.postEingang.findFirst({ where: eq(postEingang.id, meta.postEingangId) });
+    if (beleg?.dateiInhalt) {
+      return c.json({ ok: true, dateiname: beleg.originalname, mime: beleg.mime, base64: beleg.dateiInhalt });
+    }
+  }
+  // v1.21.11 (#196): on-demand vom IMAP-Server nachladen (Bestands-Mails ohne
+  // lokalen Inhalt, z. B. gesendete DOCX) — danach liegt er persistent vor
+  const { ladeAnhangInhalt } = await import("./imapDienst");
+  const r = await ladeAnhangInhalt(mailId, index);
+  if (r) return c.json({ ok: true, ...r });
+  return c.json({ ok: false, fehler: "Anhang-Inhalt ist weder lokal noch auf dem Server verfügbar." }, 404);
 });
 
 app.post("/mail/versenden", async (c) => {
@@ -3088,9 +3161,12 @@ app.post("/mail/:id/verschieben", async (c) => {
   const { verschiebeMail } = await import("./imapDienst");
   const r = await verschiebeMail(m.kontoId, m.ordner, m.uid, ziel);
   if (!r.ok) return c.json({ ok: false, fehler: r.fehler }, 502);
-  await db.update(mailMails).set({ ordner: ziel }).where(eq(mailMails.id, id));
-  await audit("mail_verschoben", { id, von: m.ordner, nach: ziel });
-  return c.json({ ok: true, id, ordner: ziel });
+  // v1.21.11 (#197): lokale UID-Kollision im Zielordner heilen statt HTTP 500
+  const { verschiebeMailLokal } = await import("./lib/mailVerschieben");
+  const lokal = await verschiebeMailLokal(m, ziel);
+  if (!lokal.ok) return c.json({ ok: false, fehler: lokal.fehler }, 409);
+  await audit("mail_verschoben", { id, von: m.ordner, nach: ziel, zusammengefuehrt: lokal.zusammengefuehrt ?? false });
+  return c.json({ ok: true, id, ordner: ziel, zusammengefuehrt: lokal.zusammengefuehrt ?? false });
 });
 
 /** Versand-Log: was ging (automatisch) raus — mail_log der letzten 200 Sendungen. */

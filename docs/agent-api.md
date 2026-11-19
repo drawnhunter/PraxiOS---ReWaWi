@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.21.7)
+# ReWaWi Agent-API — Leitfaden (Stand v1.21.11)
 
 Vollständige Endpunkt-Referenz der REST-API für externe Agenten (Kimi Claw).
 
@@ -76,8 +76,8 @@ Rechnungs-Suche: `q` = Nummern-Teilstring, `von`/`bis` = Rechnungsdatum, `status
 **Antwort:** `{anzahl, rechnungen: [{id, nummer, status, datum, kunde, brutto, bezahlt}]}`
 
 ### GET /rechnung/:id
-Einzelrechnung inkl. Positionen.
-**Antwort:** `{id, nummer, status, kunde, kundenId, rechnungsdatum, faelligkeitsdatum, netto, ust, brutto, bezahltBetrag, positionen: [{position, bezeichnung, beschreibung, menge, einheit, einzelpreis, ustSatz}]}`
+Einzelrechnung inkl. Positionen. Seit v1.21.11 auch `pdfNotiz` + `leistungsdatum` in der Antwort.
+**Antwort:** `{id, nummer, status, kunde, kundenId, rechnungsdatum, faelligkeitsdatum, pdfNotiz, leistungsdatum, netto, ust, brutto, bezahltBetrag, positionen: [{position, bezeichnung, beschreibung, menge, einheit, einzelpreis, ustSatz}]}`
 
 ### GET /rechnung/:id/pdf
 Rechnungs-PDF als base64 — dasselbe GoBD-PDF wie der UI-Download. Entwürfe → 409 (erst finalisieren oder Proforma setzen).
@@ -126,7 +126,7 @@ Kunde aktualisieren (Merge — nur übergebene Felder werden geändert).
 
 ### POST /rechnung-entwurf
 Rechnungs-Entwurf anlegen — **der Mensch gibt frei** (oder Vollautomatik). Zahlungsziel aus Kunde/Einstellungen (Default 14 Tage). Mit `typ: "proforma"` wird ein Proforma-Entwurf angelegt (Vorschuss-Anforderung).
-**Body:** `{"kundenId": N | "kunde": "Name" (Fuzzy), items*: [{bezeichnung*: string, beschreibung?, menge? (Default 1), einheit? (Default "Stück"), einzelpreis*: number, ustSatz?: 19|7|0 (Default 19)}], typ?: "proforma", pdfNotiz?: string}` — `items` auch als JSON-String möglich (Form-Data).
+**Body:** `{"kundenId": N | "kunde": "Name" (Fuzzy), items*: [{bezeichnung*: string, beschreibung?, menge? (Default 1), einheit? (Default "Stück"), einzelpreis*: number, ustSatz?: 19|7|0 (Default 19)}], typ?: "proforma", pdfNotiz?: string, leistungsdatum? | behandlungszeitraum?: string (Leistungszeitraum, kommt aufs PDF), rechnungsdatum?, faelligkeitsdatum?, zielTage?}` — `items` auch als JSON-String möglich (Form-Data). **Seit v1.21.11 liefern unbekannte Body-Felder 400 mit Klartext** (kein Silent-Drop mehr).
 **Antwort:** `{ok: true, id, kunde, kundenId, brutto, hinweis}`
 ```json
 {"kunde": "Muster GmbH", "items": [{"bezeichnung": "Beratung Oktober", "menge": 4, "einheit": "Std.", "einzelpreis": 120}], "pdfNotiz": "Zahlbar innerhalb von 14 Tagen."}
@@ -158,9 +158,17 @@ Proforma/Vorkasse → echte Rechnung (Nummernkreis + Snapshots).
 **Antwort:** `{ok: true, id, nummer, status: "finalisiert", …}`
 
 ### POST /rechnung/:id/zahlung
-Zahlung registrieren (Default: voller Restbetrag, heute). Nicht bei Entwürfen (409).
+Zahlung registrieren (Default: voller Restbetrag, heute). Nicht bei Entwürfen (409). **Seit v1.21.11 mit Doppelbuchung-Schutz:** bei bereits vollständig bezahlter Rechnung 409 (Korrektur per PATCH zahlungsstand); `betrag` wird auf den Restbetrag gecappt (`gekappt: true` in der Antwort).
 **Body:** `{betrag?: number, datum?: "JJJJ-MM-TT"}`
-**Antwort:** `{ok: true, id, zugebucht, datum}`
+**Antwort:** `{ok: true, id, zugebucht, datum, gekappt}`
+
+### PATCH /rechnung/:id/zahlungsstand (v1.21.11)
+Zahlungsstand explizit **korrigieren** (statt aufaddieren) — für Fälle wie `bezahltBetrag = 2× brutto` durch frühere Doppelbuchung. `bezahltBetrag` muss zwischen 0 und brutto liegen; bei 0 wird `bezahltAm` entfernt.
+**Body:** `{bezahltBetrag*: number, bezahltAm?: "JJJJ-MM-TT"}`
+**Antwort:** `{ok: true, id, bezahltBetrag, bezahltAm, offen}`
+```json
+{"bezahltBetrag": 3000.00}
+```
 
 ### POST /rechnung/:id/versenden
 Rechnungs-PDF per Mail an den Kunden. **Autonomie-Gate:** vollautomatik ODER Token-Freigabeliste deckt den Empfänger (sonst 403 → Alternative: `GET /rechnung/:id/pdf` + `POST /mail/entwurf`). Nicht bei Entwürfen (409).
@@ -435,7 +443,7 @@ Einzelne Mail (voller Text). Mit `?kurz=1` ohne `textHtml` (Newsletter-Blobs sin
 **Antwort:** `{id, ordner, betreff, absender, absenderAdresse, datum, gelesen, markiert, textPlain, textHtml, anhaenge: [{name, mime, postEingangId?, …}]}`
 
 ### GET /mail/:id/anhang/:index
-Anhang als base64 (kann MB groß sein — meist ist `/text` die bessere Wahl).
+Anhang als base64 (kann MB groß sein — meist ist `/text` die bessere Wahl). Auflösung seit v1.21.11 in drei Stufen: **Inline-Inhalt im Meta → Post Manager → On-Demand-Nachladen vom IMAP-Server** (Letzteres deckt auch gesendete DOCX und alte Bestands-Mails ab; der Inhalt wird dabei persistiert).
 **Antwort:** `{ok: true, dateiname, mime, base64}`
 
 ### GET /mail/:id/anhang/:index/text
@@ -452,9 +460,9 @@ Brain-Flag (z. B. Follow-up).
 **Antwort:** `{ok: true, id, markiert}`
 
 ### POST /mail/:id/verschieben
-Echter IMAP-Move in einen anderen Ordner.
+Echter IMAP-Move in einen anderen Ordner. **Seit v1.21.11 kollisions-sicher:** Liegt im Zielordner lokal schon eine Zeile mit derselben UID (Import-Duplikat/Relikt), wird zusammengeführt statt HTTP 500 — Antwort `zusammengefuehrt: true`.
 **Body:** `{ordner*: string}` (Ziel)
-**Antwort:** `{ok: true, id, ordner}`
+**Antwort:** `{ok: true, id, ordner, zusammengefuehrt}`
 
 ### POST /mail/:id/loeschen
 **v1.21.7: weiches Löschen in den Papierkorb** (Aufbewahrung `papierkorb_tage`, Default 14 Tage). Mail bleibt lokal + auf dem Server erhalten und ist wiederherstellbar.

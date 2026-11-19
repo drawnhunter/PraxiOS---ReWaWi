@@ -567,8 +567,11 @@ export const mailPostfachRouter = createRouter({
       const { verschiebeMail } = await import("./imapDienst");
       const r = await verschiebeMail(m.kontoId, m.ordner, m.uid, input.ordner);
       if (!r.ok) throw new Error(r.fehler);
-      await db.update(mailMails).set({ ordner: input.ordner }).where(eq(mailMails.id, input.mailId));
-      return { ok: true, ordner: input.ordner };
+      // v1.21.11 (#197): lokale UID-Kollision heilen statt DB-Unique-Fehler
+      const { verschiebeMailLokal } = await import("./lib/mailVerschieben");
+      const lokal = await verschiebeMailLokal(m, input.ordner);
+      if (!lokal.ok) throw new Error(lokal.fehler);
+      return { ok: true, ordner: input.ordner, zusammengefuehrt: lokal.zusammengefuehrt ?? false };
     }),
 
   /** Mail löschen — greift der Notfall-Loeschordner (Einstellungen), sonst hart. */
