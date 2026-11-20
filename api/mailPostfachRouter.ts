@@ -71,6 +71,8 @@ export const mailPostfachRouter = createRouter({
         letzterFehler: k.letzterFehler,
         signaturNeu: k.signaturNeu ?? null,
         signaturAntwort: k.signaturAntwort ?? null,
+        signaturAktiv: k.signaturAktiv,
+        signaturPosition: k.signaturPosition,
         ordner: ordnerNamen.map((name) => ({
           name,
           anzahl: stats.get(name)?.anzahl ?? 0,
@@ -103,6 +105,7 @@ export const mailPostfachRouter = createRouter({
       if (input.kontoId) await pruefeSichtbarkeit(ctx.user, input.kontoId);
       const sichtbar = await sichtbareKontoIds(ctx.user);
       const bedingungen = [];
+      let relevanz: ReturnType<typeof sql> | null = null;
       // v1.21.7: Papierkorb-Einträge tauchen in der normalen Liste nie auf
       bedingungen.push(isNull(mailMails.geloeschtAm));
       if (input.kontoId) bedingungen.push(eq(mailMails.kontoId, input.kontoId));
@@ -122,15 +125,49 @@ export const mailPostfachRouter = createRouter({
       if (input.von) bedingungen.push(sql`${mailMails.datum} >= ${input.von}`);
       if (input.bis) bedingungen.push(sql`${mailMails.datum} <= ${input.bis} 23:59:59`);
       if (input.q?.trim()) {
-        const q = `%${input.q.trim()}%`;
-        bedingungen.push(
-          or(
-            like(mailMails.betreff, q),
-            like(mailMails.absenderName, q),
-            like(mailMails.absenderAdresse, q),
-            like(mailMails.textPlain, q),
-          ),
-        );
+        // v1.22.0: Such-Operatoren + Empfänger + Anhang-Namen + Relevanzsortierung
+        const { betreff, absenderName, absenderAdresse, empfaenger, textPlain, textHtml, anhaenge, gelesen, markiert, datum } = mailMails;
+        const rest: string[] = [];
+        const pushText = (feld: string, wert: string) => {
+          const muster = `%${wert}%`;
+          if (feld === "from") bedingungen.push(or(like(absenderName, muster), like(absenderAdresse, muster)));
+          else if (feld === "to") bedingungen.push(like(empfaenger, muster));
+          else if (feld === "betreff" || feld === "subject") bedingungen.push(like(betreff, muster));
+          else if (feld === "text") bedingungen.push(or(like(textPlain, muster), like(textHtml, muster)));
+        };
+        for (const token of input.q.trim().split(/\s+/)) {
+          const m = token.match(/^(from|to|betreff|subject|text|before|after):(.+)$/i);
+          if (m) {
+            const [, feld, wert] = m;
+            if (feld.toLowerCase() === "before" && /^\d{4}-\d{2}-\d{2}$/.test(wert)) {
+              bedingungen.push(sql`${datum} < ${wert}`);
+            } else if (feld.toLowerCase() === "after" && /^\d{4}-\d{2}-\d{2}$/.test(wert)) {
+              bedingungen.push(sql`${datum} >= ${wert}`);
+            } else {
+              pushText(feld.toLowerCase(), wert);
+            }
+          } else if (/^has:attachment$/i.test(token)) {
+            bedingungen.push(sql`${anhaenge} IS NOT NULL AND ${anhaenge} NOT IN ('[]','null')`);
+          } else if (/^is:unread$/i.test(token)) bedingungen.push(eq(gelesen, false));
+          else if (/^is:read$/i.test(token)) bedingungen.push(eq(gelesen, true));
+          else if (/^is:flagged$/i.test(token)) bedingungen.push(eq(markiert, true));
+          else rest.push(token);
+        }
+        for (const wort of rest) {
+          const muster = `%${wort}%`;
+          bedingungen.push(or(
+            like(betreff, muster),
+            like(absenderName, muster),
+            like(absenderAdresse, muster),
+            like(empfaenger, muster),
+            like(textPlain, muster),
+            like(textHtml, muster),
+            like(anhaenge, muster),
+          ));
+        }
+        // Relevanz: exakte Feld-Treffer zuerst, dann Datum
+        const q0 = `%${rest.join(" ") || input.q.trim()}%`;
+        relevanz = sql`(CASE WHEN ${betreff} LIKE ${q0} THEN 4 WHEN ${absenderAdresse} LIKE ${q0} OR ${empfaenger} LIKE ${q0} THEN 3 WHEN ${absenderName} LIKE ${q0} THEN 2 WHEN ${textPlain} LIKE ${q0} OR ${anhaenge} LIKE ${q0} THEN 1 ELSE 0 END)`;
       }
       const seite = input.seite;
       const PRO_SEITE = 40;
@@ -139,13 +176,15 @@ export const mailPostfachRouter = createRouter({
         .from(mailMails)
         .where(bedingungen.length ? and(...bedingungen) : undefined)
         .orderBy(
-          ...(input.sortBy === "absender"
-            ? [input.sortDir === "desc" ? desc(mailMails.absenderAdresse) : asc(mailMails.absenderAdresse)]
-            : input.sortBy === "groesse"
-              ? [input.sortDir === "desc" ? desc(sql`LENGTH(${mailMails.textPlain}) + LENGTH(${mailMails.textHtml})`) : asc(sql`LENGTH(${mailMails.textPlain}) + LENGTH(${mailMails.textHtml})`)]
-              : input.sortDir === "asc"
-                ? [asc(mailMails.datum), asc(mailMails.id)]
-                : [desc(mailMails.datum), desc(mailMails.id)]),
+          ...(relevanz
+            ? [desc(relevanz), desc(mailMails.datum), desc(mailMails.id)]
+            : input.sortBy === "absender"
+              ? [input.sortDir === "desc" ? desc(mailMails.absenderAdresse) : asc(mailMails.absenderAdresse)]
+              : input.sortBy === "groesse"
+                ? [input.sortDir === "desc" ? desc(sql`LENGTH(${mailMails.textPlain}) + LENGTH(${mailMails.textHtml})`) : asc(sql`LENGTH(${mailMails.textPlain}) + LENGTH(${mailMails.textHtml})`)]
+                : input.sortDir === "asc"
+                  ? [asc(mailMails.datum), asc(mailMails.id)]
+                  : [desc(mailMails.datum), desc(mailMails.id)]),
         )
         .limit(PRO_SEITE)
         .offset((seite - 1) * PRO_SEITE);
@@ -684,6 +723,8 @@ export const mailPostfachRouter = createRouter({
       kontoId: z.number(),
       signaturNeu: z.string().optional(),
       signaturAntwort: z.string().optional(),
+      signaturAktiv: z.boolean().optional(),
+      signaturPosition: z.enum(["unten", "oben"]).optional(),
       abwesenheitAktiv: z.boolean(),
       abwesenheitVon: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
       abwesenheitBis: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
@@ -698,6 +739,8 @@ export const mailPostfachRouter = createRouter({
         .set({
           signaturNeu: input.signaturNeu ?? null,
           signaturAntwort: input.signaturAntwort ?? null,
+          signaturAktiv: input.signaturAktiv ?? true,
+          signaturPosition: input.signaturPosition ?? "unten",
           abwesenheitAktiv: input.abwesenheitAktiv,
           abwesenheitVon: input.abwesenheitVon ?? null,
           abwesenheitBis: input.abwesenheitBis ?? null,

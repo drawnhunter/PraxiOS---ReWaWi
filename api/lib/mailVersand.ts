@@ -36,20 +36,29 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   const settings = await getDb().query.companySettings.findFirst();
   // Signatur: Pro-Konto (neu vs. Antwort) schlägt die globale Firmen-Signatur
   let signaturQuelle = settings?.signatur ?? null;
+  let position = "unten";
   if (e.kontoId) {
     const { emailKonten } = await import("@db/schema");
     const { eq } = await import("drizzle-orm");
     const konto = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, e.kontoId) });
-    const kontoSignatur = e.inReplyTo ? konto?.signaturAntwort : konto?.signaturNeu;
-    if (kontoSignatur?.trim()) signaturQuelle = kontoSignatur;
+    // v1.22.0: Konto-Toggle an/aus + Platzierung (unten/über Zitat)
+    if (konto?.signaturAktiv === false) signaturQuelle = null;
+    else {
+      const kontoSignatur = e.inReplyTo ? konto?.signaturAntwort : konto?.signaturNeu;
+      if (kontoSignatur?.trim()) signaturQuelle = kontoSignatur;
+      if (konto?.signaturPosition === "oben") position = "oben";
+    }
   }
-  const signatur = e.mitSignatur !== false && signaturQuelle ? `\n\n${signaturQuelle}` : "";
-  const text = `${e.text}${signatur}`;
+  const signatur = e.mitSignatur !== false && signaturQuelle ? signaturQuelle : "";
+  const text = signatur
+    ? (position === "oben" ? `${signatur}\n\n${e.text}` : `${e.text}\n\n${signatur}`)
+    : e.text;
   // Plain-Text-„HTML" (KI-Entwürfe ohne Block-Tags) in saubere Absätze wandeln,
   // Tabs/Leerzeichen-Layout bricht sonst in der Anzeige aus (s. Screenshot-Feedback)
   const htmlRoh = e.html ? normalisiereHtml(e.html) : undefined;
+  const sigHtml = signatur ? `<p data-signatur="1" style="color:#6b7280">${signatur.replace(/\n/g, "<br>")}</p>` : "";
   const htmlBody = htmlRoh
-    ? `${htmlRoh}${signatur ? `<p style="color:#6b7280">${signatur.replace(/\n/g, "<br>")}</p>` : ""}`
+    ? (position === "oben" ? `${sigHtml}${htmlRoh}` : `${htmlRoh}${sigHtml}`)
     : undefined;
 
   const empfaengerListe = e.empfaenger.map((x) => x.trim()).filter(Boolean);

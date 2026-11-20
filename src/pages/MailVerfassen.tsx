@@ -158,20 +158,31 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
   const entwurfLoeschen = trpc.postfach.entwurfLoeschen.useMutation();
   const utils = trpc.useUtils();
 
-  /** Aktive Signatur: Konto (neu vs. Antwort) > global. */
+  /** Aktive Signatur: Konto (neu vs. Antwort) > global. v1.22.0: Konto-Toggle an/aus. */
   const aktiveSignatur = (kId: number | null): string => {
     const k = (postfaecher.data ?? []).find((x) => x.id === kId);
+    if (k && k.signaturAktiv === false) return ""; // pro Konto abgeschaltet
     const proKonto = start.inReplyTo ? (k?.signaturAntwort ?? k?.signaturNeu) : (k?.signaturNeu ?? k?.signaturAntwort);
     return proKonto?.trim() ? proKonto.trim() : (einstellungen.data?.signatur ?? "").trim();
   };
+  const signaturPosition = (kId: number | null): "unten" | "oben" =>
+    ((postfaecher.data ?? []).find((x) => x.id === kId)?.signaturPosition === "oben" ? "oben" : "unten");
 
   /** Signatur in den Editor einfügen (sichtbar + editierbar); Marker data-signatur für den Server. */
   const signaturEinsetzen = (kId: number | null) => {
     const sig = aktiveSignatur(kId);
     if (!sig) return;
     if (html.includes(sig) || html.includes('data-signatur="1"')) return; // schon drin — kein Doppeln
-    setHtml(`${html}<p><br></p><p data-signatur="1" style="color:#6b7280">${sig.replace(/\n/g, "<br>")}</p>`);
+    const block = `<p data-signatur="1" style="color:#6b7280">${sig.replace(/\n/g, "<br>")}</p>`;
+    // v1.22.0: Platzierung — unten (Standard) oder oben (über dem Text/Zitat)
+    setHtml(signaturPosition(kId) === "oben" ? `${block}${html}` : `${html}<p><br></p>${block}`);
     // #174: Der Editor setzt innerHTML nur beim Mount — Remount erzwingen, damit die Signatur sichtbar wird
+    setEditorKey((k) => k + 1);
+  };
+
+  /** Signatur manuell entfernen (v1.22.0) — der data-signatur-Block verschwindet komplett. */
+  const signaturEntfernen = () => {
+    setHtml((alt) => alt.replace(/<p data-signatur="1"[^>]*>[\s\S]*?<\/p>/, ""));
     setEditorKey((k) => k + 1);
   };
 
@@ -374,6 +385,16 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
             {drag ? "Loslassen zum Anhängen" : "Datei wählen (oder überall im Fenster ablegen)"}
             <input type="file" multiple className="hidden" onChange={(e) => dateiHinzufuegen(e.target.files)} />
           </label>
+          {html.includes('data-signatur="1"') && (
+            <button
+              type="button"
+              className="ml-auto rounded-md border border-neutral-200 px-2 py-0.5 text-xs text-neutral-500 hover:border-red-300 hover:text-red-600"
+              title="Signatur aus dieser Mail entfernen (nur manuell eingefügter Block)"
+              onClick={signaturEntfernen}
+            >
+              Signatur entfernen
+            </button>
+          )}
           {anhaenge.map((a, i) => (
             <span key={i} className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs">
               <button

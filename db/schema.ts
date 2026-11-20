@@ -816,6 +816,9 @@ export const emailKonten = mysqlTable("email_konten", {
   // Pro-Konto-Signaturen (v1.20): schlagen die globale Signatur
   signaturNeu: text("signatur_neu"),
   signaturAntwort: text("signatur_antwort"),
+  // Signatur-Steuerung (v1.22.0): pro Konto an/aus + Platzierung unten/über Zitat
+  signaturAktiv: boolean("signatur_aktiv").notNull().default(true),
+  signaturPosition: varchar("signatur_position", { length: 10 }).notNull().default("unten"),
   // Abwesenheitsnotiz (v1.20): serverseitig, Frequenz-Limit 1×/4 Tage je Absender
   abwesenheitAktiv: boolean("abwesenheit_aktiv").notNull().default(false),
   abwesenheitVon: varchar("abwesenheit_von", { length: 10 }),

@@ -294,7 +294,7 @@ export default function MailPostfach() {
               <Input
                 value={q}
                 onChange={(e) => { setQ(e.target.value); setSeite(1); }}
-                placeholder="Betreff, Absender, Inhalt suchen …"
+                placeholder="Suche: Name, Betreff, Text · from:/to:/subject:/text: · has:attachment · before:/after:JJJJ-MM-TT"
                 className={`h-8 pl-8 text-sm ${q.trim() ? "ring-2 ring-teal-400 border-teal-300" : ""}`}
               />
               {q.trim() && (

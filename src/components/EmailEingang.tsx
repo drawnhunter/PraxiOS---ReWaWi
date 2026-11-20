@@ -310,6 +310,8 @@ function KontoOptionen({ konto, onZu }: { konto: KontoOptionenDaten; onZu: () =>
   const utils = trpc.useUtils();
   const [sigNeu, setSigNeu] = useState(konto.signaturNeu ?? "");
   const [sigAntwort, setSigAntwort] = useState(konto.signaturAntwort ?? "");
+  const [sigAktiv, setSigAktiv] = useState(konto.signaturAktiv ?? true);
+  const [sigPosition, setSigPosition] = useState<"unten" | "oben">(konto.signaturPosition === "oben" ? "oben" : "unten");
   const [abwAktiv, setAbwAktiv] = useState(konto.abwesenheitAktiv ?? false);
   const [abwVon, setAbwVon] = useState(konto.abwesenheitVon ?? "");
   const [abwBis, setAbwBis] = useState(konto.abwesenheitBis ?? "");
@@ -335,6 +337,40 @@ function KontoOptionen({ konto, onZu }: { konto: KontoOptionenDaten; onZu: () =>
           <Label>Signatur — Antworten/Weiterleitungen</Label>
           <Textarea rows={3} value={sigAntwort} onChange={(e) => setSigAntwort(e.target.value)} placeholder="(leer = wie neue Mails / global)" />
         </div>
+      </div>
+      {/* v1.22.0: Signatur-Steuerung pro Konto (an/aus, Platz, Live-Vorschau) */}
+      <div className="rounded-md border border-neutral-200 bg-white p-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={sigAktiv} onChange={(e) => setSigAktiv(e.target.checked)} />
+            Signatur automatisch einfügen
+          </label>
+          <label className="flex items-center gap-2 text-sm text-neutral-600">
+            Platzierung:
+            <select
+              className="rounded-md border border-neutral-200 px-2 py-1 text-sm"
+              value={sigPosition}
+              onChange={(e) => setSigPosition(e.target.value as "unten" | "oben")}
+              disabled={!sigAktiv}
+            >
+              <option value="unten">unten (nach dem Text)</option>
+              <option value="oben">oben (über dem Text/Zitat)</option>
+            </select>
+          </label>
+        </div>
+        {sigAktiv && (
+          <div className="mt-2 rounded-md border border-dashed border-neutral-200 bg-neutral-50 p-3">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">Vorschau</p>
+            <div className="whitespace-pre-wrap text-sm text-neutral-700">
+              {sigPosition === "oben" && <span className="block text-neutral-400">[Signatur]</span>}
+              <span className="block">Sehr geehrte/r …,</span>
+              <span className="block">anbei …</span>
+              {sigPosition === "unten" && <span className="block text-neutral-400">[Signatur]</span>}
+              <span className="mt-1 block text-neutral-500">{sigAntwort || sigNeu || "(globale Signatur aus Einstellungen)"}</span>
+            </div>
+          </div>
+        )}
+        {!sigAktiv && <p className="mt-2 text-xs text-amber-700">Ausgeschaltet: Dieses Konto fügt keine Signatur mehr ein (auch nicht die globale).</p>}
       </div>
       <div className="rounded-md border border-neutral-200 bg-white p-3">
         <label className="flex items-center gap-2 text-sm font-medium">
@@ -365,6 +401,8 @@ function KontoOptionen({ konto, onZu }: { konto: KontoOptionenDaten; onZu: () =>
               kontoId: konto.id,
               signaturNeu: sigNeu,
               signaturAntwort: sigAntwort,
+              signaturAktiv: sigAktiv,
+              signaturPosition: sigPosition,
               abwesenheitAktiv: abwAktiv,
               abwesenheitVon: abwVon || null,
               abwesenheitBis: abwBis || null,
@@ -384,6 +422,7 @@ function KontoOptionen({ konto, onZu }: { konto: KontoOptionenDaten; onZu: () =>
 type KontoOptionenDaten = {
   id: number; name: string;
   signaturNeu?: string | null; signaturAntwort?: string | null;
+  signaturAktiv?: boolean; signaturPosition?: string | null;
   abwesenheitAktiv?: boolean; abwesenheitVon?: string | null; abwesenheitBis?: string | null;
   abwesenheitText?: string | null; abwesenheitNurKontakte?: boolean;
 };

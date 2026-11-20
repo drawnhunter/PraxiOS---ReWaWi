@@ -3010,7 +3010,11 @@ app.get("/mail-konto/:id/signatur", async (c) => {
   const { emailKonten } = await import("@db/schema");
   const k = await getDb().query.emailKonten.findFirst({ where: eq(emailKonten.id, Number(c.req.param("id"))) });
   if (!k) return c.json({ ok: false, fehler: "Konto nicht gefunden." }, 404);
-  return c.json({ ok: true, kontoId: k.id, signaturNeu: k.signaturNeu ?? "", signaturAntwort: k.signaturAntwort ?? "" });
+  return c.json({
+    ok: true, kontoId: k.id,
+    signaturNeu: k.signaturNeu ?? "", signaturAntwort: k.signaturAntwort ?? "",
+    signaturAktiv: k.signaturAktiv, signaturPosition: k.signaturPosition,
+  });
 });
 
 app.put("/mail-konto/:id/signatur", async (c) => {
@@ -3022,7 +3026,15 @@ app.put("/mail-konto/:id/signatur", async (c) => {
   const patch: Record<string, unknown> = {};
   if (body.signaturNeu !== undefined) patch.signaturNeu = String(body.signaturNeu);
   if (body.signaturAntwort !== undefined) patch.signaturAntwort = String(body.signaturAntwort);
-  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "signaturNeu und/oder signaturAntwort angeben." }, 400);
+  // v1.22.0: Toggle + Platzierung (an/aus, unten/über Zitat)
+  if (body.signaturAktiv !== undefined) patch.signaturAktiv = body.signaturAktiv === true || body.signaturAktiv === 1 || body.signaturAktiv === "true";
+  if (body.signaturPosition !== undefined) {
+    if (!["unten", "oben"].includes(String(body.signaturPosition))) {
+      return c.json({ ok: false, fehler: "signaturPosition muss 'unten' oder 'oben' sein." }, 400);
+    }
+    patch.signaturPosition = String(body.signaturPosition);
+  }
+  if (Object.keys(patch).length === 0) return c.json({ ok: false, fehler: "signaturNeu/signaturAntwort/signaturAktiv/signaturPosition angeben." }, 400);
   await db.update(emailKonten).set(patch).where(eq(emailKonten.id, k.id));
   await audit("mail_konto_signatur", { kontoId: k.id, felder: Object.keys(patch) });
   return c.json({ ok: true, kontoId: k.id });

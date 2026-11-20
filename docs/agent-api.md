@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.21.13)
+# ReWaWi Agent-API — Leitfaden (Stand v1.22.0)
 
 Vollständige Endpunkt-Referenz der REST-API für externe Agenten (Kimi Claw).
 
@@ -545,10 +545,10 @@ Konten ohne Secrets (SMTP-/Signatur-/Abwesenheits-Flags, letzterFehler).
 **Antwort:** `{konten: [{id, name, benutzer, host, smtpGesetzt, smtpHost, smtpPort, signaturGesetzt, signaturAntwortGesetzt, abwesenheitAktiv, letzterFehler}]}`
 
 ### GET /mail-konto/:id/signatur
-**Antwort:** `{ok: true, kontoId, signaturNeu, signaturAntwort}`
+**Antwort:** `{ok: true, kontoId, signaturNeu, signaturAntwort, signaturAktiv, signaturPosition}`
 
 ### PUT /mail-konto/:id/signatur
-**Body:** `{signaturNeu?: string, signaturAntwort?: string}` (mindestens eines)
+**Body:** `{signaturNeu?: string, signaturAntwort?: string, signaturAktiv?: boolean, signaturPosition?: "unten"|"oben"}` (mindestens eines) — `signaturAktiv: false` schaltet die Signatur für dieses Konto komplett aus (auch die globale); `signaturPosition: "oben"` setzt sie über den Text/das Zitat.
 **Antwort:** `{ok: true, kontoId}`
 
 ### POST /mail-konto/:id/smtp-test

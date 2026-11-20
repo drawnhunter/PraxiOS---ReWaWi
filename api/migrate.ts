@@ -142,6 +142,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "invoices", spalte: "updated_at", ddl: "ALTER TABLE invoices ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
   { tabelle: "products", spalte: "updated_at", ddl: "ALTER TABLE products ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
   { tabelle: "purchase_orders", spalte: "updated_at", ddl: "ALTER TABLE purchase_orders ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
+  // ── v1.22.0: Signatur-Steuerung pro Konto ──
+  { tabelle: "email_konten", spalte: "signatur_aktiv", ddl: "ALTER TABLE email_konten ADD COLUMN signatur_aktiv TINYINT(1) NOT NULL DEFAULT 1 AFTER signatur_antwort" },
+  { tabelle: "email_konten", spalte: "signatur_position", ddl: "ALTER TABLE email_konten ADD COLUMN signatur_position VARCHAR(10) NOT NULL DEFAULT 'unten' AFTER signatur_aktiv" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
