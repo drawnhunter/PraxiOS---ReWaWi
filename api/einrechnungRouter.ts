@@ -195,8 +195,35 @@ export const einrechnungRouter = createRouter({
     const r = await getDb().query.incomingInvoices.findFirst({
       where: eq(incomingInvoices.id, input.id),
     });
-    if (!r?.originalXml) throw new Error("Kein XML archiviert.");
-    return { dateiname: `E-Rechnung ${r.lieferantName} ${r.nummer}.xml`, xml: r.originalXml };
+    if (!r) throw new Error("Beleg nicht gefunden.");
+    // v1.21.13 (#94): Fallback auf die archivierte Beleg-Datei (PDF/JPG) statt Fehler
+    if (r.originalXml) {
+      return { dateiname: `E-Rechnung ${r.lieferantName} ${r.nummer}.xml`, format: "xml" as const, xml: r.originalXml };
+    }
+    if (r.belegBase64) {
+      const ext = r.belegMime === "application/pdf" ? "pdf" : r.belegMime === "image/png" ? "png" : r.belegMime === "image/jpeg" ? "jpg" : "bin";
+      return {
+        dateiname: `Beleg ${r.lieferantName} ${r.nummer}.${ext}`,
+        format: "datei" as const,
+        base64: r.belegBase64,
+        mime: r.belegMime ?? "application/octet-stream",
+      };
+    }
+    throw new Error("Weder XML noch Beleg-Datei archiviert.");
+  }),
+
+  /** Archivierte Beleg-Datei direkt (PDF/JPG) — v1.21.13 (#94). */
+  datei: authedQuery.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const r = await getDb().query.incomingInvoices.findFirst({
+      where: eq(incomingInvoices.id, input.id),
+    });
+    if (!r?.belegBase64) throw new Error("Keine Beleg-Datei archiviert.");
+    const ext = r.belegMime === "application/pdf" ? "pdf" : r.belegMime === "image/png" ? "png" : r.belegMime === "image/jpeg" ? "jpg" : "bin";
+    return {
+      dateiname: `Beleg ${r.lieferantName} ${r.nummer}.${ext}`,
+      base64: r.belegBase64,
+      mime: r.belegMime ?? "application/octet-stream",
+    };
   }),
 
   markPaid: authedQuery

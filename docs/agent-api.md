@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.21.11)
+# ReWaWi Agent-API — Leitfaden (Stand v1.21.13)
 
 Vollständige Endpunkt-Referenz der REST-API für externe Agenten (Kimi Claw).
 
@@ -331,6 +331,7 @@ DATEV-Buchungsstapel + Beleg-ZIP für einen Zeitraum. Alias: **`GET /export/date
 
 ### GET /belege?q=
 Beleg-Liste (max. 200, neueste zuerst). `q` durchsucht Lieferant, Nummer **und den persistenten OCR-Text**. Alias: **`GET /eingangsrechnungen`**. Seit v1.21.4 mit `bezahltBetrag` + `offen` je Beleg.
+**Filter (v1.21.13, #95):** `&ohneBetrag=1` (nur Belege mit brutto 0/leer), `&unkontiert=1` (nur Belege ohne konto) — für Restlisten-Bereinigung ohne DB-Zugriff.
 **Antwort:** `{anzahl, belege: [{id, lieferant, nummer, rechnungsdatum, netto, ust, brutto, konto, kategorieId, kategorieName, bezahltAm, bezahltBetrag, offen, hatDatei}]}`
 
 ### POST /beleg
@@ -361,8 +362,11 @@ Belegdatei nachträglich anhängen.
 
 ### PATCH /beleg/:id
 Zahlungsstand korrigieren (v1.21.4), z. B. falsch als „bezahlt" markierter Beleg mit Rest offen: `{"bezahltBetrag": 100.00}` → `bezahltAm` wird automatisch aufgehoben. Regeln: Nur Datum ohne Betrag = voll bezahlt; `bezahltAm: null` ohne Betrag = komplett unbezahlt; `bezahltBetrag` muss zwischen 0 und brutto liegen; Teilzahlung trägt kein `bezahltAm` (Widerspruch → 400).
-**Body:** `{bezahltBetrag?: number, bezahltAm?: "JJJJ-MM-TT"|null, bemerkung?, kategorieId?: number|null, konto?, gegenkonto?, faelligkeitsdatum?: "JJJJ-MM-TT"|null}`
-**Antwort:** `{ok: true, id, bezahltBetrag, bezahltAm, offen}`
+**Body:** `{bezahltBetrag?: number, bezahltAm?: "JJJJ-MM-TT"|null, bemerkung?, kategorieId?: number|null, konto?, gegenkonto?, faelligkeitsdatum?: "JJJJ-MM-TT"|null, brutto?, netto?, ust?, lieferantName? | lieferant_name?, nummer?}`
+**Beträge (#95):** `brutto/netto/ust` mit Konsistenz (`netto + ust = brutto` ± 0,02). Nur brutto → netto/ust werden über den bisherigen Steuersatz des Belegs neu berechnet. **GoBD-Guard:** bei `freigabe = freigegeben` oder `bezahltAm` gesetzt sind Beträge/Lieferant/Nummer gesperrt (409 → Gegenbeleg).
+**Lieferant + Nummer (#95):** änderbar mit Duplikat-Prüfung der Unique-Kombination (409).
+**Leerer Body → 400** (v1.21.13: nie mehr ok:true ohne Änderung).
+**Antwort:** `{ok: true, id, bezahltBetrag, bezahltAm, offen, brutto, netto, ust, lieferantName, nummer}`
 
 ### POST /beleg/:id/freigabe
 Freigabe-Status setzen (audit-logged, GoBD-nachvollziehbar).

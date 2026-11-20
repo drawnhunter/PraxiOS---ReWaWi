@@ -144,7 +144,16 @@ export default function IncomingInvoices() {
 
   const xmlLaden = async (id: number) => {
     const r = await utils.client.einrechnung.xml.query({ id });
-    textHerunterladen(r.dateiname, r.xml, "application/xml");
+    // v1.21.13 (#94): XML-E-Rechnung ODER archivierte Beleg-Datei (PDF/JPG)
+    if (r.format === "xml") {
+      textHerunterladen(r.dateiname, r.xml!, "application/xml");
+    } else {
+      const bytes = Uint8Array.from(atob(r.base64!), (c) => c.charCodeAt(0));
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([bytes], { type: r.mime ?? "application/octet-stream" }));
+      a.download = r.dateiname;
+      a.click();
+    }
   };
 
   const d = analyse?.daten;

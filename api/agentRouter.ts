@@ -1051,18 +1051,25 @@ app.post("/bankbuchungen/auto-kategorisieren", async (c) => {
 // ── Belegkette: Eingangsbelege anlegen/lesen, mit Bank-Verknüpfung ─────────
 app.get("/belege", async (c) => {
   const { incomingInvoices, kategorien } = await import("@db/schema");
-  const { desc, like, or } = await import("drizzle-orm");
+  const { and, desc, isNull, like, or, sql } = await import("drizzle-orm");
   const { ladeSynonymKarte, agentLieferant } = await import("./lib/pseudonym");
   const karte = await ladeSynonymKarte();
   // q durchsucht Lieferant, Nummer UND den persistenten OCR-Text (v1.20.2)
   const q = c.req.query("q")?.trim();
-  const filter = q
-    ? or(
-        like(incomingInvoices.lieferantName, `%${q}%`),
-        like(incomingInvoices.nummer, `%${q}%`),
-        like(incomingInvoices.ocrText, `%${q}%`),
-      )
-    : undefined;
+  // v1.21.13 (#95): Restlisten-Filter — ohneBetrag (brutto 0/leer) und unkontiert
+  const ohneBetrag = c.req.query("ohneBetrag") === "1";
+  const unkontiert = c.req.query("unkontiert") === "1";
+  const bedingungen = [];
+  if (q) {
+    bedingungen.push(or(
+      like(incomingInvoices.lieferantName, `%${q}%`),
+      like(incomingInvoices.nummer, `%${q}%`),
+      like(incomingInvoices.ocrText, `%${q}%`),
+    ));
+  }
+  if (ohneBetrag) bedingungen.push(or(isNull(incomingInvoices.brutto), sql`${incomingInvoices.brutto} = 0`));
+  if (unkontiert) bedingungen.push(or(isNull(incomingInvoices.konto), eq(incomingInvoices.konto, "")));
+  const filter = bedingungen.length > 0 ? and(...bedingungen) : undefined;
   const rows = await getDb()
     .select({ e: incomingInvoices, kategorieName: kategorien.name })
     .from(incomingInvoices)
@@ -1379,6 +1386,27 @@ app.patch("/beleg/:id", async (c) => {
   const r = await db.query.incomingInvoices.findFirst({ where: eq(incomingInvoices.id, id) });
   if (!r) return c.json({ ok: false, fehler: "Beleg nicht gefunden." }, 404);
 
+  // v1.21.13: Leer-Body sofort ablehnen — die Konsistenzlogik unten darf NIE
+  // allein durch einen bereits bezahlten Bestand ein Update auslösen (ok:true ohne Änderung)
+  const FELDER = ["bezahltBetrag", "bezahltAm", "bemerkung", "kategorieId", "konto", "gegenkonto",
+    "faelligkeitsdatum", "brutto", "netto", "ust", "lieferantName", "lieferant_name", "nummer"];
+  if (!FELDER.some((f) => body[f] !== undefined)) {
+    return c.json({ ok: false, fehler: `Keine änderbaren Felder übergeben. Erlaubt: ${FELDER.join(", ")}` }, 400);
+  }
+
+  // GoBD-Guard (#95): Beträge/Lieferant/Nummer nur solange der Beleg weder
+  // freigegeben noch als bezahlt markiert ist — danach nur noch per Gegenbeleg
+  const mengenAenderung = ["brutto", "netto", "ust", "lieferantName", "lieferant_name", "nummer"]
+    .some((f) => body[f] !== undefined);
+  if (mengenAenderung) {
+    if (r.freigabe === "freigegeben") {
+      return c.json({ ok: false, fehler: `Beleg ${r.nummer} ist freigegeben — Beträge/Lieferant/Nummer sind GoBD-gesperrt. Korrektur per Gegenbeleg (POST /beleg mit typ: "gutschrift").` }, 409);
+    }
+    if (r.bezahltAm) {
+      return c.json({ ok: false, fehler: `Beleg ${r.nummer} ist als bezahlt markiert — erst Zahlungsstand korrigieren (bezahltBetrag/bezahltAm), danach Beträge ändern ODER Gegenbeleg.` }, 409);
+    }
+  }
+
   const set: Record<string, unknown> = {};
   const brutto = Number(r.brutto);
   let neuBetrag = Math.max(Number(r.bezahltBetrag ?? 0), r.bezahltAm ? brutto : 0);
@@ -1434,6 +1462,60 @@ app.patch("/beleg/:id", async (c) => {
     else return c.json({ ok: false, fehler: "faelligkeitsdatum im Format JJJJ-MM-TT oder null." }, 400);
   }
 
+  // ── #95: Beträge (brutto/netto/ust) mit Konsistenzregeln ──
+  const hatBrutto = body.brutto !== undefined;
+  const hatNetto = body.netto !== undefined;
+  const hatUst = body.ust !== undefined;
+  if (hatBrutto || hatNetto || hatUst) {
+    const b = hatBrutto ? Number(body.brutto) : brutto;
+    const n0 = hatNetto ? Number(body.netto) : null;
+    const u0 = hatUst ? Number(body.ust) : null;
+    if (!Number.isFinite(b) || b < 0 || (n0 !== null && !Number.isFinite(n0)) || (u0 !== null && !Number.isFinite(u0))) {
+      return c.json({ ok: false, fehler: "brutto/netto/ust müssen Zahlen sein (brutto ≥ 0)." }, 400);
+    }
+    let netto: number, ust: number;
+    if (n0 !== null && u0 !== null) {
+      netto = n0; ust = u0;
+      if (Math.abs(netto + ust - b) > 0.02) {
+        return c.json({ ok: false, fehler: `Konsistenz: netto (${netto.toFixed(2)}) + ust (${ust.toFixed(2)}) muss brutto (${b.toFixed(2)}) ergeben (Differenz ${Math.abs(netto + ust - b).toFixed(2)}).` }, 400);
+      }
+    } else if (n0 !== null) {
+      netto = n0; ust = Math.round((b - netto) * 100) / 100;
+      if (ust < 0) return c.json({ ok: false, fehler: "netto darf nicht größer als brutto sein." }, 400);
+    } else if (u0 !== null) {
+      ust = u0; netto = Math.round((b - ust) * 100) / 100;
+      if (netto < 0) return c.json({ ok: false, fehler: "ust darf nicht größer als brutto sein." }, 400);
+    } else {
+      // nur brutto: Netto über den bisherigen Steuersatz des Belegs (Default 19 %)
+      const satz = Number(r.netto) > 0 ? Number(r.ust) / Number(r.netto) : 0.19;
+      netto = Math.round((b / (1 + satz)) * 100) / 100;
+      ust = Math.round((b - netto) * 100) / 100;
+    }
+    set.brutto = b.toFixed(2);
+    set.netto = netto.toFixed(2);
+    set.ust = ust.toFixed(2);
+  }
+
+  // ── #95: Lieferant + Nummer (Duplikat-Schutz der Unique-Kombination) ──
+  const neuerLieferant = body.lieferantName !== undefined ? String(body.lieferantName).trim()
+    : body.lieferant_name !== undefined ? String(body.lieferant_name).trim() : null;
+  if (neuerLieferant !== null && !neuerLieferant) {
+    return c.json({ ok: false, fehler: "lieferantName darf nicht leer sein." }, 400);
+  }
+  if (neuerLieferant) set.lieferantName = neuerLieferant;
+  if (body.nummer !== undefined) {
+    const nr = String(body.nummer).trim();
+    if (!nr) return c.json({ ok: false, fehler: "nummer darf nicht leer sein." }, 400);
+    const { and } = await import("drizzle-orm");
+    const dup = await db.query.incomingInvoices.findFirst({
+      where: and(eq(incomingInvoices.lieferantName, neuerLieferant ?? r.lieferantName), eq(incomingInvoices.nummer, nr)),
+    });
+    if (dup && dup.id !== id) {
+      return c.json({ ok: false, fehler: `Kombination Lieferant + Nummer existiert bereits (Beleg #${dup.id}).` }, 409);
+    }
+    set.nummer = nr;
+  }
+
   if (Object.keys(set).length === 0) return c.json({ ok: false, fehler: "Keine änderbaren Felder übergeben (bezahltBetrag, bezahltAm, bemerkung, kategorieId, konto, gegenkonto, faelligkeitsdatum)." }, 400);
   await db.update(incomingInvoices).set(set).where(eq(incomingInvoices.id, id));
   await audit("beleg_korrigiert", { id, felder: Object.keys(set) });
@@ -1443,6 +1525,8 @@ app.patch("/beleg/:id", async (c) => {
     bezahltBetrag: Number(frisch!.bezahltBetrag),
     bezahltAm: frisch!.bezahltAm,
     offen: Math.max(0, Math.round((Number(frisch!.brutto) - Number(frisch!.bezahltBetrag)) * 100) / 100),
+    brutto: Number(frisch!.brutto), netto: Number(frisch!.netto), ust: Number(frisch!.ust),
+    lieferantName: frisch!.lieferantName, nummer: frisch!.nummer,
   });
 });
 
