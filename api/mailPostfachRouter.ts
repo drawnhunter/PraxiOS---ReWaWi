@@ -313,6 +313,56 @@ export const mailPostfachRouter = createRouter({
       return { dateiname: `${name}.eml`, mime: "message/rfc822", base64: roh.toString("base64") };
     }),
 
+  /** Nur Signatur-Felder eines Kontos speichern (v1.22.1, Signatur-Fenster im Verfassen) —
+   *  ohne die Abwesenheits-Einstellungen anzufassen. */
+  signaturSpeichern: authedQuery
+    .input(z.object({
+      kontoId: z.number(),
+      signaturNeu: z.string().optional(),
+      signaturAntwort: z.string().optional(),
+      signaturAktiv: z.boolean().optional(),
+      signaturPosition: z.enum(["unten", "oben"]).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      await pruefeSichtbarkeit(ctx.user, input.kontoId);
+      const { emailKonten } = await import("@db/schema");
+      const patch: Record<string, unknown> = {};
+      if (input.signaturNeu !== undefined) patch.signaturNeu = input.signaturNeu;
+      if (input.signaturAntwort !== undefined) patch.signaturAntwort = input.signaturAntwort;
+      if (input.signaturAktiv !== undefined) patch.signaturAktiv = input.signaturAktiv;
+      if (input.signaturPosition !== undefined) patch.signaturPosition = input.signaturPosition;
+      if (Object.keys(patch).length === 0) throw new Error("Keine Signatur-Felder übergeben.");
+      await getDb().update(emailKonten).set(patch).where(eq(emailKonten.id, input.kontoId));
+      return { ok: true };
+    }),
+
+  /**
+   * Mailtext übersetzen (v1.22.1): lokale LibreTranslate-Instanz, Cache in der DB.
+   * Quelle: textPlain (sonst HTML → Lesetext). neu=true erzwingt Neuübersetzung.
+   */
+  uebersetzen: authedQuery
+    .input(z.object({ mailId: z.number(), neu: z.boolean().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const m = await db.query.mailMails.findFirst({ where: eq(mailMails.id, input.mailId) });
+      if (!m) throw new Error("Mail nicht gefunden.");
+      await pruefeSichtbarkeit(ctx.user, m.kontoId);
+      if (m.uebersetzungDeutsch && !input.neu) {
+        return { uebersetzung: m.uebersetzungDeutsch, gecached: true };
+      }
+      const { htmlZuLesetext, uebersetzeText, erkenneSprache } = await import("./lib/uebersetzen");
+      const quelltext = (m.textPlain?.trim() ? m.textPlain : m.textHtml ? htmlZuLesetext(m.textHtml) : "").slice(0, 15000);
+      if (!quelltext.trim()) throw new Error("Kein Text zum Übersetzen vorhanden.");
+      const sprache = erkenneSprache(quelltext);
+      const r = await uebersetzeText(quelltext, "de", "auto");
+      if (!r.ok || !r.text) throw new Error(r.fehler ?? "Übersetzung fehlgeschlagen.");
+      await db
+        .update(mailMails)
+        .set({ uebersetzungDeutsch: r.text, uebersetzungAm: new Date() })
+        .where(eq(mailMails.id, input.mailId));
+      return { uebersetzung: r.text, gecached: false, quellSprache: sprache };
+    }),
+
   /** Manueller Sync eines Kontos. */
   syncJetzt: authedQuery
     .input(z.object({ kontoId: z.number() }))

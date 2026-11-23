@@ -145,6 +145,10 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   // ── v1.22.0: Signatur-Steuerung pro Konto ──
   { tabelle: "email_konten", spalte: "signatur_aktiv", ddl: "ALTER TABLE email_konten ADD COLUMN signatur_aktiv TINYINT(1) NOT NULL DEFAULT 1 AFTER signatur_antwort" },
   { tabelle: "email_konten", spalte: "signatur_position", ddl: "ALTER TABLE email_konten ADD COLUMN signatur_position VARCHAR(10) NOT NULL DEFAULT 'unten' AFTER signatur_aktiv" },
+  // ── v1.22.1: Übersetzung (Cache + Engine-URL) ──
+  { tabelle: "mail_mails", spalte: "uebersetzung_deutsch", ddl: "ALTER TABLE mail_mails ADD COLUMN uebersetzung_deutsch MEDIUMTEXT NULL AFTER geloescht_am" },
+  { tabelle: "mail_mails", spalte: "uebersetzung_am", ddl: "ALTER TABLE mail_mails ADD COLUMN uebersetzung_am DATETIME NULL AFTER uebersetzung_deutsch" },
+  { tabelle: "company_settings", spalte: "libretranslate_url", ddl: "ALTER TABLE company_settings ADD COLUMN libretranslate_url VARCHAR(255) NULL AFTER papierkorb_tage" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.

@@ -82,6 +82,8 @@ export const companySettings = mysqlTable("company_settings", {
   notfallStunden: int("notfall_stunden").notNull().default(24),
   // Papierkorb-Aufbewahrung in Tagen (v1.21.7) — danach automatisch endgültig löschen
   papierkorbTage: int("papierkorb_tage").notNull().default(14),
+  // Übersetzungs-Engine (v1.22.1): selbst-gehostetes LibreTranslate
+  libretranslateUrl: varchar("libretranslate_url", { length: 255 }),
   // Standard-Absenderkonto (v1.21.2, Bus #172): getrennt vom E-Rechnungs-Empfangskonto
   standardKontoId: bigint("standard_konto_id", { mode: "number", unsigned: true }),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
@@ -866,6 +868,9 @@ export const mailMails = mysqlTable("mail_mails", {
   markiert: boolean("markiert").notNull().default(false),
   // Papierkorb (v1.21.7): weiches Löschen — gesetzt = im Papierkorb, NULL = aktiv
   geloeschtAm: timestamp("geloescht_am"),
+  // Übersetzung (v1.22.1): gecachte deutsche Übersetzung des Mailtexts
+  uebersetzungDeutsch: text("uebersetzung_deutsch"),
+  uebersetzungAm: timestamp("uebersetzung_am"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 },
   (t) => [

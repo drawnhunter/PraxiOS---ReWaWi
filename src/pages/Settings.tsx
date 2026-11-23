@@ -59,6 +59,7 @@ interface FirmenForm {
   notfallOrdnerAktiv: boolean;
   notfallStunden: number;
   papierkorbTage: number;
+  libretranslateUrl: string | null;
   standardKontoId: number | null;
   smtpHost: string;
   smtpPort: number;
@@ -148,6 +149,7 @@ export default function SettingsPage() {
       notfallOrdnerAktiv: s.notfallOrdnerAktiv ?? true,
       notfallStunden: s.notfallStunden ?? 24,
       papierkorbTage: s.papierkorbTage ?? 14,
+      libretranslateUrl: s.libretranslateUrl ?? null,
       standardKontoId: s.standardKontoId ?? null,
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
@@ -353,6 +355,7 @@ export default function SettingsPage() {
                 notfallOrdnerAktiv: firma.notfallOrdnerAktiv,
                 notfallStunden: firma.notfallStunden,
                 papierkorbTage: firma.papierkorbTage,
+                libretranslateUrl: firma.libretranslateUrl || null,
                 standardKontoId: firma.standardKontoId ?? null,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
@@ -588,6 +591,16 @@ export default function SettingsPage() {
                 onChange={(e) => setFirma({ ...firma, papierkorbTage: Number(e.target.value) || 14 })}
               />
               <span className="text-xs text-neutral-400">Tage — gelöschte Mails + Entwürfe sind so lange wiederherstellbar</span>
+            </label>
+            <label className="flex flex-wrap items-center gap-2 text-sm text-neutral-600">
+              LibreTranslate-URL:
+              <Input
+                className="h-8 w-72 text-xs"
+                value={firma.libretranslateUrl ?? ""}
+                onChange={(e) => setFirma({ ...firma, libretranslateUrl: e.target.value || null })}
+                placeholder="http://praxiswerk-translate:5000"
+              />
+              <span className="text-xs text-neutral-400">selbst-gehostete Übersetzungs-Engine (leer = Standard-Container)</span>
             </label>
           </div>
         </div>

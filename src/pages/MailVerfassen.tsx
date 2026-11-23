@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/select";
 import { MailEditor } from "@/components/MailEditor";
 import { AnhangVorschauDialog } from "@/components/AnhangVorschauDialog";
-import { Paperclip, Send, Save, Trash2, X, UploadCloud, Clock, Eye } from "lucide-react";
+import { Paperclip, Send, Save, Trash2, X, UploadCloud, Clock, Eye, FileSignature } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 export interface VerfassenStart {
   empfaenger?: string;
@@ -149,6 +151,20 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
   const [gespeichert, setGespeichert] = useState<string | null>(null);
   const [fehler, setFehler] = useState("");
   const [anhangVorschau, setAnhangVorschau] = useState<Anhang | null>(null);
+  const [signaturOffen, setSignaturOffen] = useState(false);
+
+  /** v1.22.1: Signatur-Block aus dem Dialog einsetzen/ersetzen (Platzierung beachten). */
+  const signaturAnwenden = (text: string) => {
+    if (!text.trim()) return;
+    const block = `<p data-signatur="1" style="color:#6b7280">${text.replace(/\n/g, "<br>")}</p>`;
+    setHtml((alt) => {
+      if (alt.includes('data-signatur="1"')) {
+        return alt.replace(/<p data-signatur="1"[^>]*>[\s\S]*?<\/p>/, block);
+      }
+      return signaturPosition(kontoId) === "oben" ? `${block}${alt}` : `${alt}<p><br></p>${block}`;
+    });
+    setEditorKey((k) => k + 1);
+  };
   const postfaecher = trpc.postfach.postfaecher.useQuery();
   const einstellungen = trpc.settings.get.useQuery();
   const bausteine = trpc.postfach.bausteine.useQuery();
@@ -385,10 +401,18 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
             {drag ? "Loslassen zum Anhängen" : "Datei wählen (oder überall im Fenster ablegen)"}
             <input type="file" multiple className="hidden" onChange={(e) => dateiHinzufuegen(e.target.files)} />
           </label>
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-md border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-teal-300 hover:text-teal-700"
+            title="Signatur auswählen, bearbeiten und einfügen"
+            onClick={() => setSignaturOffen(true)}
+          >
+            <FileSignature className="h-3 w-3" /> Signatur
+          </button>
           {html.includes('data-signatur="1"') && (
             <button
               type="button"
-              className="ml-auto rounded-md border border-neutral-200 px-2 py-0.5 text-xs text-neutral-500 hover:border-red-300 hover:text-red-600"
+              className="rounded-md border border-neutral-200 px-2 py-0.5 text-xs text-neutral-500 hover:border-red-300 hover:text-red-600"
               title="Signatur aus dieser Mail entfernen (nur manuell eingefügter Block)"
               onClick={signaturEntfernen}
             >
@@ -474,6 +498,15 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
         </div>
       </div>
 
+      {/* v1.22.1: Signatur-Fenster (sehen, bearbeiten, auswählen — ohne in die Einstellungen zu müssen) */}
+      {signaturOffen && (
+        <SignaturDialog
+          kontoId={kontoId}
+          onZu={() => setSignaturOffen(false)}
+          onEinfuegen={(text) => { signaturAnwenden(text); setSignaturOffen(false); }}
+        />
+      )}
+
       {/* v1.21.5: Anhänge auch beim Verfassen prüfen (PDF/Bild/Office/Text) */}
       {anhangVorschau && (
         <AnhangVorschauDialog
@@ -539,6 +572,100 @@ export function VerfassenSchliessenDialog({ onWahl, onAbbrechen, istEntwurf }: {
               </div>
             </>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Signatur-Fenster (v1.22.1): vorhandene Signaturen sehen, bearbeiten und einfügen —
+ *  Konto (neu/Antwort) + global, mit optionalem Speichern der Änderungen. */
+function SignaturDialog({ kontoId, onZu, onEinfuegen }: {
+  kontoId: number | null;
+  onZu: () => void;
+  onEinfuegen: (text: string) => void;
+}) {
+  const utils = trpc.useUtils();
+  const postfaecher = trpc.postfach.postfaecher.useQuery();
+  const einstellungen = trpc.settings.get.useQuery();
+  const konto = (postfaecher.data ?? []).find((k) => k.id === kontoId);
+  const [texte, setTexte] = useState({ neu: "", antwort: "", global: "" });
+  const [gespeichert, setGespeichert] = useState("");
+  const kontoSpeichern = trpc.postfach.signaturSpeichern.useMutation({
+    onSuccess: () => { utils.postfach.postfaecher.invalidate(); setGespeichert("Konto-Signatur gespeichert."); },
+  });
+  const einstSpeichern = trpc.settings.update.useMutation({
+    onSuccess: () => { utils.settings.get.invalidate(); setGespeichert("Globale Signatur gespeichert."); },
+  });
+
+  useEffect(() => {
+    setTexte({
+      neu: konto?.signaturNeu ?? "",
+      antwort: konto?.signaturAntwort ?? "",
+      global: einstellungen.data?.signatur ?? "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [konto?.id, einstellungen.data]);
+
+  const optionen = [
+    { key: "neu" as const, titel: konto ? `Konto „${konto.name}" — neue Mails` : "Konto — neue Mails", wert: texte.neu },
+    { key: "antwort" as const, titel: konto ? `Konto „${konto.name}" — Antworten` : "Konto — Antworten", wert: texte.antwort },
+    { key: "global" as const, titel: "Globale Signatur (Einstellungen)", wert: texte.global },
+  ];
+
+  const speichern = async (key: "neu" | "antwort" | "global") => {
+    setGespeichert("");
+    if (key === "global") {
+      const { smtpPasswortGesetzt: _pw, ...rest } = (einstellungen.data ?? {}) as Record<string, unknown>;
+      void _pw;
+      await einstSpeichern.mutateAsync({ ...rest, signatur: texte.global } as never);
+    } else {
+      await kontoSpeichern.mutateAsync({
+        kontoId: kontoId!,
+        signaturNeu: key === "neu" ? texte.neu : (konto?.signaturNeu ?? ""),
+        signaturAntwort: key === "antwort" ? texte.antwort : (konto?.signaturAntwort ?? ""),
+      });
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onZu()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Signatur auswählen &amp; bearbeiten</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-neutral-500">
+          Text anpassen und direkt einfügen — oder mit „Speichern" dauerhaft hinterlegen (ohne in die Einstellungen zu wechseln).
+        </p>
+        <div className="max-h-[55vh] space-y-3 overflow-y-auto">
+          {optionen.map((o) => (
+            <div key={o.key} className="rounded-md border border-neutral-200 p-3">
+              <div className="mb-1.5 flex items-center justify-between">
+                <Label className="text-xs font-medium text-neutral-600">{o.titel}</Label>
+                <div className="flex gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => speichern(o.key)} disabled={kontoSpeichern.isPending || einstSpeichern.isPending || (o.key !== "global" && !kontoId)}>
+                    Speichern
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => onEinfuegen(o.wert)} disabled={!o.wert.trim()}>
+                    Einfügen
+                  </Button>
+                </div>
+              </div>
+              <Textarea
+                rows={3}
+                value={o.wert}
+                onChange={(e) => setTexte({ ...texte, [o.key]: e.target.value })}
+                placeholder={o.key === "global" ? "Mit freundlichen Grüßen\n…" : "(leer = globale Signatur)"}
+              />
+            </div>
+          ))}
+        </div>
+        {gespeichert && <p className="text-xs text-green-700">{gespeichert}</p>}
+        {(kontoSpeichern.error || einstSpeichern.error) && (
+          <p className="text-xs text-red-600">{(kontoSpeichern.error ?? einstSpeichern.error)?.message}</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onZu}>Schließen</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

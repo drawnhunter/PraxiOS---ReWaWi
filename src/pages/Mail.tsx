@@ -13,12 +13,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, FileCheck2, Printer, Star, PinOff, FileDown,
-  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy, ChevronDown,
+  RefreshCw, Search, Paperclip, Brain, Settings2, X, Pencil, Printer, Star, PinOff,
+  Reply, ExternalLink, Plus, Trash2, ToggleLeft, ToggleRight, MailPlus, UserPlus, Copy, ChevronDown, Languages,
 } from "lucide-react";
 import { Link } from "react-router";
 import { MailVerfassen, VerfassenSchliessenDialog, type VerfassenStart } from "./MailVerfassen";
 import { AnhangVorschauDialog } from "@/components/AnhangVorschauDialog";
+import { SplitButton } from "@/components/SplitButton";
 import { SeitenEinstellung } from "@/components/SeitenEinstellung";
 
 function datumFmt(d: string | Date | null): string {
@@ -1263,6 +1264,16 @@ function zitatBlock(m: { betreff?: string | null; absenderName?: string | null; 
   return `<blockquote style="border-left:2px solid #d6d3d1;padding-left:8px;color:#57534e"><p style="font-size:12px;color:#78716c">${kopf.replace(/</g, "&lt;")}</p>${inhalt}</blockquote>`;
 }
 
+/* Sprachheuristik (v1.22.1): dominieren englische Stopwörter? Dann Übersetzen-Button. */
+function istNichtDeutsch(text: string): boolean {
+  const w = text.toLowerCase().slice(0, 8000);
+  const z = (liste: string[]) => liste.reduce((a, wort) => a + (w.match(new RegExp(`\\b${wort}\\b`, "g"))?.length ?? 0), 0);
+  const de = z(["der", "die", "das", "und", "ist", "mit", "für", "eine", "einer", "nicht", "sehr", "geehrte", "danke", "bitte", "auf", "von", "zu"]);
+  const en = z(["the", "and", "is", "are", "with", "for", "hello", "thanks", "please", "this", "that", "have", "you", "your", "we", "not"]);
+  if (de >= 4 && de > en * 1.5) return false;
+  return en >= 4 && en > de * 1.5;
+}
+
 /* ═══ Spalte 3: Detail / Vorschau ═══ */
 export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappen, onSchliessen, onZurueck }: {
   id: number;
@@ -1279,6 +1290,23 @@ export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappe
   const markieren = trpc.postfach.markieren.useMutation();
   const [belegOk, setBelegOk] = useState<string | null>(null);
   const [adressDialog, setAdressDialog] = useState<{ name: string | null; adresse: string } | null>(null);
+  // v1.22.1: Übersetzung (lokale LibreTranslate, Cache) + Original/Toggle
+  const [uebersetzung, setUebersetzung] = useState<{ text: string; gecached: boolean } | null>(null);
+  const [zeigeUebersetzung, setZeigeUebersetzung] = useState(false);
+  const [uebersetzungFehler, setUebersetzungFehler] = useState("");
+  const uebersetzenMu = trpc.postfach.uebersetzen.useMutation({
+    onSuccess: (r) => { setUebersetzung({ text: r.uebersetzung, gecached: r.gecached }); setZeigeUebersetzung(true); },
+    onError: (e) => setUebersetzungFehler(e.message),
+  });
+  useEffect(() => {
+    setUebersetzung(null);
+    setZeigeUebersetzung(false);
+    setUebersetzungFehler("");
+    if (mail.data?.uebersetzungDeutsch) {
+      setUebersetzung({ text: mail.data.uebersetzungDeutsch, gecached: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
   // #128.2: Anhangsvorschau (Overlay vor Download)
   const [vorschau, setVorschau] = useState<{ index: number; name: string; mime: string; base64: string } | null>(null);
   // #128.6: Bilderblocker (externe Bilder standardmäßig blockiert)
@@ -1303,6 +1331,67 @@ export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappe
   if (mail.isLoading) return <div className="flex-1 rounded-lg border border-neutral-200 bg-white p-5 text-sm text-neutral-400">Lade …</div>;
   if (!mail.data) return <div className="flex-1 rounded-lg border border-neutral-200 bg-white p-5 text-sm text-red-600">Mail nicht gefunden.</div>;
   const m = mail.data;
+
+  // v1.22.1: Button-Handler (Split-Buttons)
+  const antworten = () => {
+    const zitatHtml = zitatBlock(m);
+    onAntworten({
+      kontoId: m.kontoId,
+      empfaenger: m.absenderAdresse ?? "",
+      betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
+      html: `<p><br></p>${zitatHtml}`,
+      inReplyTo: m.messageId ?? null,
+      references: m.messageId ?? null,
+    });
+  };
+  const allenAntworten = () => {
+    const zitatHtml = zitatBlock(m);
+    const andere = (m.empfaenger ?? "")
+      .split(",")
+      .map((x: string) => x.trim())
+      .filter((x: string) => x && !x.includes("@"));
+    onAntworten({
+      kontoId: m.kontoId,
+      empfaenger: m.absenderAdresse ?? "",
+      cc: andere.join(", "),
+      betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
+      html: `<p><br></p>${zitatHtml}`,
+      inReplyTo: m.messageId ?? null,
+      references: m.messageId ?? null,
+    });
+  };
+  const weiterleiten = () => {
+    const zitatHtml = zitatBlock(m);
+    onAntworten({
+      kontoId: m.kontoId,
+      betreff: m.betreff?.startsWith("Fwd:") ? m.betreff : `Fwd: ${m.betreff ?? ""}`,
+      html: `<p><br></p>${zitatHtml}`,
+    });
+  };
+  const emlDownload = async () => {
+    const r = await utils.postfach.eml.fetch({ mailId: id });
+    const a = document.createElement("a");
+    a.href = `data:message/rfc822;base64,${r.base64}`;
+    a.download = r.dateiname;
+    a.click();
+  };
+  const druckenPdf = () => {
+    const inhalt = m.textHtml ?? `<pre style="white-space:pre-wrap">${(m.textPlain ?? "").replace(/</g, "&lt;")}</pre>`;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${(m.betreff ?? "(kein Betreff)").replace(/</g, "&lt;")}</title>
+<style>body{font-family:Arial,sans-serif;max-width:800px;margin:24px auto;color:#171412}.kopf{border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:16px}.kopf h1{font-size:18px;color:#0f766e}.meta{font-size:12px;color:#57534e}</style>
+</head><body>
+<div class="kopf"><h1>${(m.betreff ?? "(kein Betreff)").replace(/</g, "&lt;")}</h1>
+<div class="meta"><b>Von:</b> ${(m.absenderName ? `${m.absenderName} &lt;${m.absenderAdresse}&gt;` : m.absenderAdresse ?? "—")}<br>
+<b>An:</b> ${(m.empfaenger ?? "—").replace(/</g, "&lt;")}<br>
+<b>Datum:</b> ${m.datum ? new Date(m.datum).toLocaleString("de-DE") : "—"}</div></div>
+${inhalt}
+<script>window.onload = () => setTimeout(() => window.print(), 250);</script>
+</body></html>`);
+    w.document.close();
+  };
+
 
   return (
     <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-200 bg-white">
@@ -1359,58 +1448,34 @@ export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappe
           />
         )}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <Button
-            variant="outline" size="sm"
-            onClick={() => {
-              const zitatHtml = zitatBlock(m);
-              onAntworten({
-                kontoId: m.kontoId,
-                empfaenger: m.absenderAdresse ?? "",
-                betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
-                html: `<p><br></p>${zitatHtml}`,
-                inReplyTo: m.messageId ?? null,
-                references: m.messageId ?? null,
-              });
-            }}
-          >
-            <Reply className="mr-1.5 h-4 w-4" /> Antworten
-          </Button>
-          <Button
-            variant="outline" size="sm"
-            onClick={() => {
-              const zitatHtml = zitatBlock(m);
-              const andere = (m.empfaenger ?? "")
-                .split(",")
-                .map((x: string) => x.trim())
-                .filter((x: string) => x && !x.includes("@"));
-              onAntworten({
-                kontoId: m.kontoId,
-                empfaenger: m.absenderAdresse ?? "",
-                cc: andere.join(", "),
-                betreff: m.betreff?.startsWith("Re:") ? m.betreff : `Re: ${m.betreff ?? ""}`,
-                html: `<p><br></p>${zitatHtml}`,
-                inReplyTo: m.messageId ?? null,
-                references: m.messageId ?? null,
-              });
-            }}
-            title="An Absender + alle Empfänger"
-          >
-            Allen Antworten
-          </Button>
-          <Button
-            variant="outline" size="sm"
-            onClick={() => {
-              const zitatHtml = zitatBlock(m);
-              onAntworten({
-                kontoId: m.kontoId,
-                betreff: m.betreff?.startsWith("Fwd:") ? m.betreff : `Fwd: ${m.betreff ?? ""}`,
-                html: `<p><br></p>${zitatHtml}`,
-              });
-            }}
-            title="Mail weiterleiten"
-          >
-            Weiterleiten
-          </Button>
+          <SplitButton
+            label="Antworten"
+            icon={<Reply className="mr-1.5 h-4 w-4" />}
+            onKlick={antworten}
+            eintraege={[
+              { label: "Allen antworten", onKlick: allenAntworten },
+              { label: "Weiterleiten", onKlick: weiterleiten },
+            ]}
+          />
+          <SplitButton
+            label="Drucken"
+            icon={<Printer className="mr-1.5 h-4 w-4" />}
+            onKlick={druckenPdf}
+            eintraege={[
+              { label: "Als Beleg", onKlick: () => alsBeleg.mutate({ mailId: id }, { onSuccess: (r) => setBelegOk(`Beleg #${r.belegId} angelegt`) }) },
+              { label: "Export .eml", onKlick: emlDownload },
+            ]}
+          />
+          {istNichtDeutsch(m.textPlain ?? m.textHtml ?? "") && !uebersetzung && (
+            <Button variant="outline" size="sm" disabled={uebersetzenMu.isPending} onClick={() => uebersetzenMu.mutate({ mailId: id })}>
+              <Languages className="mr-1.5 h-4 w-4" /> {uebersetzenMu.isPending ? "Übersetze …" : "Übersetzen"}
+            </Button>
+          )}
+          {uebersetzung && (
+            <Button variant="outline" size="sm" onClick={() => setZeigeUebersetzung(!zeigeUebersetzung)}>
+              <Languages className="mr-1.5 h-4 w-4" /> {zeigeUebersetzung ? "Original" : "Übersetzung"}
+            </Button>
+          )}
           <Button
             variant="outline" size="sm"
             onClick={() => onTabOeffnen(id, m.betreff ?? "")}
@@ -1419,16 +1484,9 @@ export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappe
             <ExternalLink className="mr-1.5 h-4 w-4" /> Tab öffnen
           </Button>
           <Button
-            size="sm" variant="outline"
-            disabled={alsBeleg.isPending}
-            onClick={() => alsBeleg.mutate({ mailId: id }, { onSuccess: (r) => setBelegOk(`Beleg #${r.belegId} angelegt`) })}
-          >
-            <FileCheck2 className="mr-1.5 h-4 w-4" /> Als Beleg
-          </Button>
-          <Button
             size="sm" variant="ghost"
             className="text-red-600"
-            title="Löschen — wandert in den Notfall-Löschordner (24 h), nicht endgültig"
+            title="Löschen — wandert in den Notfall-Löschordner (Aufbewahrung konfigurierbar), nicht endgültig"
             onClick={() => {
               if (!window.confirm("Mail löschen? Sie wandert in den Notfall-Löschordner (Aufbewahrung konfigurierbar).")) return;
               utils.client.postfach.mailLoeschen.mutate({ mailId: id })
@@ -1438,48 +1496,8 @@ export function MailDetail({ id, kompakt, onAntworten, onTabOeffnen, onAusklappe
           >
             <Trash2 className="h-4 w-4" />
           </Button>
-          <Button
-            size="sm" variant="outline"
-            title="Drucken bzw. als PDF speichern (im Druckdialog „Als PDF speichern“ wählen)"
-            onClick={() => {
-              const w = window.open("", "_blank", "width=820,height=1000");
-              if (!w) return;
-              const inhalt = m.textHtml ?? `<pre style="white-space:pre-wrap;font-family:sans-serif">${(m.textPlain ?? "").replace(/</g, "&lt;")}</pre>`;
-              w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${(m.betreff ?? "Mail").replace(/</g, "&lt;")}</title>
-<style>
-  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #171412; margin: 32px; }
-  .kopf { border-bottom: 2px solid #0f766e; padding-bottom: 12px; margin-bottom: 18px; }
-  h1 { font-size: 19px; margin: 0 0 8px; }
-  .meta { font-size: 12.5px; color: #5b564f; line-height: 1.6; }
-  .meta b { color: #171412; }
-  @media print { body { margin: 12mm; } }
-</style></head><body>
-<div class="kopf"><h1>${(m.betreff ?? "(kein Betreff)").replace(/</g, "&lt;")}</h1>
-<div class="meta"><b>Von:</b> ${(m.absenderName ? `${m.absenderName} &lt;${m.absenderAdresse}&gt;` : m.absenderAdresse ?? "—")}<br>
-<b>An:</b> ${(m.empfaenger ?? "—").replace(/</g, "&lt;")}<br>
-<b>Datum:</b> ${m.datum ? new Date(m.datum).toLocaleString("de-DE") : "—"}</div></div>
-${inhalt}
-<script>window.onload = () => setTimeout(() => window.print(), 250);</script>
-</body></html>`);
-              w.document.close();
-            }}
-          >
-            <Printer className="mr-1.5 h-4 w-4" /> Drucken / PDF
-          </Button>
-          <Button
-            size="sm" variant="outline"
-            title="Als .eml-Datei herunterladen (inkl. Anhänge) — zum Archivieren oder Weitergeben"
-            onClick={async () => {
-              const r = await utils.postfach.eml.fetch({ mailId: id });
-              const a = document.createElement("a");
-              a.href = `data:message/rfc822;base64,${r.base64}`;
-              a.download = r.dateiname;
-              a.click();
-            }}
-          >
-            <FileDown className="mr-1.5 h-4 w-4" /> Export .eml
-          </Button>
         </div>
+        {uebersetzungFehler && <p className="mt-1.5 text-xs text-red-600">{uebersetzungFehler}</p>}
         {belegOk && <p className="mt-2 rounded-md bg-green-50 px-3 py-1.5 text-xs text-green-800">{belegOk} — Betrag in Eingangsbelege nachtragen.</p>}
         {alsBeleg.error && <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{alsBeleg.error.message}</p>}
         {m.anhaengeMeta.length > 0 && (
@@ -1541,7 +1559,15 @@ ${inhalt}
       })()}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
-        {m.textHtml && (() => {
+        {zeigeUebersetzung && uebersetzung ? (
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-xs text-teal-800">
+              <Languages className="h-3.5 w-3.5" /> automatisch übersetzt (lokale Instanz)
+              <button className="ml-2 text-teal-600 hover:underline" onClick={() => uebersetzenMu.mutate({ mailId: id, neu: true })}>neu übersetzen</button>
+            </div>
+            <pre className="whitespace-pre-wrap font-sans text-sm text-neutral-800">{uebersetzung.text}</pre>
+          </div>
+        ) : m.textHtml && (() => {
           // v1.21.10: HTML-Hüllen ohne sichtbaren Text (nur &nbsp;/Styles) zählen als leer
           const sichtbar = m.textHtml
             .replace(/<style[\s\S]*?<\/style>/gi, "")
