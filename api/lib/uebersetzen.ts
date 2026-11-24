@@ -35,33 +35,52 @@ export interface UebersetzungsErgebnis {
   fehler?: string;
 }
 
-/** Übersetzt Text über die lokale LibreTranslate-Instanz. */
+/** Übersetzt Text über die lokale LibreTranslate-Instanz.
+ *  v1.22.2: URL-Fallback-Kette — Container-Name, Docker-Host-Gateway und LAN-IP
+ *  werden nacheinander probiert (Compose-Netzwerke sind getrennt), die erste
+ *  funktionierende Adresse wird in den Einstellungen persistiert. */
 export async function uebersetzeText(text: string, ziel = "de", quelle = "auto"): Promise<UebersetzungsErgebnis> {
   const { companySettings } = await import("@db/schema");
   const { getDb } = await import("../queries/connection");
   const { eq } = await import("drizzle-orm");
-  const settings = await getDb().query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
-  const basis = (settings?.libretranslateUrl || "http://praxiswerk-translate:5000").replace(/\/$/, "");
-  const url = `${basis}/translate`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q: text.slice(0, 15000), source: quelle, target: ziel, format: "text" }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return { ok: false, fehler: `LibreTranslate HTTP ${res.status} — Instanz erreichbar? (Einstellungen → Mail: LibreTranslate-URL)` };
-    const json = (await res.json()) as { translatedText?: string; error?: string };
-    if (json.error) return { ok: false, fehler: `LibreTranslate: ${json.error}` };
-    if (!json.translatedText) return { ok: false, fehler: "Leere Antwort von LibreTranslate." };
-    return { ok: true, text: json.translatedText };
-  } catch (e) {
-    const msg = e instanceof Error && e.name === "AbortError"
-      ? "Zeitüberschreitung (30 s) — LibreTranslate antwortet nicht."
-      : `LibreTranslate nicht erreichbar (${basis}) — läuft der Container? URL prüfen (Einstellungen → Mail).`;
-    return { ok: false, fehler: msg };
+  const db = getDb();
+  const settings = await db.query.companySettings.findFirst({ where: eq(companySettings.id, 1) });
+  const kandidaten = [
+    settings?.libretranslateUrl || null,
+    "http://praxiswerk-translate:5000",
+    "http://host.docker.internal:5000",
+    "http://192.168.178.62:5000",
+  ].filter((u): u is string => Boolean(u));
+
+  const fehler: string[] = [];
+  for (const basisRoh of kandidaten) {
+    const basis = basisRoh.replace(/\/$/, "");
+    const url = `${basis}/translate`;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q: text.slice(0, 15000), source: quelle, target: ziel, format: "text" }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) { fehler.push(`${basis}: HTTP ${res.status}`); continue; }
+      const json = (await res.json()) as { translatedText?: string; error?: string };
+      if (json.error) { fehler.push(`${basis}: ${json.error}`); continue; }
+      if (!json.translatedText) { fehler.push(`${basis}: leere Antwort`); continue; }
+      // funktionierende Adresse merken — nächste Aufrufe gehen direkt dorthin
+      if (settings?.libretranslateUrl !== basis) {
+        await db.update(companySettings).set({ libretranslateUrl: basis }).where(eq(companySettings.id, 1)).catch(() => undefined);
+      }
+      return { ok: true, text: json.translatedText };
+    } catch (e) {
+      fehler.push(`${basis}: ${e instanceof Error && e.name === "AbortError" ? "Zeitüberschreitung (12 s)" : "nicht erreichbar"}`);
+    }
   }
+  return {
+    ok: false,
+    fehler: `LibreTranslate auf keiner Adresse erreichbar — ${fehler.join(" · ")}. Bitte Container prüfen (docker ps | grep translate) und ob Port 5000 für ReWaWi erreichbar ist (getrennte Compose-Netzwerke).`,
+  };
 }
