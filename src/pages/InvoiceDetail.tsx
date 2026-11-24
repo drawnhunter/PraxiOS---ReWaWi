@@ -387,6 +387,37 @@ export default function InvoiceDetail() {
           <PdfButton art="invoice" id={r.id} />
           <PdfVorschau art="invoice" id={r.id} titel={`Rechnung ${r.nummer ?? 'Entwurf'}`} />
           <MailDialog art="invoice" id={r.id} />
+          {/* v1.22.3 (Lea): Speichern/Finalisieren gehört IMMER oben rechts — nicht nach unten */}
+          {istEntwurf && (
+            <>
+              <Button variant="outline" onClick={speichernKlick} disabled={speichern.isPending}>
+                {speichern.isPending ? "Speichere …" : "Entwurf speichern"}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button disabled={items.filter((i) => i.bezeichnung.trim()).length === 0}>
+                    Finalisieren &amp; Nummer vergeben
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Rechnung finalisieren?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Der Entwurf wird gespeichert, die nächste Rechnungsnummer vergeben und
+                      der Beleg eingefroren. Danach ist er GoBD-konform nicht mehr
+                      veränderbar — Korrekturen nur noch per Gutschrift/Storno.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                    <AlertDialogAction onClick={speichernUndFinalisieren}>
+                      Jetzt finalisieren
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
           <Button variant="outline" size="sm" onClick={() => setSerieOffen(true)}>
             <Repeat className="mr-1.5 h-4 w-4" /> Als Serie speichern
           </Button>
@@ -531,7 +562,7 @@ export default function InvoiceDetail() {
                   onChange={(e) => setKopf({ ...kopf, kundeName: e.target.value })}
                 />
               ) : (
-                <div className="mt-1 text-sm">{r.kundeName}</div>
+                <div className="mt-1 text-sm break-words">{r.kundeName}</div>
               )}
             </div>
             <div>
@@ -1110,37 +1141,6 @@ export default function InvoiceDetail() {
       {r.status !== "entwurf" && <div className="mb-6"><BankZuordnung invoiceId={r.id} /></div>}
 
       {fehler && <p className="mb-4 text-sm text-red-600">{fehler}</p>}
-
-      {istEntwurf && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={speichernKlick} disabled={speichern.isPending}>
-            {speichern.isPending ? "Speichere …" : "Entwurf speichern"}
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button disabled={items.filter((i) => i.bezeichnung.trim()).length === 0}>
-                Finalisieren &amp; Nummer vergeben
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Rechnung finalisieren?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Der Entwurf wird gespeichert, die nächste Rechnungsnummer vergeben und
-                  der Beleg eingefroren. Danach ist er GoBD-konform nicht mehr
-                  veränderbar — Korrekturen nur noch per Gutschrift/Storno.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-                <AlertDialogAction onClick={speichernUndFinalisieren}>
-                  Jetzt finalisieren
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      )}
 
       {/* ── Zahlungsdialog ── */}
       <Dialog open={zahldialog} onOpenChange={setZahldialog}>

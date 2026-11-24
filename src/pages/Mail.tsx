@@ -100,6 +100,7 @@ export default function MailPostfach() {
   const [sortWahl, setSortWahl] = useState<SortWahl>("datum_desc");
   const [seite, setSeite] = useState(1);
   const [fehlerPopup, setFehlerPopup] = useState(false);
+  const [vollbild, setVollbild] = useState(false);
   // v1.21.5: Live-Zustände der Verfassen-Tabs (Dirty-Flag + Inhalt fürs Lösen)
   const verfassenZustaende = useRef(new Map<number, VerfassenStart & { unsaved: boolean }>());
   const utils = trpc.useUtils();
@@ -159,6 +160,13 @@ export default function MailPostfach() {
       alert(`Fenster konnte nicht gelöst werden: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
+
+  // Escape schließt die Vollbild-Vorschau (v1.22.3)
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setVollbild(false); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, []);
 
   // Rückkehr aus dem gelösten Fenster: Entwurf/Mail wieder als Tab öffnen
   useEffect(() => {
@@ -312,7 +320,7 @@ export default function MailPostfach() {
         )}
 
         {/* Liste + Vorschau (bleibt gemountet, nur versteckt) */}
-        <div className={`min-h-0 flex-1 gap-3 ${aktiv === null ? "flex" : "hidden"}`}>
+        <div className={`relative min-h-0 flex-1 gap-3 ${aktiv === null ? "flex" : "hidden"}`}>
           {/* Spalte 2: Liste (mittig, Outlook) */}
           <div style={{ width: listeBreite }} className="shrink-0">
             <MailListe
@@ -326,19 +334,38 @@ export default function MailPostfach() {
           <Resizer onDrag={(dx) => setListeBreite(listeBreite + dx)} />
           {/* Spalte 3: Vorschau (rechts, Outlook-Lesefenster) */}
           {vorschau !== null && (
-            <MailDetail
-              key={vorschau}
-              id={vorschau}
-              kompakt
-              onAntworten={oeffneVerfassen}
-              onTabOeffnen={oeffneTab}
-              onAusklappen={() => {
-                const m = vorschau;
-                oeffneTab(m, "");
-                setVorschau(null);
-              }}
-              onSchliessen={() => setVorschau(null)}
-            />
+            <div className={vollbild ? "fixed inset-0 z-50 flex flex-col bg-white p-4" : "contents"}>
+              {vollbild && (
+                <div className="mb-2 flex justify-end">
+                  <Button size="sm" variant="outline" onClick={() => setVollbild(false)}>Vollbild schließen (Esc)</Button>
+                </div>
+              )}
+              <div className={vollbild ? "flex min-h-0 flex-1 flex-col" : "contents"}>
+                <MailDetail
+                  key={vorschau}
+                  id={vorschau}
+                  kompakt
+                  onAntworten={oeffneVerfassen}
+                  onTabOeffnen={oeffneTab}
+                  onAusklappen={() => {
+                    const m = vorschau;
+                    oeffneTab(m, "");
+                    setVorschau(null);
+                    setVollbild(false);
+                  }}
+                  onSchliessen={() => { setVorschau(null); setVollbild(false); }}
+                />
+              </div>
+            </div>
+          )}
+          {vorschau !== null && !vollbild && (
+            <button
+              className="absolute right-2 top-2 z-10 rounded-md border border-neutral-200 bg-white/90 px-2 py-1 text-xs text-neutral-500 hover:text-teal-700"
+              title="Vorschau im Vollbild"
+              onClick={() => setVollbild(true)}
+            >
+              ⛶ Vollbild
+            </button>
           )}
         </div>
 
@@ -1501,7 +1528,7 @@ ${inhalt}
         {belegOk && <p className="mt-2 rounded-md bg-green-50 px-3 py-1.5 text-xs text-green-800">{belegOk} — Betrag in Eingangsbelege nachtragen.</p>}
         {alsBeleg.error && <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{alsBeleg.error.message}</p>}
         {m.anhaengeMeta.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div className="mt-2.5 max-h-28 overflow-y-auto rounded-md border border-neutral-100 p-1.5 flex flex-wrap gap-1.5" title="Anhänge (scrollbar)">
             {m.anhaengeMeta.map((a, i) => {
               const hatInhalt = Boolean(a.postEingangId) || Boolean((a as { inhalt?: string }).inhalt);
               return (

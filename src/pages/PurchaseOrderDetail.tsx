@@ -208,6 +208,45 @@ export default function PurchaseOrderDetail() {
         <div className="flex items-center gap-2">
           <PdfButton art="order" id={b.id} />
           <PdfVorschau art="order" id={b.id} titel={`Bestellung ${b.nummer ?? 'Entwurf'}`} />
+          {/* v1.22.3 (Lea): Speichern/Abschicken IMMER oben rechts */}
+          {istEntwurf && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  speichern.mutate(bauePayload(), {
+                    onError: (e) => { if (e.message.startsWith("KONFLIKT:")) setKonflikt(e.message); else setFehler(e.message); },
+                  })
+                }
+                disabled={speichern.isPending}
+              >
+                Entwurf speichern
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button disabled={items.filter((i) => i.bezeichnung.trim()).length === 0}>
+                    <Send className="mr-1.5 h-4 w-4" /> Abschicken &amp; Nummer vergeben
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Bestellung abschicken?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Der Entwurf wird gespeichert, die nächste Bestellnummer vergeben und
+                      die Bestellung eingefroren. Das PDF kann danach an den Lieferanten
+                      versendet werden.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                    <AlertDialogAction onClick={speichernUndAbschicken}>
+                      Jetzt abschicken
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
           {(b.status === "bestellt" || b.status === "teilgeliefert") && (
             <>
               <Button
@@ -558,44 +597,6 @@ export default function PurchaseOrderDetail() {
 
       {fehler && <p className="mb-4 text-sm text-red-600">{fehler}</p>}
 
-      {istEntwurf && (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              speichern.mutate(bauePayload(), {
-              onError: (e) => { if (e.message.startsWith("KONFLIKT:")) setKonflikt(e.message); else setFehler(e.message); },
-            })
-            }
-            disabled={speichern.isPending}
-          >
-            Entwurf speichern
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button disabled={items.filter((i) => i.bezeichnung.trim()).length === 0}>
-                <Send className="mr-1.5 h-4 w-4" /> Abschicken &amp; Nummer vergeben
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Bestellung abschicken?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Der Entwurf wird gespeichert, die nächste Bestellnummer vergeben und
-                  die Bestellung eingefroren. Das PDF kann danach an den Lieferanten
-                  versendet werden.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-                <AlertDialogAction onClick={speichernUndAbschicken}>
-                  Jetzt abschicken
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      )}
       <KonfliktDialog
         fehler={konflikt}
         onAbbrechen={() => setKonflikt(null)}

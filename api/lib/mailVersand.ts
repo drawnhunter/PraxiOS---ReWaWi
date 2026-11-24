@@ -14,6 +14,15 @@ function normalisiereHtml(html: string): string {
     .join("");
 }
 
+/** Anrede-Formatierung (Lea): nach der Begrüßungszeile gehört eine Leerzeile —
+ *  wird bei einzeiliger Anrede ohne Leerzeile automatisch ergänzt. */
+export function anredeFormatieren(text: string): string {
+  return text.replace(
+    /^(\s*(?:Sehr geehrte[r|n]?[^,\n]*|Hallo[^,\n]*|Liebe[r|n]?[^,\n]*|Guten Tag[^,\n]*|Dear[^,\n]*|Hi[^,\n]*|Hello[^,\n]*),\s*)\n(?!\s*\n)(?=\S)/i,
+    "$1\n\n",
+  );
+}
+
 export interface VersandEingabe {
   empfaenger: string[]; // E-Mail-Adressen
   cc?: string[];
@@ -51,8 +60,8 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   }
   const signatur = e.mitSignatur !== false && signaturQuelle ? signaturQuelle : "";
   const text = signatur
-    ? (position === "oben" ? `${signatur}\n\n${e.text}` : `${e.text}\n\n${signatur}`)
-    : e.text;
+    ? (position === "oben" ? `${signatur}\n\n${anredeFormatieren(e.text)}` : `${anredeFormatieren(e.text)}\n\n${signatur}`)
+    : anredeFormatieren(e.text);
   // Plain-Text-„HTML" (KI-Entwürfe ohne Block-Tags) in saubere Absätze wandeln,
   // Tabs/Leerzeichen-Layout bricht sonst in der Anzeige aus (s. Screenshot-Feedback)
   const htmlRoh = e.html ? normalisiereHtml(e.html) : undefined;

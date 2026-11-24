@@ -152,6 +152,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
   const [fehler, setFehler] = useState("");
   const [anhangVorschau, setAnhangVorschau] = useState<Anhang | null>(null);
   const [signaturOffen, setSignaturOffen] = useState(false);
+  const [vollbild, setVollbild] = useState(false);
 
   /** v1.22.1: Signatur-Block aus dem Dialog einsetzen/ersetzen (Platzierung beachten). */
   const signaturAnwenden = (text: string) => {
@@ -341,7 +342,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
 
   return (
     <div
-      className={`flex min-h-0 flex-1 flex-col rounded-lg border bg-white transition-colors ${drag ? "border-teal-400 ring-2 ring-teal-300" : "border-neutral-200"}`}
+      className={`${vollbild ? "fixed inset-0 z-50 flex flex-col bg-white p-4" : "flex min-h-0 flex-1 flex-col"} overflow-hidden rounded-lg border bg-white transition-colors ${drag ? "border-teal-400 ring-2 ring-teal-300" : "border-neutral-200"}`}
       onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes("Files")) setDrag(true); }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDrag(false); }}
       data-drop-erlaubt
@@ -442,7 +443,7 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
           key={editorKey}
           value={html}
           onChange={setHtml}
-          minHeight={260}
+          minHeight={vollbild ? 480 : 320}
           typoKorrektur={einstellungen.data?.typoKorrektur ?? true}
           bausteine={bausteine.data ?? []}
         />
@@ -458,6 +459,9 @@ export function MailVerfassen({ start, abschlussAktion, onAktionErledigt, onZust
           <Trash2 className="mr-1.5 h-4 w-4" /> Löschen
         </Button>
         <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setVollbild(!vollbild)} title={vollbild ? "Vollbild schließen" : "Editor im Vollbild"}>
+            {vollbild ? "⛶ Vollbild schließen" : "⛶ Vollbild"}
+          </Button>
           <Button variant="ghost" size="sm" onClick={zuruecksetzen} title="Inhalt auf den gespeicherten Stand zurücksetzen">
             Zurücksetzen
           </Button>

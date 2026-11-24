@@ -4,6 +4,7 @@
 import { eq, and, lte } from "drizzle-orm";
 import { getDb } from "../queries/connection";
 import { mailEntwuerfe } from "@db/schema";
+import { htmlZuLesetext } from "./uebersetzen";
 
 /** Entwurf versenden (geteilt von API + Queue). Erfolg → Zeile weg, Fehler → versandFehler + Retry-Backoff. */
 export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: string }> {
@@ -35,7 +36,12 @@ export async function sendeEntwurf(id: number): Promise<{ ok: boolean; fehler?: 
       cc: e.cc ? e.cc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
       bcc: e.bcc ? e.bcc.split(",").map((x) => x.trim()).filter(Boolean) : undefined,
       betreff: e.betreff ?? "(kein Betreff)",
-      text: text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || text,
+      text: (() => {
+        // v1.22.3 (Lea): Plain-Text-Alternative mit Absatzstruktur statt Alles-in-einer-Zeile.
+        // HTML-Entwürfe bekommen den strukturierten Lesetext (Absätze bleiben erhalten).
+        if (text.trimStart().startsWith("<")) return htmlZuLesetext(text);
+        return text.replace(/\s+/g, " ").trim() || text;
+      })(),
       html: text.startsWith("<") ? text : undefined,
       anhaenge: e.anhaenge ? (JSON.parse(e.anhaenge) as { dateiname: string; base64: string; mime: string }[]) : undefined,
       inReplyTo: e.inReplyTo ?? null,

@@ -43,7 +43,7 @@ function geldKurz(v: string | number | null): string {
 export function ProduktPicker({
   produkte,
   onPick,
-  label = "Aus Produktstamm hinzufügen …",
+  label = "Produkt suchen & hinzufügen …",
 }: {
   produkte: ProduktKurz[];
   onPick: (p: ProduktKurz) => void;

@@ -57,6 +57,7 @@ export default function Invoices() {
   const [serienOffen, setSerienOffen] = useState(false);
   const [modus, setModus] = useState<"bestehend" | "neu">("bestehend");
   const [kundenId, setKundenId] = useState<string>("");
+  const [kundenSuche, setKundenSuche] = useState("");
   const [neukunde, setNeukunde] = useState<NeukundeForm>({
     name: "",
     strasse: "",
@@ -204,6 +205,20 @@ export default function Invoices() {
         </Select>
       </div>
 
+      {/* v1.22.3 (Lea): Gesamtsummen offen/überfällig direkt über der Liste */}
+      {(() => {
+        const offene = zeilenListe.filter((r) => r.status === "finalisiert" && Number(r.brutto) - Number(r.bezahltBetrag) > 0.004);
+        const ueberfaellig = offene.filter((r) => r.faelligkeitsdatum < heute);
+        const summeOffen = offene.reduce((a, r) => a + Number(r.brutto) - Number(r.bezahltBetrag), 0);
+        const summeUeberfaellig = ueberfaellig.reduce((a, r) => a + Number(r.brutto) - Number(r.bezahltBetrag), 0);
+        return (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-neutral-200 bg-white px-4 py-2.5 text-sm">
+            <span><b>{offene.length}</b> offene Rechnungen · Summe offen: <b>{geld(summeOffen)}</b></span>
+            <span className="text-red-600"><b>{ueberfaellig.length}</b> überfällig · Summe: <b>{geld(summeUeberfaellig)}</b></span>
+          </div>
+        );
+      })()}
+
       <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
                 <div className="overflow-x-auto">
           <table className="w-full min-w-[600px] text-sm">
@@ -308,18 +323,40 @@ export default function Invoices() {
                 Kunde auswählen — die Rechnung wird als Entwurf angelegt; die Daten
                 kannst du dort noch prüfen und anpassen.
               </p>
-              <Select value={kundenId} onValueChange={setKundenId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Kunde auswählen …" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(kunden.data ?? []).map((k) => (
-                    <SelectItem key={k.id} value={String(k.id)}>
-                      {k.name} — {k.plz} {k.ort}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* v1.22.3 (Lea): Kunde per Suchfeld statt langer Dropdown-Liste */}
+              <div className="space-y-1.5">
+                <Input
+                  value={kundenSuche}
+                  onChange={(e) => { setKundenSuche(e.target.value); setKundenId(""); }}
+                  placeholder="Kunde suchen (Name, PLZ, Ort) …"
+                />
+                {kundenSuche && !kundenId && (
+                  <div className="max-h-48 overflow-y-auto rounded-md border border-neutral-200 bg-white">
+                    {(kunden.data ?? [])
+                      .filter((k) => `${k.name} ${k.plz} ${k.ort}`.toLowerCase().includes(kundenSuche.toLowerCase()))
+                      .slice(0, 12)
+                      .map((k) => (
+                        <button
+                          key={k.id}
+                          type="button"
+                          className="block w-full px-3 py-1.5 text-left text-sm hover:bg-teal-50"
+                          onClick={() => { setKundenId(String(k.id)); setKundenSuche(`${k.name} — ${k.plz} ${k.ort}`); }}
+                        >
+                          {k.name} — {k.plz} {k.ort}
+                        </button>
+                      ))}
+                    {(kunden.data ?? []).filter((k) => `${k.name} ${k.plz} ${k.ort}`.toLowerCase().includes(kundenSuche.toLowerCase())).length === 0 && (
+                      <p className="px-3 py-2 text-xs text-neutral-400">Keine Treffer.</p>
+                    )}
+                  </div>
+                )}
+                {kundenId && (
+                  <div className="flex items-center justify-between rounded-md bg-teal-50 px-3 py-1.5 text-sm text-teal-800">
+                    <span>{kundenSuche}</span>
+                    <button type="button" className="text-xs text-teal-600 hover:underline" onClick={() => { setKundenId(""); setKundenSuche(""); }}>ändern</button>
+                  </div>
+                )}
+              </div>
               {(kunden.data ?? []).length === 0 && (
                 <p className="text-sm text-amber-600">
                   Noch keine Kunden vorhanden — wechsle auf „Neuer Kunde“.
