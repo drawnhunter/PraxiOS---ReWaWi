@@ -60,6 +60,7 @@ interface FirmenForm {
   notfallStunden: number;
   papierkorbTage: number;
   libretranslateUrl: string | null;
+  belegBlockliste: string | null;
   standardKontoId: number | null;
   smtpHost: string;
   smtpPort: number;
@@ -150,6 +151,7 @@ export default function SettingsPage() {
       notfallStunden: s.notfallStunden ?? 24,
       papierkorbTage: s.papierkorbTage ?? 14,
       libretranslateUrl: s.libretranslateUrl ?? null,
+      belegBlockliste: s.belegBlockliste ?? null,
       standardKontoId: s.standardKontoId ?? null,
       smtpHost: s.smtpHost ?? "",
       smtpPort: s.smtpPort,
@@ -356,6 +358,7 @@ export default function SettingsPage() {
                 notfallStunden: firma.notfallStunden,
                 papierkorbTage: firma.papierkorbTage,
                 libretranslateUrl: firma.libretranslateUrl || null,
+                belegBlockliste: firma.belegBlockliste || null,
                 standardKontoId: firma.standardKontoId ?? null,
                 smtpHost: firma.smtpHost || null,
                 smtpPort: firma.smtpPort,
@@ -601,6 +604,17 @@ export default function SettingsPage() {
                 placeholder="http://praxiswerk-translate:5000"
               />
               <span className="text-xs text-neutral-400">selbst-gehostete Übersetzungs-Engine (leer = Standard-Container)</span>
+            </label>
+            <label className="block text-sm text-neutral-600">
+              <span className="mb-1 block">DSGVO-Blockliste für Beleg-Import (kommagetrennt):</span>
+              <textarea
+                rows={3}
+                className="w-full rounded-md border border-neutral-200 px-2 py-1.5 text-xs"
+                value={firma.belegBlockliste ?? ""}
+                onChange={(e) => setFirma({ ...firma, belegBlockliste: e.target.value || null })}
+                placeholder="befund, diagnostik, laborbefund, anamnese, patient, arztbrief, therapieplan, zytokin, tumor, diagnose, medikationsplan"
+              />
+              <span className="text-xs text-neutral-400">Medizinische Dokumente mit diesen Stichworten werden nicht automatisch als Beleg angelegt (außer echte Rechnungs-Signale). Leer = Standardliste.</span>
             </label>
           </div>
         </div>

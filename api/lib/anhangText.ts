@@ -16,7 +16,7 @@ function tmpPfad(ext: string): string {
 
 function execAsync(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { maxBuffer: 32 * 1024 * 1024, timeout: 90_000 }, (err, stdout) =>
+    execFile(cmd, args, { maxBuffer: 32 * 1024 * 1024, timeout: 20_000 }, (err, stdout) =>
       err ? reject(err) : resolve(stdout),
     );
   });

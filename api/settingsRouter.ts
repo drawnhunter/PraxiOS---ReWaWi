@@ -31,6 +31,7 @@ const settingsInput = z.object({
   notfallStunden: z.number().int().min(1).max(720).optional(),
   papierkorbTage: z.number().int().min(1).max(365).optional(),
   libretranslateUrl: z.string().max(255).nullable().optional(),
+  belegBlockliste: z.string().max(4000).nullable().optional(),
   standardKontoId: z.number().nullable().optional(),
   datevKontenrahmen: z.enum(["SKR03", "SKR04"]).default("SKR03"),
   erloeskonto19: z.string().default("8400"),

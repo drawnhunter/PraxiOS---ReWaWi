@@ -1526,6 +1526,11 @@ ${inhalt}
         </div>
         {uebersetzungFehler && <p className="mt-1.5 text-xs text-red-600">{uebersetzungFehler}</p>}
         {belegOk && <p className="mt-2 rounded-md bg-green-50 px-3 py-1.5 text-xs text-green-800">{belegOk} — Betrag in Eingangsbelege nachtragen.</p>}
+      {m.ablageFehler && (
+        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <b>Hinweis:</b> Die Ablage auf dem Mailserver ist fehlgeschlagen ({m.ablageFehler}). Diese Mail liegt nur lokal vor — sie wurde aber versendet und ist nicht verloren.
+        </p>
+      )}
         {alsBeleg.error && <p className="mt-2 rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{alsBeleg.error.message}</p>}
         {m.anhaengeMeta.length > 0 && (
           <div className="mt-2.5 max-h-28 overflow-y-auto rounded-md border border-neutral-100 p-1.5 flex flex-wrap gap-1.5" title="Anhänge (scrollbar)">

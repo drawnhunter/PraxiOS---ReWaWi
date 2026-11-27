@@ -84,6 +84,8 @@ export const companySettings = mysqlTable("company_settings", {
   papierkorbTage: int("papierkorb_tage").notNull().default(14),
   // Übersetzungs-Engine (v1.22.1): selbst-gehostetes LibreTranslate
   libretranslateUrl: varchar("libretranslate_url", { length: 255 }),
+  // DSGVO-Blockliste für den Beleg-Import (#217): kommagetrennte Stichworte
+  belegBlockliste: text("beleg_blockliste"),
   // Standard-Absenderkonto (v1.21.2, Bus #172): getrennt vom E-Rechnungs-Empfangskonto
   standardKontoId: bigint("standard_konto_id", { mode: "number", unsigned: true }),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
@@ -475,7 +477,7 @@ export const users = mysqlTable("users", {
   name: varchar("name", { length: 255 }),
   email: varchar("email", { length: 320 }),
   avatar: text("avatar"),
-  role: mysqlEnum("role", ["user", "admin", "kanzlei"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "kanzlei", "steuerberater"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt")
     .defaultNow()
@@ -871,6 +873,8 @@ export const mailMails = mysqlTable("mail_mails", {
   // Übersetzung (v1.22.1): gecachte deutsche Übersetzung des Mailtexts
   uebersetzungDeutsch: text("uebersetzung_deutsch"),
   uebersetzungAm: timestamp("uebersetzung_am"),
+  // #213: Fehler der IMAP-Gesendet-Ablage (sichtbar in der Mail-Ansicht, nie still)
+  ablageFehler: text("ablage_fehler"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 },
   (t) => [

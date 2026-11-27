@@ -64,6 +64,14 @@ function kanzleiErlaubt(pfad: string): boolean {
   return KANZLEI_ERLAUBT.some((p) => pfad === p || pfad.startsWith(p));
 }
 
+/** #218: Rolle steuerberater — wie kanzlei, aber OHNE Beleg-/Dokumenteneinsicht.
+ *  Alles Finanzielle bleibt (Rechnungen, Bank, Berichte, DATEV, Klärungen). */
+const STEUERBERATER_ERLAUBT = KANZLEI_ERLAUBT.filter((p) => !p.startsWith("einrechnung."));
+
+function steuerberaterErlaubt(pfad: string): boolean {
+  return STEUERBERATER_ERLAUBT.some((p) => pfad === p || pfad.startsWith(p));
+}
+
 const requireAuth = t.middleware(async (opts) => {
   const { ctx, next } = opts;
 
@@ -75,6 +83,26 @@ const requireAuth = t.middleware(async (opts) => {
   }
 
   // Kanzlei-Gate: read-only auf die Allowlist, alles andere 403 + Zugriffsprotokoll
+  // #218: steuerberater = kanzlei OHNE einrechnung.* (keine Dokumenteneinsicht, DSGVO)
+  if (ctx.user.role === "steuerberater") {
+    if (!steuerberaterErlaubt(opts.path)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Steuerberater-Zugang: nur Finanzdaten (Rechnungen, Zahlungen, Berichte, DATEV) — keine Belegdokumente.",
+      });
+    }
+    import("@db/schema")
+      .then(({ kanzleiLog }) =>
+        import("./queries/connection").then(({ getDb }) =>
+          getDb()
+            .insert(kanzleiLog)
+            .values({ userId: ctx.user!.id, benutzername: ctx.user!.username, pfad: opts.path })
+            .catch(() => undefined),
+        ),
+      )
+      .catch(() => undefined);
+  }
+
   if (ctx.user.role === "kanzlei") {
     if (!kanzleiErlaubt(opts.path)) {
       throw new TRPCError({

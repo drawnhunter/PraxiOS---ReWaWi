@@ -32,7 +32,7 @@ export function Benutzerverwaltung() {
 
   const [anlegenOffen, setAnlegenOffen] = useState(false);
   const [passwortZiel, setPasswortZiel] = useState<{ id: number; name: string } | null>(null);
-  const [form, setForm] = useState({ username: "", name: "", password: "", role: "user" as "user" | "admin" | "kanzlei" });
+  const [form, setForm] = useState({ username: "", name: "", password: "", role: "user" as "user" | "admin" | "kanzlei" | "steuerberater" });
   const [neuesPasswort, setNeuesPasswort] = useState("");
   const [fehler, setFehler] = useState<string | null>(null);
 
@@ -105,7 +105,7 @@ export function Benutzerverwaltung() {
               <td className="px-2 py-2.5 text-neutral-600">{b.name ?? "–"}</td>
               <td className="px-2 py-2.5">
                 <Badge variant={b.role === "admin" ? "default" : "secondary"}>
-                  {b.role === "admin" ? "Admin" : b.role === "kanzlei" ? "Kanzlei (read-only)" : "Benutzer"}
+                  {b.role === "admin" ? "Admin" : b.role === "kanzlei" ? "Kanzlei (read-only)" : b.role === "steuerberater" ? "Steuerberater (ohne Dokumente)" : "Benutzer"}
                 </Badge>
                 {!b.hatPasswort && (
                   <Badge variant="outline" className="ml-1.5 text-neutral-400">
@@ -203,7 +203,7 @@ export function Benutzerverwaltung() {
               <Label>Rolle</Label>
               <Select
                 value={form.role}
-                onValueChange={(v) => setForm({ ...form, role: v as "user" | "admin" | "kanzlei" })}
+                onValueChange={(v) => setForm({ ...form, role: v as "user" | "admin" | "kanzlei" | "steuerberater" })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -211,12 +211,14 @@ export function Benutzerverwaltung() {
                 <SelectContent>
                   <SelectItem value="user">Benutzer</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="kanzlei">Kanzlei (read-only, nur Buchhaltung + Klärungen)</SelectItem>
+                  <SelectItem value="kanzlei">Kanzlei (read-only, Buchhaltung + Belege + Klärungen)</SelectItem>
+                  <SelectItem value="steuerberater">Steuerberater (nur Finanzdaten — keine Belegdokumente)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="mt-1 text-xs text-neutral-400">
                 Kanzlei: liest Rechnungen, Eingangsbelege, Banking und Berichte, kann den DATEV-Export
-                selbst ziehen und Klärungen stellen — sonst nichts. Jeder Zugriff wird protokolliert (GoBD).
+                selbst ziehen und Klärungen stellen — sonst nichts. Steuerberater: dasselbe,
+                aber OHNE Belegdokumente (DSGVO). Jeder Zugriff wird protokolliert (GoBD).
               </p>
             </div>
             {fehler && (

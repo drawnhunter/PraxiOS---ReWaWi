@@ -149,6 +149,9 @@ export const NEUE_SPALTEN: { tabelle: string; spalte: string; ddl: string }[] = 
   { tabelle: "mail_mails", spalte: "uebersetzung_deutsch", ddl: "ALTER TABLE mail_mails ADD COLUMN uebersetzung_deutsch MEDIUMTEXT NULL AFTER geloescht_am" },
   { tabelle: "mail_mails", spalte: "uebersetzung_am", ddl: "ALTER TABLE mail_mails ADD COLUMN uebersetzung_am DATETIME NULL AFTER uebersetzung_deutsch" },
   { tabelle: "company_settings", spalte: "libretranslate_url", ddl: "ALTER TABLE company_settings ADD COLUMN libretranslate_url VARCHAR(255) NULL AFTER papierkorb_tage" },
+  // ── v1.22.4: Sicherheits-Runde ──
+  { tabelle: "mail_mails", spalte: "ablage_fehler", ddl: "ALTER TABLE mail_mails ADD COLUMN ablage_fehler TEXT NULL AFTER uebersetzung_am" },
+  { tabelle: "company_settings", spalte: "beleg_blockliste", ddl: "ALTER TABLE company_settings ADD COLUMN beleg_blockliste TEXT NULL AFTER libretranslate_url" },
 ];
 
 // WICHTIG: Tabellen ohne Fremdschluessel-Abhaengigkeiten zuerst.
@@ -669,6 +672,13 @@ const SCHEMA_UPDATES: { name: string; check: (db: string) => string; ddl: string
     check: (db) =>
       `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='users' AND COLUMN_NAME='role' AND COLUMN_TYPE LIKE '%kanzlei%'`,
     ddl: "ALTER TABLE users MODIFY role ENUM('user','admin','kanzlei') NOT NULL DEFAULT 'user'",
+  },
+  {
+    // v1.22.4 (#218): users.role um 'steuerberater' erweitern — SB ohne Dokumenteneinsicht
+    name: "users.role Enum + steuerberater",
+    check: (db) =>
+      `SELECT COLUMN_TYPE AS v FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${db}' AND TABLE_NAME='users' AND COLUMN_NAME='role' AND COLUMN_TYPE LIKE '%steuerberater%'`,
+    ddl: "ALTER TABLE users MODIFY role ENUM('user','admin','kanzlei','steuerberater') NOT NULL DEFAULT 'user'",
   },
   {
     // v1.13: Synonyme fuer bestehende Kunden/Lieferanten nachziehen (DSGVO-Pseudonymisierung)

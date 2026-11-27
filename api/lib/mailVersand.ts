@@ -123,12 +123,20 @@ export async function versendeMail(e: VersandEingabe & { kontoId?: number }): Pr
   }
 
   // Gesendet-Ablage: per IMAP in den Gesendet-Ordner des Kontos appenden
-  // (viele Provider machen das NICHT selbst — sonst bleibt „Gesendet" leer)
+  // (viele Provider machen das NICHT selbst — sonst bleibt „Gesendet" leer).
+  // v1.22.4 (#213): APPEND-Fehler darf NIE still sein — lokale Rückfallsicherung
+  // mit sichtbarer Markierung statt nur console.error.
   if (ok && e.kontoId) {
     try {
       await legeInGesendetAb(e.kontoId, mailDaten, messageId, e.anhaenge ?? []);
     } catch (err) {
-      console.error(`[mail] Gesendet-Ablage fehlgeschlagen (Mail ist raus, nur die Ablage nicht): ${err instanceof Error ? err.message : err}`);
+      const fehlerText = err instanceof Error ? err.message : String(err);
+      console.error(`[mail] Gesendet-Ablage fehlgeschlagen — sichere lokal ab: ${fehlerText}`);
+      try {
+        await gesendetLokalSichern(e.kontoId as number, mailDaten, messageId, e.anhaenge ?? [], fehlerText);
+      } catch (err2) {
+        console.error(`[mail] Auch lokale Gesendet-Sicherung fehlgeschlagen: ${err2 instanceof Error ? err2.message : err2}`);
+      }
     }
   }
 
@@ -190,7 +198,27 @@ async function legeInGesendetAb(
   let uid: number | null = null;
   try {
     await client.connect();
-    const res = await client.append(treffer, roh, ["\\Seen"]);
+    // v1.22.4 (#213): Special-Use-Ordner bevorzugen + 1 Retry mit Backoff
+    let ordner = treffer;
+    try {
+      const boxen = await client.list();
+      const spezial = boxen.find((b) => b.specialUse && /sent|gesendet/i.test(b.path));
+      if (spezial) ordner = spezial.path;
+      else {
+        const exakt = boxen.find((b) => /^gesendet$/i.test(b.path)) ?? boxen.find((b) => /gesendete objekte/i.test(b.path));
+        if (exakt) ordner = exakt.path;
+      }
+    } catch { /* Liste optional — Namenspräferenz reicht */ }
+    let res: unknown = null;
+    for (let versuch = 1; versuch <= 2; versuch++) {
+      try {
+        res = await client.append(ordner, roh, ["\\Seen"]);
+        break;
+      } catch (e) {
+        if (versuch === 2) throw e;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
     uid = res && typeof res === "object" && "uid" in res ? (res.uid as number) : null;
     await client.logout();
   } catch (e) {
@@ -222,4 +250,45 @@ async function legeInGesendetAb(
       gelesen: true,
     }).catch(() => undefined); // Kollision (UID doch schon da) → Sync regelt
   }
+}
+
+/**
+ * Rückfallsicherung (#213): Wenn die IMAP-Gesendet-Ablage scheitert, wird die Mail
+ * LOKAL in mail_mails gespeichert — mit sichtbarem ablageFehler in der Mail-Ansicht.
+ * So geht eine gesendete Mail NIE spurlos verloren.
+ */
+async function gesendetLokalSichern(
+  kontoId: number,
+  mailDaten: Record<string, unknown>,
+  messageId: string | undefined,
+  anhaenge: { dateiname: string; base64: string; mime: string }[],
+  fehlerText: string,
+): Promise<void> {
+  const { emailKonten, mailMails } = await import("@db/schema");
+  const { eq } = await import("drizzle-orm");
+  const db = getDb();
+  const konto = await db.query.emailKonten.findFirst({ where: eq(emailKonten.id, kontoId) });
+  const vonAdresse = String(mailDaten.from ?? "");
+  const vonMatch = vonAdresse.match(/^"?([^"<]+)"?\s*<([^>]+)>$/);
+  // Lokale UID im Milliarden-Bereich (keine Kollision mit echten Server-UIDs)
+  const uid = 2_000_000_000 + Math.floor(Math.random() * 1_000_000_000);
+  await db.insert(mailMails).values({
+    kontoId,
+    ordner: "Gesendet (lokal)",
+    uid,
+    messageId: messageId ?? null,
+    betreff: String(mailDaten.subject ?? ""),
+    absenderName: vonMatch ? vonMatch[1].trim() : (konto?.name ?? "Ich"),
+    absenderAdresse: vonMatch ? vonMatch[2].trim() : (konto?.smtpBenutzer ?? konto?.benutzer ?? ""),
+    empfaenger: String(mailDaten.to ?? ""),
+    datum: new Date(),
+    textPlain: String(mailDaten.text ?? "").slice(0, 4_000_000),
+    textHtml: typeof mailDaten.html === "string" ? mailDaten.html.slice(0, 4_000_000) : null,
+    anhaenge: JSON.stringify(anhaenge.map((a) => ({
+      name: a.dateiname, mime: a.mime, groesse: Math.floor(a.base64.length * 0.75),
+      postEingangId: null, inhalt: a.base64,
+    }))),
+    gelesen: true,
+    ablageFehler: fehlerText.slice(0, 1000),
+  });
 }

@@ -124,9 +124,12 @@ export default function Layout() {
     const def = module.data?.find((d) => d.id === id);
     return def ? def.aktiv : true;
   };
-  // Kanzlei-Rolle: nur Buchhaltungs-Lesebereiche + Klärungsfälle
-  const istKanzlei = user?.role === "kanzlei";
-  const KANZLEI_PFADE = ["/kanzlei", "/berichte", "/rechnungen", "/e-rechnungen", "/bank", "/klaerungen", "/unternehmen"];
+  // Kanzlei-Rolle: nur Buchhaltungs-Lesebereiche + Klärungsfälle.
+  // #218: steuerberater zusätzlich OHNE Eingangsbelege (DSGVO, keine Dokumente).
+  const istKanzlei = user?.role === "kanzlei" || user?.role === "steuerberater";
+  const KANZLEI_PFADE = user?.role === "steuerberater"
+    ? ["/kanzlei", "/berichte", "/rechnungen", "/bank", "/klaerungen", "/unternehmen"]
+    : ["/kanzlei", "/berichte", "/rechnungen", "/e-rechnungen", "/bank", "/klaerungen", "/unternehmen"];
   const gruppen = GRUPPEN
     .map((g) => ({
       ...g,
@@ -165,7 +168,7 @@ export default function Layout() {
   }
 
   // Kanzlei landet nach dem Login direkt in den Berichten
-  if (user.role === "kanzlei" && location.pathname === "/") {
+  if ((user.role === "kanzlei" || user.role === "steuerberater") && location.pathname === "/") {
     return <Navigate to="/kanzlei" replace />;
   }
 

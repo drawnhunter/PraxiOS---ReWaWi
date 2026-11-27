@@ -2798,12 +2798,43 @@ app.get("/beleg/:id/text", async (c) => {
   if (r.ocrText) return c.json({ ok: true, id, text: r.ocrText, quelle: "gespeichert" });
   if (!r.belegBase64 || !r.belegMime) return c.json({ ok: false, fehler: "Kein Beleg-Dateiinhalt vorhanden." }, 404);
   const { extrahiereAnhangText } = await import("./lib/anhangText");
-  const ergebnis = await extrahiereAnhangText(Buffer.from(r.belegBase64, "base64"), r.belegMime);
+  // v1.22.4 (#215): harte Laufzeitgrenze — defekte/riesige PDFs dürfen den
+  // Request nicht endlos hängen lassen; sauberer 408 statt Client-Timeout
+  const ergebnis = await Promise.race([
+    extrahiereAnhangText(Buffer.from(r.belegBase64, "base64"), r.belegMime),
+    new Promise<never>((_, reject) => {
+      const fehler = new Error("Textextraktion dauert länger als 25 s — die PDF ist defekt oder zu groß. Bitte Datei prüfen (Seitenzahl/Scanqualität).");
+      setTimeout(() => reject(fehler), 25_000);
+    }),
+  ]).catch((e: unknown) => ({ ok: false as const, methode: "timeout", fehler: e instanceof Error ? e.message : String(e) }));
   if (!ergebnis.ok || !ergebnis.text) {
-    return c.json({ ok: false, fehler: ergebnis.fehler ?? "Kein Text lesbar.", methode: ergebnis.methode, scanHinweis: true }, 422);
+    return c.json({ ok: false, fehler: ergebnis.fehler ?? "Kein Text lesbar.", methode: ergebnis.methode, scanHinweis: true }, ergebnis.methode === "timeout" ? 408 : 422);
   }
   await db.update(incomingInvoices).set({ ocrText: ergebnis.text.slice(0, 2_000_000) }).where(eq(incomingInvoices.id, id));
   return c.json({ ok: true, id, text: ergebnis.text, methode: ergebnis.methode, quelle: "on-demand+gespeichert", scanHinweis: ergebnis.text.trim().length < 150 });
+});
+
+/** Bulk-Aktion auf Belege (#217): z. B. medizinische Altbelege bereinigen.
+ *  GoBD-Guard gilt pro Beleg (bezahlt/freigegeben → wird nicht gelöscht). */
+app.post("/belege/bulk", async (c) => {
+  const body = await bodyLesen(c);
+  const aktion = String(body.aktion ?? "");
+  if (aktion !== "loeschen") return c.json({ ok: false, fehler: "Nur aktion=loeschen unterstützt." }, 400);
+  const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
+  if (ids.length === 0) return c.json({ ok: false, fehler: "ids (Array von Beleg-IDs) erforderlich." }, 400);
+  const { incomingInvoices } = await import("@db/schema");
+  const { inArray } = await import("drizzle-orm");
+  const db = getDb();
+  const rows = await db.select().from(incomingInvoices).where(inArray(incomingInvoices.id, ids));
+  const ergebnisse: { id: number; ok: boolean; fehler?: string }[] = [];
+  for (const r of rows) {
+    if (r.bezahltAm) { ergebnisse.push({ id: r.id, ok: false, fehler: "bereits bezahlt — GoBD" }); continue; }
+    if (r.freigabe === "freigegeben") { ergebnisse.push({ id: r.id, ok: false, fehler: "freigegeben — GoBD" }); continue; }
+    await db.delete(incomingInvoices).where(eq(incomingInvoices.id, r.id));
+    ergebnisse.push({ id: r.id, ok: true });
+  }
+  await audit("belege_bulk_geloescht", { aktion, ids, ergebnisse });
+  return c.json({ ok: true, ergebnisse });
 });
 
 /** Beleg löschen — nur unbezahlte (Test-/Fehlerfassungen). GoBD: Gebuchtes bleibt. */

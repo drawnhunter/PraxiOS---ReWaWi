@@ -1,4 +1,4 @@
-# ReWaWi Agent-API — Leitfaden (Stand v1.22.0)
+# ReWaWi Agent-API — Leitfaden (Stand v1.22.4)
 
 Vollständige Endpunkt-Referenz der REST-API für externe Agenten (Kimi Claw).
 
@@ -372,6 +372,11 @@ Zahlungsstand korrigieren (v1.21.4), z. B. falsch als „bezahlt" markierter Bel
 Freigabe-Status setzen (audit-logged, GoBD-nachvollziehbar).
 **Body:** `{zustand*: "neu"|"geprueft"|"freigegeben"}`
 **Antwort:** `{ok: true, id, zustand}`
+
+### POST /belege/bulk (v1.22.4, #217)
+Bulk-Aktion auf Belege — z. B. medizinische Altbelege bereinigen. GoBD-Guard pro Beleg (bezahlt/freigegeben wird nicht gelöscht, mit Grund in der Antwort).
+**Body:** `{aktion*: "loeschen", ids*: number[]}`
+**Antwort:** `{ok: true, ergebnisse: [{id, ok, fehler?}]}`
 
 ### DELETE /beleg/:id
 Nur **unbezahlte** Belege (Test-/Fehlerfassungen); bezahlte/gebuchte bleiben (GoBD) → 409, Korrektur per Gegenbeleg (`typ: "gutschrift"`).

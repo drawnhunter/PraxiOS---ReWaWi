@@ -2,6 +2,128 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/) · Versionierung: SemVer.
 
+## [1.22.4] — 2026-11-26
+
+### Sicherheits-Runde (Bus #213/#215/#217/#218)
+
+- **#213 Gesendet-Ablage:** APPEND mit Special-Use-Ordnerwahl + Retry (Backoff), und bei anhaltendem Fehler **lokale Rückfallsicherung** in `mail_mails` (Ordner „Gesendet (lokal)") mit sichtbarem `ablageFehler`-Banner — gesendete Mails gehen NIE mehr spurlos verloren.
+- **#215 Beleg-Text:** harte Laufzeitgrenze (25 s) mit sauberem HTTP 408 statt Endlos-Hänger; pro-Kommando-Timeout 20 s.
+- **#217 DSGVO-Importfilter:** medizinische Dokumente werden nicht mehr automatisch als Beleg angelegt — nur bei echten Rechnungs-Signalen. Blockliste in Einstellungen pflegbar (`beleg_blockliste`), Audit-Eintrag, Bulk-Löschung `POST /belege/bulk` für Altbestand.
+- **#218 Rolle `steuerberater`:** neue Benutzerrolle mit Finanzdaten (Rechnungen, Banking, Berichte, DATEV, Klärungen) aber **ohne Beleg-/Dokumenteneinsicht** — Enum-Migration, eigene Allowlist in der Middleware, Rollenwahl in der Benutzerverwaltung mit Bereichsanzeige.
+
+## [1.22.3] — 2026-11-24
+
+### UX-Runde (Leas Feldtest)
+
+- Anhänge mit eigenem Scrollfeld; Kunden-Suche im Neu-Rechnung-Dialog (Suchfeld statt langer Select-Liste); Produkt-Suche sichtbar umbenannt.
+- Rechnungssummen offen/überfällig über der Liste.
+- Mail-Vorschau im Vollbild (+ Esc); Compose-Editor größer + Vollbild + `overflow-hidden` gegen Überlappen der Button-Leiste.
+- Anrede-Leerzeile automatisch + Plain-Text-Alternative mit Absatzstruktur (`htmlZuLesetext`).
+- Speichern/Finalisieren IMMER oben rechts (InvoiceDetail + PurchaseOrderDetail).
+- Lange Empfängernamen brechen um (`break-words`).
+
+## [1.22.2] — 2026-11-24
+
+### Behoben
+
+- **LibreTranslate-Erreichbarkeit:** URL-Fallback-Kette (Einstellung → praxiswerk-translate → host.docker.internal → LAN-IP) mit Persistieren der funktionierenden Adresse — Compose-Netzwerk-Trennung abgefangen.
+
+## [1.22.1] — 2026-11-20
+
+### Neu
+
+- **Übersetzen-Button** für nicht-deutsche Mails (Heuristik), via eigener LibreTranslate-Instanz (kein Text verlässt das Haus), Cache in der DB, Original ↔ Übersetzung mit Badge.
+- **Split-Buttons** in MailDetail: Antworten-Dropdown (Allen/Weiterleiten), Drucken-Dropdown (Als Beleg, Export .eml).
+- **Signatur-Fenster im Verfassen:** Konto + globale Signatur sehen, bearbeiten, einfügen — ohne in die Einstellungen zu müssen (neuer Endpunkt `signaturSpeichern`, Abwesenheit bleibt unberührt).
+
+## [1.22.0] — 2026-11-20
+
+### Neu
+
+- **Mail-Suche komplett:** Empfänger + Anhang-Namen + HTML-Text; Operatoren `from:/to:/subject:/text:/has:attachment/is:unread/is:read/is:flagged/before:/after:`; Relevanzsortierung (Betreff > Adressen > Name > Text, dann Datum).
+- **Signatur-Steuerung pro Konto:** `signatur_aktiv` (Toggle, auch globale aus) + `signatur_position` (unten/oben), Live-Vorschau, „Signatur entfernen"-Button. Agent-API liest/schreibt die neuen Felder.
+
+## [1.21.13] — 2026-11-19
+
+### Behoben & Neu (#94/#95)
+
+- `einrechnung.xml` mit PDF-Fallback + neuer `einrechnung.datei`-Endpunkt.
+- `PATCH /beleg/:id` lehnt leere Bodies mit 400 ab (kein ok:true ohne Änderung).
+- Erweiterungen: `brutto/netto/ust` mit Konsistenz, `lieferantName`/`nummer` mit Duplikat-Schutz und GoBD-Guard (freigegeben/bezahlt → Gegenbeleg).
+- `GET /belege` Filter `&ohneBetrag=1` und `&unkontiert=1` für Restlisten-Bereinigung.
+
+## [1.21.12] — 2026-11-19
+
+### Neu
+
+- **Kanzlei-Cockpit** (`/kanzlei`): Mandanten-Stammdaten, Kontierungsübersicht (verwendete SKR-Konten mit Summen + CSV), DATEV-Export-Zentrale.
+- **`export.stbPaketZip`:** komplettes Kanzlei-Paket als EINE ZIP Direkt-Download (Stapel + Belegbilder + EÜR/Debitoren/Kreditoren-PDFs).
+- Unternehmen-Seite repariert: `settings.get` + `unternehmen.*` in der Kanzlei-Allowlist, echte Fehlermeldung statt Leertext, read-only, Geheimnisfelder für Kanzlei maskiert.
+
+## [1.21.11] — 2026-11-18
+
+### Behoben (Bus #195–#199)
+
+- `GET /rechnung/:id` + `/entwuerfe` liefern `pdfNotiz` + `leistungsdatum`; `POST /rechnung-entwurf` akzeptiert `leistungsdatum` (Alias `behandlungszeitraum`), unbekannte Body-Felder = 400.
+- Agent-Anhang: Inline → Post Manager → IMAP-On-Demand-Nachladen (gesendete DOCX und alte Bestände).
+- Mail-Verschieben heilt lokale UID-Kollisionen (Zusammenführen statt HTTP 500).
+- `POST /rechnung/:id/zahlung` cappt auf Restbetrag + Doppelbuchung-Schutz; neu `PATCH /rechnung/:id/zahlungsstand` zur expliziten Korrektur.
+
+## [1.21.10] — 2026-11-18
+
+### Behoben
+
+- **Anhang-Inhalte kleiner Dateien (≤ 256 KB) werden inline gespeichert** (base64 in den Mail-Metadaten); On-Demand-Nachladen vom IMAP-Server für Bestands-Mails (persistiert). Kalender-Mails werden lesbar; .eml-Export enthält die Kalender-Datei.
+- Leere HTML-Hüllen (nur `&nbsp;`) werden als leer erkannt → Hinweis statt weißer Fläche.
+
+## [1.21.9] — 2026-11-16
+
+### Neu
+
+- Kalender-Mails: Content-Sniffing (`BEGIN:VCALENDAR`) in Anhängen; `text/calendar`-Teil wird bei leerem Body als `textPlain` gespeichert.
+- **.eml-Export & Drag-out:** `postfach.eml` (MailComposer mit Anhängen), Button „Export .eml", Mail-Liste draggable mit Hover-Prefetch + DownloadURL (Chromium).
+
+## [1.21.8] — 2026-11-08
+
+### Behoben (Bus #193 + Alexanders Beobachtung)
+
+- **Drop-Guard:** Datei-Drops außerhalb markierter Zonen lösen keine Browser-Navigation mehr aus (Entwurfs-Verlust beim Ziehen aus dem Explorer behoben).
+- **Ungespeichert-Warnung** (beforeunload) im Mail-Verfassen.
+- **Optimistic Locking:** `updated_at` auf Rechnungen/Bestellungen/Produkten — konkurrierende Updates (zweiter Tab/Fenster/Agent) werden als KONFLIKT-Dialog mit Auswahl (Server-Stand laden / mit meinem Stand überschreiben) abgefangen statt still zu überschreiben.
+
+## [1.21.7] — 2026-11-07
+
+### Neu (Datenverlust-Schutz)
+
+- **Papierkorb für Mails UND Entwürfe:** weiches Löschen (`geloescht_am`), Wiederherstellen in der Sidebar, Aufbewahrung `papierkorb_tage` (Default 14) + Purge-Job (Boot + 6 h). Endgültig löschen nur bewusst im Papierkorb.
+- **Versand-Belege:** gesendete Entwürfe bleiben als `status=gesendet` mit Inhalt + Anhängen erhalten (Öffnen nur als Kopie) — kein Datenverlust mehr, auch wenn die IMAP-Gesendet-Ablage scheitert.
+- Ausgang-Fehler-Badge (rot bei offenen Versandfehlern).
+
+## [1.21.6] — 2026-11-07
+
+### Behoben
+
+- **Hotfix Lockfile:** Sandbox-Mirror (`npm.mirrors.msh.team`) aus 21 `resolved`-URLs entfernt, `.npmrc` pinnt `registry.npmjs.org` — Server-Build (ENOTFOUND xlsx) repariert.
+
+## [1.21.5] — 2026-11-05
+
+### Neu
+
+- **Gelöstes Mail-Fenster als echtes Browser-Fenster** (`/mail-fenster`, Tab wandert komplett, Rückkehr-Signal per localStorage, beforeunload-Schutz).
+- **Anhang-Vorschau überall** (Verfassen/Empfangen/Gesendet): PDF/Bilder/Text direkt, **DOCX/XLSX/CSV per JS-Viewer** (docx-preview + SheetJS, komplett clientseitig).
+- **Schließen-Dialog nur bei echten ungespeicherten Änderungen** (Dirty-Tracking gegen den zuletzt gespeicherten Zustand).
+- **Editor:** Listen-Bullets sichtbar (Tailwind-Preflight-Fix), **Tab = echter Einzug** (Listen: Ein-/Ausrücken, Shift+Tab), volle Tastatur-Arbeit.
+- **#191 Kalenderdatum Europe/Berlin:** `api/lib/datum.ts` (heuteBerlin/tageAddieren, DST-sicher); UTC-Sweep in 12 Routern + UI. „Sofort zahlbar" ⇒ rechnungsdatum === faelligkeitsdatum. PATCH `/rechnung-entwurf/:id` validiert `faellig >= rechnungsdatum`; POST akzeptiert beide Felder optional.
+- **#182 Doku-Pflicht:** `docs/agent-api.md` = Vollreferenz (127 Endpunkte) + `scripts/pruefeDoku.mjs` als maschinelle Vollständigkeitswache.
+
+## [1.21.4] — 2026-11-05
+
+### Behoben (Bus #176/#177)
+
+- **Kontostand-Reihenfolge:** Saldo-Auswahl `datum DESC, import_id DESC, id ASC` — bei Tagesgleichheit gewinnt der neueste Import, darin die niedrigste ID (Importe laufen „neueste zuerst").
+- **SumUp-PDF-Parser gehärtet:** „-"-Platzhalter in Zahlenkolonnen (Auszahlungs-/Gebühren-/Kartenzahlungs-Zeilen); neue Diagnose `uebersprungeneZeilen` in beiden Import-Endpunkten.
+- **Beleg-Teilzahlung:** `bezahlt_betrag` (Migration + Backfill), `POST /beleg/:id/zahlung`, `PATCH /beleg/:id` (Korrektur inkl. Auto-Aufhebung von bezahltAm), `GET /belege` mit `bezahltBetrag`/`offen`. Bank-Zuordnung bucht echte Transaktionsbeträge, Lösen reversiert sauber. UI: Teilzahlungs-Badge + Button.
+
 ## [1.21.3] — 2026-10-19
 
 ### Behoben & Neu (Bus #174/#175)
